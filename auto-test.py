@@ -228,12 +228,28 @@ check("Panel FOLLOW button uses follow(), not pulse()",
 check("Samsung sub_screen meta-data present for all widget providers",
       "com.samsung.android.appwidget.provider" in (ROOT / "app/src/main/AndroidManifest.xml").read_text())
 check("Samsung widget files use display=sub_screen and keyguard",
-      "sub_screen" in read("res/xml/samsung_appgrid_widget_info.xml") and "keyguard" in read("res/xml/samsung_appgrid_widget_info.xml"))
+      "sub_screen" in (ROOT / "app/src/main/res/xml/samsung_appgrid_widget_info.xml").read_text() and "keyguard" in (ROOT / "app/src/main/res/xml/samsung_appgrid_widget_info.xml").read_text())
 check("Samsung widget file size matches Samsung Flex Window (352x339)",
-      "352dp" in read("res/xml/samsung_appgrid_widget_info.xml") and "339dp" in read("res/xml/samsung_appgrid_widget_info.xml"))
+      "352dp" in (ROOT / "app/src/main/res/xml/samsung_appgrid_widget_info.xml").read_text() and "339dp" in (ROOT / "app/src/main/res/xml/samsung_appgrid_widget_info.xml").read_text())
 check("Panel widget card explains cover-only add via Samsung picker",
       "gập máy lại" in cc2)
 check("AssistiveTouch pokes keepScreenOn on touch, releases after 30s",
       "pokeKeepAwake" in at and "30_000" in at)
 check("Panel root keepScreenOn while open, off on hide",
       "root.keepScreenOn = true" in cc2)
+
+# --- 15. Cover widget flow, no pin (3.4.0) ---
+check("MainScreen no longer calls requestPinAppWidget (only a comment may mention it)",
+      "mgr.requestPinAppWidget" not in read("ui/MainScreen.kt"))
+check("MainScreen offers Samsung cover widget settings, not pin",
+      "SamsungCoverWidgetHelper.openCoverWidgetSettings" in read("ui/MainScreen.kt"))
+check("Standard widget info is keyguard, not home_screen",
+      'android:widgetCategory="keyguard"' in (ROOT / "app/src/main/res/xml/appgrid_widget_info.xml").read_text())
+check("Standard widget info is cover size 352x339",
+      "352dp" in (ROOT / "app/src/main/res/xml/appgrid_widget_info.xml").read_text() and "339dp" in (ROOT / "app/src/main/res/xml/appgrid_widget_info.xml").read_text())
+check("Samsung helper exists and opens Samsung settings activity",
+      "SubLauncherMultiWidgetSettingsActivity" in read("widget/SamsungCoverWidgetHelper.kt"))
+check("Samsung helper checks cover status by appWidgetCategory",
+      "appWidgetCategory" in read("widget/SamsungCoverWidgetHelper.kt"))
+check("Panel widget card offers Samsung status check from cover",
+      "SamsungCoverWidgetHelper.statusText" in cc2)

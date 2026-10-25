@@ -202,15 +202,14 @@ fun MainScreen(
         // force them. CFlip now follows that exactly:
         //  - Nothing shows on the cover until the user turns a widget on
         //    below (stored in SettingsStore.coverWidgets, default empty).
-        //  - The standard providers in widget/ are also pin-able from here
-        //    via AppWidgetManager.requestPinAppWidget(): the system asks
-        //    the user, and only on their confirmation does the launcher
-        //    place the widget on the main home screen.
-        //  - Honest limit: Samsung's Flex Window host does not accept
-        //    third-party AppWidgets via pin, so a pinned widget lands on
-        //    the main home, not on the cover. The cover widgets below
-        //    live inside CFlip's own AssistiveTouch panel, and only after
-        //    the user adds them there.
+        //  - 3.4.0: NO requestPinAppWidget() anymore. Pin is the main-home
+        //    launcher's dialog ("Mở điện thoại để tiếp tục") and can never
+        //    place a widget on the cover. 9Flip never pins either: it opens
+        //    Samsung's cover widget settings, and its widgets are keyguard
+        //    (not home_screen) + Samsung sub_screen, so Samsung's cover
+        //    picker on the folded phone lists them. CFlip now does the same.
+        //  - The cover widgets below live inside CFlip's own AssistiveTouch
+        //    panel, and only after the user adds them there.
         SectionLabel("Widget — chỉ thêm khi bạn tự thêm")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
@@ -230,35 +229,25 @@ fun MainScreen(
                 }
                 Text("Chưa bật Widget nào thì panel AssistiveTouch sẽ ghi rõ là chưa thêm Widget — không tự hiện gì cả.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("Widget chuẩn Android (gắn lên màn hình chính bằng hộp thoại hệ thống):",
+                Text("Widget màn phụ Samsung (không dùng Ghim nữa):",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                run {
-                    val mgr = android.appwidget.AppWidgetManager.getInstance(context)
-                    fun pin(label: String, cls: Class<*>) {
-                        val provider = android.content.ComponentName(context, cls)
-                        val ok = runCatching { mgr.requestPinAppWidget(provider, null, null) }.getOrDefault(false)
-                        if (ok) {
-                            toast("Đã hỏi hệ thống để gắn Widget $label — xác nhận trên màn hình chính.")
-                        } else {
-                            toast("Launcher này không hỗ trợ ghim Widget. Giữ màn hình chính → Widget → CFlip → kéo $label vào.")
-                        }
-                    }
-                    TextButton(onClick = { pin("Lưới ứng dụng", com.cuong.cflip.widget.AppGridWidgetProvider::class.java) },
-                        modifier = Modifier.align(Alignment.Start)) {
-                        Text("Ghim Widget: Lưới ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                    TextButton(onClick = { pin("Nhạc", com.cuong.cflip.widget.MusicWidgetProvider::class.java) },
-                        modifier = Modifier.align(Alignment.Start)) {
-                        Text("Ghim Widget: Nhạc", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                    TextButton(onClick = { pin("Đồng hồ & Pin", com.cuong.cflip.widget.ClockWidgetProvider::class.java) },
-                        modifier = Modifier.align(Alignment.Start)) {
-                        Text("Ghim Widget: Đồng hồ & Pin", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                    TextButton(onClick = { pin("Tổng hợp", com.cuong.cflip.widget.CoverWidgetProvider::class.java) },
-                        modifier = Modifier.align(Alignment.Start)) {
-                        Text("Ghim Widget: Tổng hợp", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
+                Text("Nút Ghim cũ đã gỡ, vì Ghim là hộp thoại của màn hình chính: nó luôn bắt “Mở điện thoại để tiếp tục” và gắn Widget lên màn hình chính, không bao giờ lên màn phụ. 9Flip cũng không dùng Ghim cho Widget màn phụ.",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("Cách thêm đúng, theo decompile 9Flip:",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("1) Trực tiếp trên màn phụ, không cần mở máy: gập máy lại, vuốt Widget màn phụ tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung.",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("2) Hoặc mở Cài đặt Widget màn phụ Samsung 1 lần (trang này của Samsung chỉ mở được trên màn chính), chọn Widget CFlip ở đó, rồi gập máy lại là thấy trên màn phụ.",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                TextButton(onClick = {
+                    com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
+                }, modifier = Modifier.align(Alignment.Start)) {
+                    Text("Mở Cài đặt Widget màn phụ Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
+                }
+                TextButton(onClick = {
+                    toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
+                }, modifier = Modifier.align(Alignment.Start)) {
+                    Text("Kiểm tra Widget màn phụ đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
             }
         }

@@ -89,17 +89,15 @@ PASS - Rotate LOCK is explicit fixed-orientation host, not remove-only
 PASS - Rotate host tries AccessibilityService display context first (9Flip l()) 
 PASS - Panel FOLLOW button uses follow(), not pulse() 
 PASS - Samsung sub_screen meta-data present for all widget providers 
-Traceback (most recent call last):
-  File "/home/hatch/workspace/cflip-launcher/auto-test.py", line 231, in <module>
-    "sub_screen" in read("res/xml/samsung_appgrid_widget_info.xml") and "keyguard" in read("res/xml/samsung_appgrid_widget_info.xml"))
-                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/hatch/workspace/cflip-launcher/auto-test.py", line 20, in read
-    return (SRC / rel).read_text()
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/pathlib.py", line 1029, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.12/pathlib.py", line 1015, in open
-    return io.open(self, mode, buffering, encoding, errors, newline)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-FileNotFoundError: [Errno 2] No such file or directory: '/home/hatch/workspace/cflip-launcher/app/src/main/java/com/cuong/cflip/res/xml/samsung_appgrid_widget_info.xml'
+PASS - Samsung widget files use display=sub_screen and keyguard 
+PASS - Samsung widget file size matches Samsung Flex Window (352x339) 
+PASS - Panel widget card explains cover-only add via Samsung picker 
+PASS - AssistiveTouch pokes keepScreenOn on touch, releases after 30s 
+PASS - Panel root keepScreenOn while open, off on hide 
+PASS - MainScreen no longer calls requestPinAppWidget (only a comment may mention it) 
+PASS - MainScreen offers Samsung cover widget settings, not pin 
+PASS - Standard widget info is keyguard, not home_screen 
+PASS - Standard widget info is cover size 352x339 
+PASS - Samsung helper exists and opens Samsung settings activity 
+PASS - Samsung helper checks cover status by appWidgetCategory 
+PASS - Panel widget card offers Samsung status check from cover 

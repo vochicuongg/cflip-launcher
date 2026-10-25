@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 3.4.0: cover widget, not home widget. 9Flip decompile (aapt2):
+     minWidth=352dp minHeight=339dp updatePeriodMillis=0
+     widgetCategory=keyguard (0x2) previewLayout=initialLayout.
+     home_screen was the bug: Samsung's cover host only lists
+     keyguard/cover-size widgets, so a home_screen widget could only
+     be pinned on the main home, never on the cover. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
-    android:minHeight="110dp"
+    android:minWidth="352dp"
+    android:minHeight="339dp"
     android:initialLayout="@layout/widget_clock"
-    android:updatePeriodMillis="1800000"
+    android:previewLayout="@layout/widget_clock"
+    android:updatePeriodMillis="0"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="keyguard" />

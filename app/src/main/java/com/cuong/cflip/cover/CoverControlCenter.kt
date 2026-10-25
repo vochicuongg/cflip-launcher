@@ -283,6 +283,24 @@ object CoverControlCenterManager {
                 text = "Thêm từ màn phụ (không cần mở máy): gập máy lại, vuốt Widget màn phụ tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung."
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
+            // 3.4.0: status + Samsung settings, usable from the cover
+            // without leaving it (status is a toast, settings is Samsung's
+            // own activity — the pin dialog is gone, it can never add
+            // a cover widget).
+            widgetCard.addView(modernButton("Kiểm tra Widget Samsung đã thêm chưa").apply {
+                setOnClickListener {
+                    android.widget.Toast.makeText(
+                        ctx,
+                        com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(ctx.applicationContext),
+                        android.widget.Toast.LENGTH_LONG).show()
+                    resetTimer()
+                }
+            })
+            widgetCard.addView(modernButton("Mở Cài đặt Widget màn phụ Samsung").apply {
+                setOnClickListener {
+                    com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(ctx.applicationContext)
+                }
+            })
             if (chosen.isEmpty()) {
                 widgetCard.addView(TextView(ctx).apply {
                     text = "Chưa thêm Widget nào. Bấm một nút dưới đây để thêm ngay trên màn phụ — không nhảy sang màn hình chính."
