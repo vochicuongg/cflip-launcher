@@ -904,7 +904,7 @@ object CoverControlCenterManager {
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Chia sẻ kết nối để bật/tắt điểm phát sóng", android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val appCtx = ctx.applicationContext
-                val intent = Intent(Settings.ACTION_TETHER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val intent = Intent("android.settings.TETHER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
                 else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
