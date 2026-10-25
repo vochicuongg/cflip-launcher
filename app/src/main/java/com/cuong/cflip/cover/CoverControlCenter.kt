@@ -204,18 +204,40 @@ object CoverControlCenterManager {
                 setMargins(0, 0, 0, dp(8))
             }
         }
-        // vc33 Samsung-style slider (code only, no asset): thick track,
-        // white progress + white round thumb on a dark track, like One UI
-        // QS brightness/volume sliders. Previously mint-on-dark.
+        // vc34 Samsung pill slider (code only, no asset): vc33 only
+        // changed tints, so the track stayed a thin Android line and
+        // looked unchanged. Now the progressDrawable itself is a pill:
+        // dark rounded track + white rounded progress clipped from the
+        // left, with a 32dp white round thumb, like One UI QS.
         fun mintSeekBar(): SeekBar = SeekBar(ctx).apply {
             runCatching {
-                progressTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF3A3F45.toInt())
-                thumbTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dp(14).toFloat()
+                    setColor(0xFF3A3F45.toInt())
+                }
+                val fg = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dp(14).toFloat()
+                    setColor(0xFFFFFFFF.toInt())
+                }
+                val clip = android.graphics.drawable.ClipDrawable(
+                    fg, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL)
+                val layers = android.graphics.drawable.LayerDrawable(arrayOf(bg, clip))
+                layers.setId(0, android.R.id.background)
+                layers.setId(1, android.R.id.progress)
+                progressDrawable = layers
+                val thumbDrawable = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(0xFFFFFFFF.toInt())
+                    setSize(dp(32), dp(32))
+                }
+                thumb = thumbDrawable
             }
-            minimumHeight = dp(28); maxHeight = dp(28)
+            minimumHeight = dp(28)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(36))
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40))
             // Fix 2.10.0: a SeekBar inside a ScrollView loses horizontal
             // drags to the scroll container. Tell the parent not to
             // intercept while the thumb is being dragged.
@@ -473,16 +495,27 @@ object CoverControlCenterManager {
         // vc30 LOCAL-ONLY: media buttons use Samsung ic_sec drawables that
         // exist only in the local samsung-icons-360-vc30 branch / D:\icons\sec_only.
         // Do NOT push this file to main without replacing these with clean-room drawables.
+        // vc34 Samsung media controls: circles, not wide pills.
+        // Play is larger (56dp) and mint, prev/next are 48dp dark circles.
         fun mediaIconButton(iconRes: Int, primary: Boolean = false): ImageButton = ImageButton(ctx).apply {
             setImageResource(iconRes)
             setColorFilter(if (primary) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-            background = rounded(if (primary) mint else 0xFF23262B.toInt(), 24)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(if (primary) mint else 0xFF23262B.toInt())
+            }
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val sz = if (primary) dp(56) else dp(48)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
+                setMargins(dp(8), dp(4), dp(8), dp(4))
+                gravity = Gravity.CENTER_VERTICAL
+            }
         }
-        val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_prev).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_play, true).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.playPause() } })
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_next).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.next() } })
+        val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next() } })
         mediaCard.addView(mediaRow)
         controlContent.addView(mediaCard)
 
@@ -755,9 +788,9 @@ object CoverControlCenterManager {
             grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
-        tileRow("Wi-Fi", R.drawable.ic_sec_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth", R.drawable.ic_sec_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet", R.drawable.ic_sec_mobiledata) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
+        tileRow("Wi-Fi", R.drawable.ic_cflip_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
+        tileRow("Bluetooth", R.drawable.ic_cflip_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
+        tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
         tileRow("NFC", R.drawable.ic_sec_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
@@ -788,10 +821,11 @@ object CoverControlCenterManager {
         tileRow("Xóa ghim", R.drawable.ic_sec_close) {
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
         }
-        tileRow("Mirror", R.drawable.ic_sec_cast) {
+        tileRow("Phản chiếu", R.drawable.ic_sec_cast) {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                hide()
             } else {
                 // vc32: previously this tile only stopped or toasted.
                 // Now it starts the permission flow (like 9Flip's
@@ -803,7 +837,7 @@ object CoverControlCenterManager {
                     android.widget.Toast.LENGTH_LONG).show()
                 ctx.applicationContext.startActivity(
                     Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY))
             }
         }
         tileCard.addView(grid)

@@ -42,9 +42,15 @@
              tile (like 9Flip's MirrorPermissionActivity in architecture).
              Translucent, no UI of its own — only the system capture dialog
              shows, on the main display. Not exported. -->
+        <!-- vc34: separate task affinity + excludeFromRecents, so the
+             permission activity never brings MainActivity forward and
+             never looks like re-entering the CFlip app. It only shows
+             the system sharing dialog, then removes its own task. -->
         <activity
             android:name=".mirror.MirrorPermissionActivity"
             android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.cuong.cflip.mirror"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Keeps cover-related work alive while the phone is folded -->

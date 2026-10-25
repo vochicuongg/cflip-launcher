@@ -40,7 +40,9 @@ class MirrorPermissionActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Bạn chưa đồng ý phản chiếu màn hình", Toast.LENGTH_SHORT).show()
         }
-        finish()
+        // vc34: remove the task entirely, so this never looks like
+        // re-entering the CFlip app in recents / task stack.
+        finishAndRemoveTask()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,7 +50,7 @@ class MirrorPermissionActivity : ComponentActivity() {
         val mpm = getSystemService(MediaProjectionManager::class.java)
         if (mpm == null) {
             Toast.makeText(this, "Thiết bị không hỗ trợ phản chiếu", Toast.LENGTH_SHORT).show()
-            finish(); return
+            finishAndRemoveTask(); return
         }
         captureLauncher.launch(mpm.createScreenCaptureIntent())
     }
