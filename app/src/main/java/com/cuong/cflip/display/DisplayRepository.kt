@@ -35,8 +35,8 @@ class DisplayRepository(private val context: Context) {
     }
 
     /** Ask the system whether starting [intent] on [displayId] is even allowed.
-     *  On Samsung cover displays this is often false for third-party apps - that
-     *  result is exactly what the MultiStar widget route (see widget/) works around. */
+     *  On Samsung cover displays this is often false for third-party apps -
+     *  in that case CFlip falls back to its own overlay on the same display. */
     fun isStartAllowed(displayId: Int, intent: Intent): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return true
         val am = context.getSystemService(ActivityManager::class.java) ?: return false

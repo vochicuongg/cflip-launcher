@@ -127,10 +127,43 @@ object CoverOverlayManager {
         clockRunnable = tick
         handler.post(tick)
 
+        // Cover widgets, inside CFlip's own cover UI — no external host.
+        // Battery is read directly from BatteryManager here (not via the
+        // Compose helper) so this plain-Views overlay stays self-contained.
+        val batteryPct = runCatching {
+            val intent = ctx.registerReceiver(
+                null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+            if (level >= 0 && scale > 0) level * 100 / scale else -1
+        }.getOrDefault(-1)
         root.addView(TextView(ctx).apply {
-            text = "CFlip Launcher · Thông báo: ${NotificationState.active.value.size}"
+            val battery = if (batteryPct >= 0) " · Pin $batteryPct%" else ""
+            text = "CFlip Launcher · Thông báo: ${NotificationState.active.value.size}$battery"
             textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
         })
+
+        // Music widget card: Prev / Play-Pause / Next through the same
+        // MediaControllerRepository as the cover Media tab. Needs
+        // Notification Access; without it the card just shows "Chưa có nhạc".
+        val mediaRepo = com.cuong.cflip.media.MediaControllerRepository(ctx)
+        runCatching { mediaRepo.refresh() }
+        val mediaInfo = com.cuong.cflip.media.MediaState.current.value
+        root.addView(TextView(ctx).apply {
+            text = "Nhạc"; textSize = 14f; setTextColor(0xFFFFFFFF.toInt())
+        })
+        root.addView(TextView(ctx).apply {
+            text = mediaInfo?.title ?: "Chưa có nhạc"
+            textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+        })
+        val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        mediaRow.addView(Button(ctx).apply { text = "⏮"
+            setOnClickListener { mediaRepo.previous() } })
+        mediaRow.addView(Button(ctx).apply { text = "⏯"
+            setOnClickListener { mediaRepo.playPause() } })
+        mediaRow.addView(Button(ctx).apply { text = "⏭"
+            setOnClickListener { mediaRepo.next() } })
+        root.addView(mediaRow)
 
         fun appButton(label: String, icon: Drawable?, pkg: String): Button {
             return Button(ctx).apply {

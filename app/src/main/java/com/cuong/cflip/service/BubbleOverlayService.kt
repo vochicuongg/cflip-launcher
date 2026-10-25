@@ -28,7 +28,7 @@ import com.cuong.cflip.media.MediaControllerRepository
 
 /**
  * Floating bubble menu ("bong bong menu") - CFlip's own always-available
- * surface that does NOT depend on Good Lock / MultiStar.
+ * surface that does NOT depend on any external app.
  *
  * A draggable "C" bubble (TYPE_APPLICATION_OVERLAY); tapping it opens a
  * small panel: favourite apps, flashlight, media controls, lock, open CFlip.

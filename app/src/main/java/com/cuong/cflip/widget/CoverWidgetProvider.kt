@@ -22,11 +22,12 @@ import com.cuong.cflip.media.MediaControllerRepository
 import com.cuong.cflip.service.NotificationState
 
 /**
- * The Samsung-sanctioned cover route: enable this widget on the cover screen
- * via Good Lock > MultiStar > Launcher Widget (and Settings > Cover screen >
- * Widgets). It is a working mini-launcher, not just a tile: live clock,
- * notification count, up to 4 favourite-app shortcuts (launched toward the
- * cover display), flashlight toggle and media play/pause + next.
+ * Combined home-screen widget (2.5.0 note: this provider is for the main
+ * home screen's widget picker only. Cover widgets live inside CFlip's own
+ * cover UI and do not need any external host.) It is a working
+ * mini-launcher, not just a tile: live clock, notification count, up to 4
+ * favourite-app shortcuts (launched toward the cover display), flashlight
+ * toggle and media play/pause + next.
  */
 class CoverWidgetProvider : AppWidgetProvider() {
 

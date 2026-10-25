@@ -32,7 +32,7 @@ fun BubbleControls() {
     val canOverlay = remember { Settings.canDrawOverlays(context) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Bong bóng menu (không cần Good Lock)", fontSize = 18.sp)
+        Text("Bong bóng menu (đã ngừng dùng)", fontSize = 18.sp)
         Text(
             "Bong bong 'C' noi tren man hinh: cham de mo menu nhanh (app yeu thich, " +
                 "den pin, nhac, khoa may). Keo de di chuyen bong bong.",

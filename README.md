@@ -24,7 +24,7 @@ mở sẵn, **không paywall, không premium**: tính năng nào làm được l
 | Cá nhân hóa | ✅ Số cột lưới (Auto/3–6), cỡ icon, ẩn/hiện nhãn, màu nền, **hình nền cover tự chọn**, đồng hồ 24h, favorites first |
 | Ẩn app (Hidden Apps) | ✅ **v1.3** — giữ app để mở menu → Ẩn app này; app ẩn biến mất khỏi mọi bề mặt (lọc trong AppRepository), quản lý/hiện lại ở tab Style. Lộ trình tính năng v2 đầy đủ: `FEATURES-V2.md` |
 | Hiển thị lên màn hình phụ thật | ✅ `CoverPresentation` + foreground service tự show khi có display phụ, tự ẩn khi mất |
-| Đường chính thống Samsung | ✅ Widget cho Good Lock / MultiStar Launcher Widget |
+| Đường chính thống Samsung | ✅ Widget trong giao diện cover của CFlip |
 | Không root / không ADB / không Shizuku khi dùng | ✅ Chỉ cấp quyền Android bình thường trong Settings |
 
 ## Cài lên Flip5 thật (cách test chính — quyết định của Cường 17/10/2026)
@@ -38,7 +38,7 @@ mở sẵn, **không paywall, không premium**: tính năng nào làm được l
    để dùng thử toàn bộ 6 tab mà chưa cần gập máy.
 6. Khi sẵn sàng test cover thật: gập máy lại. Xem Logcat tag `CFlipFG`:
    service có nhận được display phụ không, Presentation có bị hệ thống chặn không.
-   Kết quả bước này quyết định hướng dùng chính: Presentation hoặc widget MultiStar.
+   Kết quả bước này quyết định hướng dùng chính: Presentation hoặc overlay của CFlip.
    Checklist đầy đủ trong `TESTING.md`.
 
 Build APK bằng GitHub Actions (không cần Studio): đẩy project lên GitHub →
@@ -81,7 +81,7 @@ minify).
 ## Giới hạn đã biết (nói thẳng)
 
 - Samsung/One UI **có thể chặn** app bên thứ ba tự hiển thị Presentation lên Flex Window.
-  CFlip xử lý bằng cách bắt lỗi, ghi log, và vẫn còn đường widget MultiStar.
+  CFlip xử lý bằng cách bắt lỗi, ghi log, và vẫn còn đường overlay của CFlip.
   Đây là giới hạn của nền tảng, không phải tính năng bị khóa sau paywall.
 - Một số toggle hệ thống (Wi-Fi/Bluetooth) không cho app thường tự bật/tắt —
   CFlip mở **panel chính thức** của Android/Settings thay thế, đúng cách Google cho phép.
@@ -102,5 +102,5 @@ app/src/main/java/com/cuong/cflip/
 │             NotificationModels, MyAccessibilityService
 ├── media/    MediaControllerRepository, MediaModels
 ├── control/  QuickControls (flashlight/volume/brightness/panels)
-└── widget/   CoverWidgetProvider (MultiStar route)
+└── widget/   CoverWidgetProvider (widget màn hình chính)
 ```

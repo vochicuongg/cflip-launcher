@@ -1,8 +1,7 @@
-# CFlip — kế hoạch hoàn thiện như 1 module độc lập, không dựa Good Lock
+# CFlip — kế hoạch hoàn thiện như 1 module độc lập
 
-CFlip là module cover độc lập dùng API Android chuẩn. Good Lock MultiStar chỉ là đường
-dự phòng cuối cùng khi mọi đường chuẩn đều bị Samsung chặn, không tính năng cốt lõi nào
-bắt buộc phải có nó.
+CFlip là module cover độc lập dùng API Android chuẩn. Không tính năng cốt lõi nào
+bắt buộc phải có ứng dụng bên ngoài nào.
 
 ## Thứ tự đường vào cover (thử theo thứ tự, đường sau chỉ khi đường trước bị từ chối)
 
@@ -12,7 +11,8 @@ bắt buộc phải có nó.
 3. Activity trực tiếp trên display đích: `setLaunchDisplayId` + watchdog 900ms + retry 5 lần.
 4. Widget chuẩn Android: AppWidgetProvider + RemoteViewsService, host nào cũng được.
 5. MediaProjection mirror: chiếu màn hình chính sang cover.
-6. Good Lock: chỉ khi 1–5 đều bị chặn.
+6. Không có bước dùng ứng dụng bên ngoài: nếu 1–5 đều bị chặn thì đó là giới hạn
+   nền tảng, ghi rõ trong README, không chuyển sang ứng dụng khác.
 
 ## Đã có trong CFlip (tới 2.3.2)
 
@@ -59,6 +59,6 @@ dịch vụ foreground giữ cover sống khi gập máy.
 ## Nguyên tắc
 
 - Không paywall, không đếm lượt dùng, không giới hạn tính năng theo gói.
-- Không force-stop app khác, không phụ thuộc package Good Lock.
+- Không force-stop app khác, không phụ thuộc ứng dụng bên ngoài nào.
 - Mọi giới hạn nền tảng (Samsung chặn cửa sổ bên thứ ba trên Flex Window) phải được ghi rõ
   là giới hạn nền tảng, không đổ cho lỗi code khi chưa có bằng chứng trên máy thật.

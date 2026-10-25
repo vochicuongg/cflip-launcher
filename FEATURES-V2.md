@@ -13,8 +13,8 @@ của app mẫu; mọi tính năng làm được đều mở sẵn, không paywa
 - Media controls (play/pause/next/prev, seek, tên bài/nghệ sĩ)
 - Quick controls + system actions qua Accessibility (khoá máy, Recents, khay thông báo, Quick Settings)
 - Cá nhân hoá cơ bản: cột lưới, cỡ icon, nhãn, màu nền, hình nền cover, đồng hồ 24h
-- CoverPresentation + foreground service; widget cho Good Lock/MultiStar
-- Bong bóng nổi (bubble menu) — đường không cần Good Lock
+- CoverPresentation + foreground service; widget trong giao diện cover của CFlip
+- Bong bóng nổi (bubble menu) — đã ngừng dùng ở 2.4.0, thay bằng AssistiveTouch trên màn phụ
 - Mirror thử nghiệm (ScreenMirrorService + MirrorPresentation)
 
 ## Lộ trình v2 — các tính năng còn thiếu so với bản đồ mẫu

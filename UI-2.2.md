@@ -50,7 +50,7 @@ lại hoàn toàn:
    trang Settings hệ thống (thông báo, Accessibility, Overlay, Usage
    Access, sửa cài đặt hệ thống).
 6. **Dịch vụ cover:** bắt đầu/dừng foreground service, hiện
-   Presentation lên màn phụ, hướng dẫn widget MultiStar.
+   Presentation lên màn phụ, không dùng ứng dụng bên ngoài.
 7. **Phản chiếu & bong bóng:** nhúng nguyên MirrorControls và
    BubbleControls đã có (không viết lại, không trùng logic).
 

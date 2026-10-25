@@ -28,7 +28,7 @@ từng lần sửa code nhỏ. Sửa UI thì soi bằng CoverPreviews/emulator t
 - [ ] Start foreground service → gập máy → Logcat `CFlipFG`: có log display added không?
 - [ ] Presentation có hiện trên Flex Window không? Nếu bị chặn, ghi nguyên văn lỗi trong log
 - [ ] Mở 1 app từ Presentation — app mở ở cover hay màn hình chính? Ghi lại theo bản One UI hiện tại
-- [ ] Đường MultiStar: Good Lock → MultiStar → Launcher Widget → thêm widget CFlip → vuốt cover tới widget, bấm mở được không?
+- [ ] Đường cover của CFlip: bật dịch vụ cover → gập máy → giao diện cover và AssistiveTouch hiện trên màn phụ, bấm mở được không?
 - [ ] Để gập 10 phút → mở ra, service còn sống không? (`adb shell dumpsys activity services com.cuong.cflip`)
 
 Ghi kết quả từng dòng vào cuối file này kèm ngày + số bản One UI — đó là dữ liệu
@@ -64,7 +64,7 @@ Có test cho `DisplayPicker` và `RecentSorter` (gộp recents từ UsageStats +
    Presentation remains the folded-mode experience.
 6. Stop mirroring from the same section; the normal cover UI should return.
 
-## v1.2 - No-GoodLock fold experiment (ONE fold)
+## v1.2 - Fold experiment, module độc lập (ONE fold)
 1. Install the build, open CFlip, start the foreground service.
 2. Quick tab > "Bong bong menu": grant overlay permission if asked, switch the
    bubble ON - a blue "C" bubble appears; drag it, tap it, the menu opens.

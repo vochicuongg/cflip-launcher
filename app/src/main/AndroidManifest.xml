@@ -48,7 +48,7 @@
                 android:value="cover_screen_launcher" />
         </service>
 
-        <!-- Floating bubble menu: CFlip's own overlay surface, no Good Lock -->
+        <!-- Floating bubble menu: CFlip's own overlay surface (deprecated, see BubbleControls) -->
         <service
             android:name=".service.BubbleOverlayService"
             android:exported="false" />
@@ -85,8 +85,8 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Sanctioned route on Flip 5+: a widget the user can enable on the cover
-             screen through Good Lock / MultiStar Launcher Widget. -->
+        <!-- Home-screen widget: for the main home screen's widget picker only.
+             Cover widgets live inside CFlip's own cover UI. -->
         <receiver
             android:name=".widget.CoverWidgetProvider"
             android:exported="false"

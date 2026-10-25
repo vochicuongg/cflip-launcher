@@ -199,28 +199,29 @@ fun MainScreen(
             }
         }
 
-        // Widgets for the cover (2.5.0): these are standard Android widget
-        // providers, not screens inside CFlip. Android does not let an app
-        // place its own widgets programmatically — the user adds them from
-        // a widget host. On Flip5 that host is Good Lock > MultiStar >
-        // Launcher Widget, or Settings > Cover screen > Widgets; on the
-        // main home screen it is the usual long-press > Widgets picker.
-        // Listing them here is what makes them discoverable — before 2.5.0
-        // only the combined widget existed and nothing in the app mentioned it.
+        // Widgets for the cover (2.5.0, revised 2.5.1): NO external host.
+        // The cover widgets are cards inside CFlip's own
+        // cover UI (Overlay/Presentation): Clock & Battery, App Grid,
+        // Music and Notifications. Starting the cover service and folding
+        // the phone shows them — nothing else needs to be installed or
+        // placed. The AppWidgetProviders in widget/ are only for the main
+        // home screen's own widget picker, never for the cover.
         SectionLabel("Widget cho màn phụ")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("CFlip — Tổng hợp: đồng hồ, thông báo, 4 app yêu thích, đèn, nhạc",
+                Text("Đồng hồ & Pin: giờ, ngày, % pin, số thông báo — trong giao diện cover",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("CFlip — Lưới ứng dụng: toàn bộ app dạng lưới 4 cột, bấm mở trên màn phụ",
+                Text("Lưới ứng dụng: yêu thích + gần đây trong Overlay, toàn bộ app trong tab Ứng dụng",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("CFlip — Nhạc: bài đang phát, lùi / phát / tới (cần quyền Thông báo)",
+                Text("Nhạc: bài đang phát, lùi / phát / tới (cần quyền Thông báo) — trong giao diện cover",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("CFlip — Đồng hồ & Pin: giờ, ngày, % pin, số thông báo",
+                Text("Thông báo: danh sách thông báo đang active — trong giao diện cover",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Cách thêm: gập máy → giữ màn phụ / vào MultiStar Launcher Widget → chọn widget CFlip. Widget là của hệ thống, CFlip chỉ cung cấp nội dung.",
+                Text("Riêng màn hình chính vẫn có 4 widget chuẩn Android (Tổng hợp, Lưới app, Nhạc, Đồng hồ & Pin) để thêm từ trình chọn widget của màn hình chính, không liên quan tới màn phụ.",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("Cách dùng: Bắt đầu dịch vụ cover rồi gập máy — các thẻ Đồng hồ, Lưới app, Nhạc, Thông báo hiện ngay trong chính giao diện cover của CFlip, không cần cài thêm gì, không cần ứng dụng bên ngoài.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
             }
         }
@@ -370,7 +371,7 @@ fun MainScreen(
                 }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                     Text("Hiện Presentation lên màn phụ →", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
-                Text("Widget chính thống: Good Lock › MultiStar › Launcher Widget › thêm widget CFlip.",
+                Text("Widget màn phụ: nằm trong chính giao diện cover của CFlip, bật dịch vụ rồi gập máy là thấy.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
             }
         }

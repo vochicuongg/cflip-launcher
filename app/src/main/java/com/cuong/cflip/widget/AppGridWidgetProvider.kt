@@ -17,8 +17,8 @@ import com.cuong.cflip.display.DisplayRepository
  * list as a grid (favorites are already first in the cover UI, but a widget
  * grid is alphabetical so every app is findable). Tapping a cell launches
  * that app toward the cover display when one exists, otherwise on the
- * current display. This is a provider only — the host that places it on the
- * cover is the system / MultiStar Launcher Widget, CFlip does not host it.
+ * current display. This provider is for the main home screen's widget
+ * picker; cover app grids live inside CFlip's own cover UI.
  */
 class AppGridWidgetProvider : AppWidgetProvider() {
 

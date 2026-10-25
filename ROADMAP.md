@@ -28,7 +28,7 @@
 
 ## Việc còn lại (phụ thuộc kết quả test máy thật)
 - [ ] Chạy checklist TESTING.md mục 1 trên Flip5, ghi kết quả theo bản One UI
-- [ ] Nếu Presentation bị One UI chặn: chuyển trải nghiệm cover chính sang widget MultiStar nâng cao (widget nhiều shortcut thay vì 1 nút mở app)
+- [ ] Nếu Presentation bị One UI chặn: chuyển trải nghiệm cover chính sang overlay của CFlip với nhiều shortcut thay vì 1 nút mở app
 - [ ] Tinh chỉnh sau test: tốc độ mở app, mức ngốn pin của foreground service, cỡ chữ trên cover thật
 
 ## Ngoài phạm vi (cố ý không làm)

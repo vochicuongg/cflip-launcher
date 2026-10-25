@@ -46,7 +46,7 @@ class CoverPresentation(context: Context, display: Display) : Presentation(conte
         // "permission denied for window type 2032" instead of a token error.
         // This still cannot beat a Samsung-level block on third-party cover
         // windows (One UI 9 Flex Window); that case stays a platform limit
-        // and the Good Lock widget route remains the fallback.
+        // and the fallback is CFlip's own overlay, never an external app.
         window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
     }
 

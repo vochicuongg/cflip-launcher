@@ -22,7 +22,8 @@ import com.cuong.cflip.display.DisplayRepository
  * Presentation when a secondary display appears, dismissing it when the
  * display goes away. On Samsung firmware the system may refuse the
  * Presentation - that is logged (tag CFlipFG) instead of crashing, and the
- * Good Lock / MultiStar widget remains the sanctioned fallback route.
+ * fallback is CFlip's own WindowManager overlay on the same display. There
+ * is no external-widget fallback in this app.
  */
 class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     android.hardware.SensorEventListener {
