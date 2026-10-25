@@ -257,7 +257,7 @@ object CoverControlCenterManager {
         }
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(24))
+            setPadding(dp(8), dp(12), dp(8), dp(24))
             // vc41 ScrollView root cause: ScrollView extends FrameLayout,
             // whose default child LayoutParams are MATCH_PARENT x
             // MATCH_PARENT. A programmatically created child with no
@@ -575,39 +575,64 @@ object CoverControlCenterManager {
                 .setInterpolator(android.view.animation.DecelerateInterpolator())
                 .start()
         }
-        // vc41: tapping the Âm thanh island goes to the playing
-        // app's destination. First try the session's own
-        // sessionActivity (the app's now-playing destination) forced
-        // to the cover display via ActivityOptions; if the app does
-        // not expose one, or it fails, fall back to launching the
-        // app package on the cover display (AppLauncher, with its
-        // main-display fallback). MediaSession gives no song deep
-        // link, so the destination is the app's now-playing UI, not
-        // a URL for a specific track - if the app lands on its home
-        // screen, its now-playing bar is the song. Buttons and the
-        // progress bar are clickable children, so they consume their
-        // own taps and do NOT trigger this card tap.
-        mediaCard.setOnClickListener {
+        // vc42 media tap fix: vc41 tried sessionActivity FIRST.
+        // If that PendingIntent succeeded, it opened on the MAIN
+        // display (its own launch options ignore the cover display
+        // id), so the panel hid, the app opened folded inside, and
+        // on the cover nothing appeared - "không chuyển đến được
+        // đích". The fallback to AppLauncher never ran because
+        // sessionActivity had already "succeeded". vc42 reverses
+        // the order: cover launch FIRST (the only route guaranteed
+        // to be visible while folded), sessionActivity only if
+        // there is no launch intent, and a main-display launch
+        // only as a last resort with a toast saying to unfold.
+        // The action is also set on mediaContent, not just the
+        // card, so taps on title/artist (inside mediaContent)
+        // definitely trigger it even if parent propagation is
+        // blocked; buttons/progress are clickable children, so
+        // they still consume their own taps.
+        val openMediaDestination = {
             runCatching { mediaRepo.refresh() }
             val cur = MediaState.current.value
             hide()
             if (cur == null) {
                 android.widget.Toast.makeText(ctx, "Chưa có nhạc đang phát", android.widget.Toast.LENGTH_SHORT).show()
             } else {
-                var opened = false
-                val pi = cur.sessionActivity
-                if (pi != null) {
-                    opened = runCatching {
+                val pm = ctx.packageManager
+                val launchIntent = runCatching { pm.getLaunchIntentForPackage(cur.packageName) }.getOrNull()
+                var openedOnCover = false
+                if (launchIntent != null) {
+                    openedOnCover = runCatching {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                        pi.send(ctx, 0, null, null, null, null, opts)
+                        ctx.startActivity(launchIntent, opts)
                         true
                     }.getOrDefault(false)
                 }
-                if (!opened) {
-                    com.cuong.cflip.display.AppLauncher.launch(ctx, cur.packageName, display.displayId)
+                if (!openedOnCover) {
+                    val pi = cur.sessionActivity
+                    var openedViaPi = false
+                    if (pi != null) {
+                        openedViaPi = runCatching {
+                            pi.send(ctx, 0, null, null, null, null, null)
+                            true
+                        }.getOrDefault(false)
+                    }
+                    if (!openedViaPi && launchIntent != null) {
+                        runCatching {
+                            ctx.applicationContext.startActivity(
+                                Intent(launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                        android.widget.Toast.makeText(ctx, "App không mở được trên màn phụ, đã mở trên màn chính - mở máy ra để xem", android.widget.Toast.LENGTH_LONG).show()
+                    } else if (openedViaPi) {
+                        android.widget.Toast.makeText(ctx, "Đã mở app đang phát", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(ctx, "Không mở được app đang phát", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
+        mediaCard.setOnClickListener { openMediaDestination() }
         mediaContent.addView(title("Âm thanh"))
         val mediaTitleView = TextView(ctx).apply {
             text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
@@ -730,6 +755,7 @@ object CoverControlCenterManager {
         mediaContent.addView(mediaRow)
         mediaCard.addView(mediaContent, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+        mediaContent.setOnClickListener { openMediaDestination() }
         // vc38: mediaCard is added later, in the combined row with sliders.
         // vc37 Play last song / Media output pill, from Cường's screenshot:
         // shown ONLY when no media is active (instead of an empty card).
@@ -963,6 +989,9 @@ object CoverControlCenterManager {
         controlContent.addView(combinedRow)
 
         val tileCard = card()
+        // vc42 right-edge fix: card() pads 12dp each side; the tile
+        // card gets 8dp horizontally so the grid has room to fit.
+        tileCard.setPadding(dp(8), dp(12), dp(8), dp(12))
         tileCard.addView(title("Đảo chức năng"))
         tileCard.addView(View(ctx).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
         val grid = GridLayout(ctx).apply { columnCount = 5 }
@@ -990,7 +1019,7 @@ object CoverControlCenterManager {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
                     setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
                 }
-                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
             }
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1012,11 +1041,11 @@ object CoverControlCenterManager {
             tileWithLabel(icon, label, false, onClick).first
         fun tileRow(label: String, icon: String, onClick: () -> Unit) {
             grid.addView(tile(label, icon, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         fun tileRowActive(label: String, icon: String, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(icon, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         // Int overloads (vc30 local): same QS circle, but an ImageView
         // drawable instead of a Unicode TextView symbol.
@@ -1039,7 +1068,7 @@ object CoverControlCenterManager {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
                     setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
                 }
-                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
             }
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1061,11 +1090,11 @@ object CoverControlCenterManager {
             tileWithLabel(iconRes, label, false, onClick).first
         fun tileRow(label: String, iconRes: Int, onClick: () -> Unit) {
             grid.addView(tile(label, iconRes, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         fun tileRowActive(label: String, iconRes: Int, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         // vc31: Rotate is ONE tile cycling FOLLOW -> LOCK -> SYSTEM.
         // Press 1 = FOLLOW (FULL_SENSOR host, follows flip direction),
@@ -1142,7 +1171,7 @@ object CoverControlCenterManager {
                     if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             rotateTileRef = rotateTile
-            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         // vc39: Đèn was a plain tileRow with no active state, so
         // toggling it twice looked like nothing happened. Now it is a
@@ -1162,7 +1191,7 @@ object CoverControlCenterManager {
                     if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             torchTileRef = torchTile
-            grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+            grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         tileRow("Wi-Fi", R.drawable.ic_cflip_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_cflip_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
@@ -1184,15 +1213,56 @@ object CoverControlCenterManager {
         // foreground service + stop control). The supported route,
         // like the other system tiles here, is to open Samsung's
         // Quick Settings where its own Quay màn hình tile lives.
-        tileRow("Chụp màn hình", R.drawable.ic_cflip_screenshot) { a11yAction("Chụp màn hình") { it.takeScreenshot() } }
+        // vc42 screenshot: vc41's global action targets the default
+        // display, so folded it looked dead. Now: hide panel, wait
+        // 300ms for the panel to be gone, then capture the COVER
+        // display itself via the service's takeScreenshot(displayId)
+        // and save it to Gallery. If that API fails, fall back to
+        // the global action (which may capture the main display).
+        tileRow("Chụp màn hình", R.drawable.ic_cflip_screenshot) {
+            val svc = MyAccessibilityService.instance
+            if (svc == null) {
+                android.widget.Toast.makeText(ctx, "Chụp màn hình không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                hide()
+                handler.postDelayed({
+                    svc.takeScreenshotForDisplay(display.displayId) { ok, msg ->
+                        if (ok) {
+                            android.widget.Toast.makeText(ctx, "Đã chụp màn hình, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
+                        } else {
+                            val fallbackOk = svc.takeScreenshot()
+                            android.widget.Toast.makeText(ctx, if (fallbackOk) "Đã chụp màn hình bằng hệ thống (kiểm tra Gallery)" else "Chụp màn hình thất bại ($msg) - thử mở máy ra rồi chụp lại", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }, 300)
+            }
+        }
+        // vc42 record: no public intent starts Samsung's recorder.
+        // Try its packages first (if one has a launch intent, open
+        // it on the cover); otherwise open Quick Settings like before,
+        // but with a delay and a toast that says where to look if QS
+        // opened on the main display (folded, invisible from cover).
         tileRow("Quay màn hình", R.drawable.ic_cflip_record) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
                 android.widget.Toast.makeText(ctx, "Quay màn hình không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
             } else {
                 hide()
-                svc.openQuickSettings()
-                android.widget.Toast.makeText(ctx, "Bấm tile Quay màn hình trong Cài đặt nhanh của Samsung để bắt đầu quay", android.widget.Toast.LENGTH_LONG).show()
+                var openedRecorder = false
+                for (pkg in listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")) {
+                    val intent = runCatching { ctx.packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
+                    if (intent != null) {
+                        com.cuong.cflip.display.AppLauncher.launch(ctx, pkg, display.displayId)
+                        openedRecorder = true
+                        break
+                    }
+                }
+                if (!openedRecorder) {
+                    handler.postDelayed({
+                        val ok = svc.openQuickSettings()
+                        android.widget.Toast.makeText(ctx, if (ok) "Đã mở Cài đặt nhanh - bấm tile Quay màn hình của Samsung (nếu không thấy trên màn phụ, mở máy ra, Cài đặt nhanh đã mở trên màn chính)" else "Không mở được Cài đặt nhanh", android.widget.Toast.LENGTH_LONG).show()
+                    }, 300)
+                }
             }
         }
         var sortLabel: TextView? = null
@@ -1203,7 +1273,7 @@ object CoverControlCenterManager {
             sortLabel?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
         }
         sortLabel = sortTile.second
-        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         var colLabel: TextView? = null
         val colTile = tileWithLabel(R.drawable.ic_cflip_columns, "Cột ${store.load().columns}") {
             val cur = store.load()
@@ -1212,7 +1282,7 @@ object CoverControlCenterManager {
             colLabel?.text = "Cột $next"
         }
         colLabel = colTile.second
-        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         // vc39: Tên had the same captured-label bug as Rotate:
         // the label was built once from showLabels, the click toggled
         // the store but never rewrote the label, so repeated clicks
@@ -1231,7 +1301,7 @@ object CoverControlCenterManager {
                     if (nextOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             nameTileRef = nameTile
-            grid.addView(nameTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+            grid.addView(nameTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         tileRow("Xóa ghim", R.drawable.ic_sec_close) {
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
@@ -1333,7 +1403,7 @@ object CoverControlCenterManager {
                 }
             }
             dndTileRef = dndTile
-            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(88); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
         tileCard.addView(grid)
         controlContent.addView(tileCard)
