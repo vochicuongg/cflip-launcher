@@ -52,7 +52,9 @@ dịch vụ foreground giữ cover sống khi gập máy.
 
 11. Wizard cài đặt 3 bước cho người mới (quyền → dịch vụ → thử gập máy).
 12. Toggle hiện pin trên cover; album-art làm nền tạm khi đang phát nhạc.
-13. Widget nhạc nhỏ; nút xoay tay + chế độ AUTO/MANUAL/OFF; live wallpaper (cuối cùng).
+13. Widget nhạc nhỏ — ĐÃ LÀM ở 2.5.0, cùng widget Lưới ứng dụng và Đồng hồ & Pin
+    (tổng cộng CFlip có 4 widget, kể cả widget Tổng hợp cũ); nút xoay tay + chế độ
+    AUTO/MANUAL/OFF; live wallpaper (cuối cùng).
 
 ## Nguyên tắc
 

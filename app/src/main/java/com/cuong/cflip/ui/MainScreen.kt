@@ -199,6 +199,32 @@ fun MainScreen(
             }
         }
 
+        // Widgets for the cover (2.5.0): these are standard Android widget
+        // providers, not screens inside CFlip. Android does not let an app
+        // place its own widgets programmatically — the user adds them from
+        // a widget host. On Flip5 that host is Good Lock > MultiStar >
+        // Launcher Widget, or Settings > Cover screen > Widgets; on the
+        // main home screen it is the usual long-press > Widgets picker.
+        // Listing them here is what makes them discoverable — before 2.5.0
+        // only the combined widget existed and nothing in the app mentioned it.
+        SectionLabel("Widget cho màn phụ")
+        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
+            .padding(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("CFlip — Tổng hợp: đồng hồ, thông báo, 4 app yêu thích, đèn, nhạc",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                Text("CFlip — Lưới ứng dụng: toàn bộ app dạng lưới 4 cột, bấm mở trên màn phụ",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                Text("CFlip — Nhạc: bài đang phát, lùi / phát / tới (cần quyền Thông báo)",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                Text("CFlip — Đồng hồ & Pin: giờ, ngày, % pin, số thông báo",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                Text("Cách thêm: gập máy → giữ màn phụ / vào MultiStar Launcher Widget → chọn widget CFlip. Widget là của hệ thống, CFlip chỉ cung cấp nội dung.",
+                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+            }
+        }
+
         // Cover settings: segmented sort + three clean toggle rows.
         SectionLabel("Cài đặt cover")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))

@@ -99,5 +99,49 @@
                 android:resource="@xml/cover_widget_info" />
         </receiver>
 
+        <!-- 2.5.0 cover widgets (standard Android widgets, host-independent):
+             App Grid, Music, Clock & Battery. Each is a separate provider so
+             the user can place exactly the ones they want on the cover. -->
+        <receiver
+            android:name=".widget.AppGridWidgetProvider"
+            android:exported="false"
+            android:label="CFlip — Lưới ứng dụng">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appgrid_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".widget.AppGridRemoteViewsService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <receiver
+            android:name=".widget.MusicWidgetProvider"
+            android:exported="false"
+            android:label="CFlip — Nhạc">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/music_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ClockWidgetProvider"
+            android:exported="false"
+            android:label="CFlip — Đồng hồ &amp; Pin">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/clock_widget_info" />
+        </receiver>
+
     </application>
 </manifest>
