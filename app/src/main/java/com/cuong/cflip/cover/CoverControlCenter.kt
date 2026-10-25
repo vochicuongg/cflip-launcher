@@ -148,6 +148,10 @@ object CoverControlCenterManager {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
+        // vc32: TB / CĐ nhanh previously swallowed performGlobalAction
+        // failures. Hide the panel first (so the shade can show), then
+        // report a failure instead of silently doing nothing. If the
+        // service instance is null, Accessibility for CFlip is off.
         fun a11yAction(name: String, action: (MyAccessibilityService) -> Boolean) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
@@ -155,7 +159,13 @@ object CoverControlCenterManager {
                     ctx, "$name không chạy: cần bật Accessibility cho CFlip",
                     android.widget.Toast.LENGTH_SHORT).show()
             } else {
-                action(svc)
+                hide()
+                val ok = action(svc)
+                if (!ok) {
+                    android.widget.Toast.makeText(
+                        ctx, "$name không thực hiện được (hệ thống từ chối)",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
         fun resetTimer() = scheduleDismiss()
@@ -615,6 +625,7 @@ object CoverControlCenterManager {
                 setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
             }
             val circle = ImageView(ctx).apply {
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setImageResource(iconRes)
                 setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
                 setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -657,7 +668,11 @@ object CoverControlCenterManager {
                 1 -> "Khóa xoay"
                 else -> "Mặc định"
             }
-            tileRowActive(rotateLabel, R.drawable.ic_sec_rotate, currentMode != 2) {
+            val rotateIcon = when (currentMode) {
+                1 -> R.drawable.ic_sec_lock
+                else -> R.drawable.ic_sec_rotate
+            }
+            tileRowActive(rotateLabel, rotateIcon, currentMode != 2) {
                 val next = when (currentMode) { 0 -> 1; 1 -> 2; else -> 0 }
                 store.save(store.load().copy(rotateMode = next))
                 CoverRotateState.contentFallback = false
@@ -694,7 +709,7 @@ object CoverControlCenterManager {
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
         tileRow("Wi-Fi", R.drawable.ic_sec_wifi) { runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_sec_bluetooth) { runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet", R.drawable.ic_sec_mobiledata) { runCatching { QuickControls.openInternetPanel(ctx) } }
+        tileRow("Internet", R.drawable.ic_sec_mobiledata) { runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
         tileRow("NFC", R.drawable.ic_sec_nfc) { runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa", R.drawable.ic_sec_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
@@ -702,23 +717,23 @@ object CoverControlCenterManager {
         tileRow("CĐ nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", R.drawable.ic_sec_settings) { runCatching { QuickControls.openDeviceSettings(ctx) } }
         var sortLabel: TextView? = null
-        val sortTile = tileWithLabel("⇅", "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
+        val sortTile = tileWithLabel(R.drawable.ic_cflip_sort, "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()
             val next = (cur.sortMode + 1) % 3
             store.save(cur.copy(sortMode = next))
             sortLabel?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
         }
         sortLabel = sortTile.second
-        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         var colLabel: TextView? = null
-        val colTile = tileWithLabel("▤", "Cột ${store.load().columns}") {
+        val colTile = tileWithLabel(R.drawable.ic_cflip_columns, "Cột ${store.load().columns}") {
             val cur = store.load()
             val next = when (cur.columns) { 0 -> 3; 3 -> 4; 4 -> 5; 5 -> 6; else -> 0 }
             store.save(cur.copy(columns = next))
             colLabel?.text = "Cột $next"
         }
         colLabel = colTile.second
-        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", "Aa") {
             val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
         }
@@ -730,9 +745,17 @@ object CoverControlCenterManager {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
             } else {
+                // vc32: previously this tile only stopped or toasted.
+                // Now it starts the permission flow (like 9Flip's
+                // MirrorPermissionActivity): the system capture dialog
+                // appears on the main display, so unfold to approve.
+                hide()
                 android.widget.Toast.makeText(
-                    ctx, "Mở Mirror từ tab Điều khiển (cần xin quyền ghi màn hình)",
-                    android.widget.Toast.LENGTH_SHORT).show()
+                    ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
+                    android.widget.Toast.LENGTH_LONG).show()
+                ctx.applicationContext.startActivity(
+                    Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
         tileCard.addView(grid)

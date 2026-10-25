@@ -72,6 +72,27 @@ object QuickControls {
     fun openInternetPanel(context: Context) {
         context.startActivity(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    // vc32: Panel.ACTION_INTERNET_CONNECTIVITY from a cover-display
+    // context fails silently on Samsung (panel tries to open on the
+    // folded cover, or is rejected, and runCatching swallows it).
+    // 9Flip instead opens Settings activities with fallbacks, so do
+    // the same from the application context (main display): Wi-Fi
+    // settings first, then data-usage, then wireless settings.
+    fun openInternetSettings(context: Context) {
+        val appCtx = context.applicationContext
+        val candidates = listOf(
+            Intent(Settings.ACTION_WIFI_SETTINGS),
+            Intent(Settings.ACTION_DATA_USAGE_SETTINGS),
+            Intent(Settings.ACTION_WIRELESS_SETTINGS),
+        )
+        for (intent in candidates) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (intent.resolveActivity(appCtx.packageManager) != null) {
+                appCtx.startActivity(intent); return
+            }
+        }
+        appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
     fun openBluetoothSettings(context: Context) {
         context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }

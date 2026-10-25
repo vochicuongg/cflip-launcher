@@ -156,7 +156,8 @@ object CoverAssistiveTouchManager {
         btn.setOnTouchListener { v, e ->
             // 3.3.0: every touch on the cover button resets the cover
             // idle timer via keepScreenOn (see pokeKeepAwake above).
-            if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) pokeKeepAwake()
+            // vc32: poke only on DOWN, not on every MOVE (handler churn per move event was part of the stutter).
+            if (e.action == MotionEvent.ACTION_DOWN) pokeKeepAwake()
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     btn.alpha = 1f
@@ -173,12 +174,19 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (e.rawX - downX).toInt(); val dy = (e.rawY - downY).toInt()
-                    if (abs(dx) + abs(dy) > touchSlop) {
+                    // vc32: Euclidean distance (like 9Flip c1 hypot),
+                    // not Manhattan; keep float until the final round
+                    // (toInt() truncated toward zero and stepped unevenly).
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (kotlin.math.hypot(dx, dy) > touchSlop) {
                         if (!moved) { cancelTapRunnables(); moved = true }
-                        params.x = (paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
-                        params.y = (paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
-                        runCatching { manager.updateViewLayout(v, params) }
+                        val newX = kotlin.math.roundToInt(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
+                        val newY = kotlin.math.roundToInt(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
+                        // Skip redundant relayouts (9Flip b6 does the same).
+                        if (newX != params.x || newY != params.y) {
+                            params.x = newX; params.y = newY
+                            runCatching { manager.updateViewLayout(v, params) }
+                        }
                     }
                     true
                 }

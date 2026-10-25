@@ -38,6 +38,15 @@
             </intent-filter>
         </activity>
 
+        <!-- vc32: MediaProjection permission activity for the panel Mirror
+             tile (like 9Flip's MirrorPermissionActivity in architecture).
+             Translucent, no UI of its own — only the system capture dialog
+             shows, on the main display. Not exported. -->
+        <activity
+            android:name=".mirror.MirrorPermissionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Keeps cover-related work alive while the phone is folded -->
         <service
             android:name=".service.CoverForegroundService"
