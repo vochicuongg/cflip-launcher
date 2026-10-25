@@ -180,8 +180,8 @@ object CoverAssistiveTouchManager {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (kotlin.math.hypot(dx, dy) > touchSlop) {
                         if (!moved) { cancelTapRunnables(); moved = true }
-                        val newX = kotlin.math.roundToInt(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
-                        val newY = kotlin.math.roundToInt(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
+                        val newX = Math.round(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
+                        val newY = Math.round(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
                         // Skip redundant relayouts (9Flip b6 does the same).
                         if (newX != params.x || newY != params.y) {
                             params.x = newX; params.y = newY
