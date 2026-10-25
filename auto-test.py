@@ -48,8 +48,8 @@ check("No silent a11y()?.lock/open calls remain",
       "a11y()?.lockScreen()" not in cc and "a11y()?.openRecents()" not in cc)
 check("Panel brightness clamp 13-255 present",
       "coerceIn(13, 255)" in cc)
-check("Panel brightness missing-grant label present",
-      "chưa cấp quyền Sửa cài đặt" in cc)
+check("Panel brightness label now explains panel vs system (3.2.0, system grant label retired)",
+      "Độ sáng panel" in cc)
 check("Panel Rotate re-applies cover after saving (old 2.7.0 check, superseded by RotateHost in section 7)",
       True)  # covered by section 7: CoverRotateHostManager.apply in cc
 check("Panel auto-dismiss 60s present", "60_000L" in cc)
@@ -64,7 +64,7 @@ ov = cc  # panel source, for the widget checks below
 check("Panel Apps tab is the full app-list widget", "Ứng dụng" in ov and "AppLauncher.launch" in ov)
 check("Panel app list follows sortMode", "sortMode" in ov)
 check("Panel app list follows columns setting", "settings.columns" in ov)
-check("Panel rotates content only under fallback flag", "CoverRotateState.contentFallback" in ov and "outer.rotation" in ov)
+check("Panel does NOT rotate its own content alone (3.2.0)", "outer.rotation" not in cc)
 check("Panel Control tab has Music card", "MediaControllerRepository" in ov)
 
 # --- 4. Settings + MainScreen controls ---
@@ -126,13 +126,13 @@ check("RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 check("RotateHost has FULL_SENSOR pulse 220ms", "FULL_SENSOR" in rh and "220" in rh)
 check("RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE", "FLAG_NOT_TOUCHABLE" in rh and "FLAG_NOT_FOCUSABLE" in rh)
 check("RotateHost removed when service destroyed", "CoverRotateHostManager.remove()" in read("service/CoverForegroundService.kt"))
-check("Service applies RotateHost on cover show", "CoverRotateHostManager.apply" in svc)
+check("Service applies rotate mode (pulse for FOLLOW, remove for LOCK)", "CoverRotateHostManager.pulse" in svc and "CoverRotateHostManager.remove()" in svc)
 check("Panel has 4 tabs", all(x in cc for x in ['"Điều khiển"', '"Thông báo"', '"Ứng dụng"', '"CFlip"']))
 check("Panel CFlip tab opens MainActivity", "MainActivity::class.java" in cc)
 check("Panel Notifications tab lists all notifications", "NotificationState.active.value" in cc)
 check("Panel Apps tab launches on cover display", "AppLauncher.launch" in cc)
-check("Panel Rotate tile uses RotateHost, not overlay re-show",
-      "CoverRotateHostManager.apply" in cc)
+check("Panel Rotate uses host pulse, not overlay re-show",
+      "CoverRotateHostManager.pulse" in cc)
 
 # --- 8. Modern AssistiveTouch design (2.9.0) ---
 at2 = read("cover/CoverAssistiveTouch.kt")
@@ -146,18 +146,18 @@ check("Panel sliders use mint tint", "progressTintList" in cc2 and "thumbTintLis
 check("Panel has modern primary button helper", "modernButton" in cc2)
 
 # --- 9. Brightness / rotate fixes + replacement interface (2.10.0) ---
-check("Brightness grant uses main-display package Uri, not cover displayContext",
-      "openWriteSettingsPermission(ctx.applicationContext)" in cc2)
-check("Brightness applies live on drag, not only on release",
-      "onProgressChanged" in cc2 and "setBrightness(ctx, v)" in cc2)
+check("Panel brightness no longer needs system grant (panel window brightness, 3.2.0)",
+      "panelBrightnessManual" in cc2)
+check("Panel brightness applies live on drag via panel window",
+      "onProgressChanged" in cc2 and "applyPanelBrightness" in cc2)
 check("SeekBar drag is not stolen by ScrollView",
       "requestDisallowInterceptTouchEvent" in cc2)
 check("Panel no longer restores Overlay (3.0.0: no overlay to restore)",
       "CoverOverlayManager" not in cc2)
 check("Rotate verifies display.rotation after 600ms and falls back",
       "rotationBefore" in cc2 and "contentFallback" in cc2 and "600" in cc2)
-check("Panel rotates content only when fallback is on",
-      "CoverRotateState.contentFallback" in ov)
+check("Panel does NOT rotate its own content alone (3.2.0)",
+      "outer.rotation" not in cc2)
 check("RotateState flag exists in RotateHost",
       "CoverRotateState" in rh)
 
@@ -169,7 +169,7 @@ check("CoverOverlay.kt deleted locally (only AssistiveTouch remains)",
       not os.path.exists(str(SRC / "cover/CoverOverlay.kt")))
 svc = read("service/CoverForegroundService.kt")
 check("Service never uses CoverPresentation class", "CoverPresentation" not in svc)
-check("Service shows only AssistiveTouch + RotateHost", "CoverAssistiveTouchManager.show" in svc and "CoverRotateHostManager.apply" in svc)
+check("Service shows only AssistiveTouch + rotate host (pulse/remove)", "CoverAssistiveTouchManager.show" in svc and ("CoverRotateHostManager.pulse" in svc or "CoverRotateHostManager.remove()" in svc))
 check("Service never shows Overlay", "CoverOverlayManager" not in svc)
 check("MainScreen never uses CoverPresentation class", "CoverPresentation" not in read("ui/MainScreen.kt"))
 check("Panel never restores Overlay", "CoverOverlayManager" not in cc2)
@@ -186,11 +186,32 @@ check("MainScreen pins widgets via requestPinAppWidget, not forced placement",
 check("MainScreen has no leftover Presentation variable", "presentation" not in ms2)
 check("Panel renders widgets only when user chose them",
       "coverWidgets" in cc2 and "Chưa thêm Widget" in cc2)
-check("Panel widget section offers to open CFlip to add a widget",
-      "Mở CFlip để thêm Widget" in cc2)
+check("Panel widget section offers direct add on cover (3.2.0, no main jump)",
+      "Thêm Widget Đồng hồ" in cc2)
 
 # --- 12. Build fix 3.1.1: initialTab must reach buildPanel ---
 check("Panel show() passes initialTab to buildPanel",
       "buildPanel(displayContext, display, initialTab)" in cc2)
 check("Panel buildPanel() declares initialTab parameter",
       "buildPanel(ctx: Context, display: Display, initialTab" in cc2)
+
+# --- 13. Widget on cover + rotate 2 modes + panel brightness + volume no-popup (3.2.0) ---
+check("Widget add buttons exist on cover panel, not only on main",
+      "Thêm Widget Đồng hồ" in cc2 and "Thêm Widget Lưới app" in cc2)
+check("Widget add on cover refreshes panel in place, no main jump",
+      "CoverControlCenterManager.show(ctx.applicationContext, display, 0)" in cc2)
+check("Samsung cover widget settings ComponentName from 9Flip decompile",
+      "com.samsung.android.app.aodservice" in cc2 and "SubLauncherMultiWidgetSettingsActivity" in cc2)
+check("Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel",
+      "Xoay theo hướng lật" in cc2 and "Khóa xoay" in cc2 and "coverRotation" not in cc2)
+check("Rotate FOLLOW uses FULL_SENSOR pulse", "CoverRotateHostManager.pulse" in cc2)
+check("Rotate LOCK removes host", "CoverRotateHostManager.remove()" in cc2)
+check("SettingsStore has rotateMode", "rotateMode" in ss)
+check("Panel brightness uses panel window, not system Settings",
+      "panelBrightnessManual" in cc2 and "applyPanelBrightness" in cc2 and "QuickControls.setBrightness" not in cc2)
+check("Panel brightness clamp 0.05-1.0 like 9Flip", "coerceIn(0.05f, 1.0f)" in cc2)
+check("Panel brightness slider alpha 0.42 when not manual, like 9Flip p6",
+      "0.42f" in cc2)
+check("Volume uses flag 0, no Samsung popup",
+      "setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)" in read("control/QuickControls.kt"))
+check("Volume mute/restore button exists in panel", "Tắt tiếng / Khôi phục" in cc2)

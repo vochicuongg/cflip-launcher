@@ -59,6 +59,16 @@ object CoverControlCenterManager {
 
     private var wm: WindowManager? = null
     private var view: View? = null
+    private var panelParams: WindowManager.LayoutParams? = null
+
+    /** Apply the panel's own brightness (3.2.0, 9Flip p6/t6 model). */
+    fun applyPanelBrightness(appContext: Context) {
+        val params = panelParams; val v = view; val manager = wm
+        if (params == null || v == null || manager == null) return
+        val st = SettingsStore(appContext).load()
+        params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+        runCatching { manager.updateViewLayout(v, params) }
+    }
     private val handler = Handler(Looper.getMainLooper())
     private var dismissRunnable: Runnable? = null
     // 3.0.0: no cover overlay to restore — Presentation and the
@@ -84,7 +94,13 @@ object CoverControlCenterManager {
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
         manager.addView(root, params)
-        wm = manager; view = root
+        wm = manager; view = root; panelParams = params
+        // Panel brightness from the saved manual value, or -1 (system).
+        runCatching {
+            val st = SettingsStore(appContext).load()
+            params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+            manager.updateViewLayout(root, params)
+        }
         scheduleDismiss()
         Log.i(TAG, "Control Center shown on display ${display.displayId}")
         Unit
@@ -100,7 +116,7 @@ object CoverControlCenterManager {
         val v = view
         if (v != null) {
             runCatching { wm?.removeView(v) }
-            view = null; wm = null
+            view = null; wm = null; panelParams = null
             Log.i(TAG, "Control Center hidden")
         }
     }
@@ -235,20 +251,9 @@ object CoverControlCenterManager {
             setTextColor(0xFFFFFFFF.toInt())
         })
         outer.addView(tabBar); outer.addView(scroll)
-        // Fallback rotation, in sync with the overlay (2.10.0).
-        if (CoverRotateState.contentFallback) {
-            val rotation = store.load().coverRotation
-            if (rotation != 0) {
-                outer.post {
-                    outer.rotation = rotation.toFloat()
-                    if (rotation % 180 != 0 && outer.width > 0 && outer.height > 0) {
-                        val sc = minOf(outer.width, outer.height).toFloat() /
-                            maxOf(outer.width, outer.height).toFloat()
-                        outer.scaleX = sc; outer.scaleY = sc
-                    }
-                }
-            }
-        }
+        // 3.2.0: no content rotation here. Rotation is the display-level
+        // host (FOLLOW pulse / LOCK remove), never a single View's
+        // rotation, so the panel cannot rotate alone like in 2.7.0.
         selectTab(initialTab.coerceIn(0, 3))
 
         // ---- User-added Widgets (3.1.0, NOT forced) ----
@@ -265,15 +270,48 @@ object CoverControlCenterManager {
             widgetCard.addView(title("Widget đã thêm"))
             if (chosen.isEmpty()) {
                 widgetCard.addView(TextView(ctx).apply {
-                    text = "Chưa thêm Widget nào. Widget chỉ hiện khi bạn tự thêm ở CFlip trên màn hình chính."
+                    text = "Chưa thêm Widget nào. Bấm một nút dưới đây để thêm ngay trên màn phụ — không nhảy sang màn hình chính."
                     textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                 })
-                widgetCard.addView(modernButton("Mở CFlip để thêm Widget").apply {
+                fun addWidgetOnCover(key: String, label: String) {
+                    val cur = store.load()
+                    val next = (cur.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet() + key).sorted().joinToString(",")
+                    store.save(cur.copy(coverWidgets = next))
+                    // Refresh the panel in place on the cover, so the
+                    // new widget card appears here, not on main home.
+                    hidePanelOnly()
+                    CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                }
+                widgetCard.addView(modernButton("Thêm Widget Đồng hồ", true).apply {
+                    setOnClickListener { addWidgetOnCover("clock", "Đồng hồ") }
+                })
+                widgetCard.addView(modernButton("Thêm Widget Lưới app").apply {
+                    setOnClickListener { addWidgetOnCover("appgrid", "Lưới app") }
+                })
+                // 9Flip decompile (o6/n0 openCoverWidgetSettings): the
+                // correct Samsung cover-widget flow is NOT pinning to
+                // main home. It opens Samsung's own cover widget settings
+                // (aodservice SubLauncherMultiWidgetSettingsActivity),
+                // where the user adds the Widget Launcher to the cover.
+                // That page lives on the main display by Samsung's
+                // design — it is labelled as such, so it is not a
+                // mistaken jump to main home. If the activity does not
+                // exist, show 9Flip's unsupported toast equivalent.
+                widgetCard.addView(modernButton("Mở Cài đặt Widget màn phụ Samsung").apply {
                     setOnClickListener {
-                        ctx.applicationContext.startActivity(
-                            Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        hide()
+                        val intent = Intent().apply {
+                            component = android.content.ComponentName(
+                                "com.samsung.android.app.aodservice",
+                                "com.samsung.android.app.subui.settings.multiwidget.SubLauncherMultiWidgetSettingsActivity")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        if (intent.resolveActivity(ctx.packageManager) == null) {
+                            android.widget.Toast.makeText(
+                                ctx, "Thiết bị này không hỗ trợ Cài đặt Widget màn phụ Samsung.",
+                                android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            ctx.applicationContext.startActivity(intent)
+                        }
                     }
                 })
             } else {
@@ -335,6 +373,37 @@ object CoverControlCenterManager {
                     })
                 }
             }
+            if (chosen.isNotEmpty()) {
+                if ("clock" !in chosen) {
+                    widgetCard.addView(modernButton("Thêm Widget Đồng hồ").apply {
+                        setOnClickListener {
+                            val cur = store.load()
+                            val next = (cur.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet() + "clock").sorted().joinToString(",")
+                            store.save(cur.copy(coverWidgets = next))
+                            hidePanelOnly()
+                            CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                        }
+                    })
+                }
+                if ("appgrid" !in chosen) {
+                    widgetCard.addView(modernButton("Thêm Widget Lưới app").apply {
+                        setOnClickListener {
+                            val cur = store.load()
+                            val next = (cur.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet() + "appgrid").sorted().joinToString(",")
+                            store.save(cur.copy(coverWidgets = next))
+                            hidePanelOnly()
+                            CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                        }
+                    })
+                }
+                widgetCard.addView(modernButton("Xóa tất cả Widget đã thêm").apply {
+                    setOnClickListener {
+                        store.save(store.load().copy(coverWidgets = ""))
+                        hidePanelOnly()
+                        CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                    }
+                })
+            }
             controlContent.addView(widgetCard)
         }
 
@@ -354,63 +423,97 @@ object CoverControlCenterManager {
         mediaCard.addView(mediaRow)
         controlContent.addView(mediaCard)
 
+        // 3.2.0 brightness: PANEL window brightness, not system.
+        // 9Flip decompile (p6/t6): own manual value clamp 0.05–1.0,
+        // applied as panel window screenBrightness, or -1 (system)
+        // when manual is off (slider alpha 0.42 when off, 1.0 when on).
+        // The old system-brightness slider never moved the cover
+        // because Samsung's cover brightness is not Settings.System.
         val sliderCard = card()
-        sliderCard.addView(title("Độ sáng"))
+        sliderCard.addView(title("Độ sáng panel màn phụ"))
         val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
         fun refreshBrightLabel() {
-            val pct = QuickControls.brightness(ctx) * 100 / 255
-            brightLabel.text = if (QuickControls.canWriteSettings(ctx)) {
-                "Độ sáng: $pct% (kéo rồi thả để áp dụng)"
+            val st = store.load()
+            brightLabel.text = if (st.panelBrightnessManual) {
+                "Độ sáng panel: ${(st.panelBrightness * 100).toInt()}% (thủ công — chỉ panel này, không phải độ sáng hệ thống)"
             } else {
-                "Độ sáng: chưa cấp quyền Sửa cài đặt — bấm vào đây để cấp"
+                "Độ sáng panel: Theo hệ thống — bấm nút dưới để chỉnh thủ công cho panel"
             }
         }
         refreshBrightLabel()
-        brightLabel.setOnClickListener {
-            if (!QuickControls.canWriteSettings(ctx)) {
-                QuickControls.openWriteSettingsPermission(ctx.applicationContext)
-            }
-        }
         sliderCard.addView(brightLabel)
-        sliderCard.addView(mintSeekBar().apply {
+        var brightBar: SeekBar? = null
+        fun refreshBrightBar() {
+            val st = store.load()
+            brightBar?.isEnabled = st.panelBrightnessManual
+            brightBar?.alpha = if (st.panelBrightnessManual) 1.0f else 0.42f
+            brightBar?.progress = (st.panelBrightness * 255).toInt().coerceIn(13, 255)
+        }
+        sliderCard.addView(modernButton("Chuyển sang Thủ công / Về Theo hệ thống").apply {
+            setOnClickListener {
+                val cur = store.load()
+                val nextManual = !cur.panelBrightnessManual
+                store.save(cur.copy(panelBrightnessManual = nextManual))
+                applyPanelBrightness(ctx.applicationContext)
+                refreshBrightLabel(); refreshBrightBar(); resetTimer()
+            }
+        })
+        brightBar = mintSeekBar().apply {
             max = 255
-            progress = QuickControls.brightness(ctx).coerceIn(13, 255)
+            progress = (store.load().panelBrightness * 255).toInt().coerceIn(13, 255)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
                     if (!fromUser) return
-                    val v = p.coerceIn(13, 255)
-                    if (QuickControls.canWriteSettings(ctx)) {
-                        QuickControls.setBrightness(ctx, v)
-                        brightLabel.text = "Độ sáng: ${v * 100 / 255}%"
-                    }
+                    val cur = store.load()
+                    if (!cur.panelBrightnessManual) return
+                    val v = (p / 255f).coerceIn(0.05f, 1.0f)
+                    store.save(cur.copy(panelBrightness = v))
+                    applyPanelBrightness(ctx.applicationContext)
+                    brightLabel.text = "Độ sáng panel: ${(v * 100).toInt()}% (thủ công)"
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {
-                    val v = (s?.progress ?: 125).coerceIn(13, 255)
-                    if (!QuickControls.setBrightness(ctx, v)) {
-                        android.widget.Toast.makeText(
-                            ctx, "Chưa cấp quyền Sửa cài đặt nên chưa đổi được độ sáng — bấm vào dòng độ sáng để cấp quyền trên màn hình chính",
-                            android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                    refreshBrightLabel(); resetTimer()
-                }
+                override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
             })
-        })
+        }
+        sliderCard.addView(brightBar)
+        refreshBrightBar()
 
+        // 3.2.0 volume: CFlip's own bar, flag 0 (no Samsung popup).
+        // Mute restores to saved volume, else ~45% of max (9Flip formula).
         sliderCard.addView(title("Âm lượng"))
-        val (vol, volMax) = QuickControls.volume(ctx)
+        val volLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
+        fun refreshVolLabel() {
+            val (v, m) = QuickControls.volume(ctx)
+            volLabel.text = "Âm lượng nhạc: $v / $m" + if (v == 0) " (đang tắt tiếng)" else ""
+        }
+        refreshVolLabel()
+        sliderCard.addView(volLabel)
         sliderCard.addView(mintSeekBar().apply {
+            val (vol, volMax) = QuickControls.volume(ctx)
             max = volMax.coerceAtLeast(1)
             progress = vol.coerceIn(0, max)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    if (fromUser) QuickControls.setVolume(ctx, p)
+                    if (fromUser) { QuickControls.setVolume(ctx, p); refreshVolLabel() }
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {
-                    QuickControls.setVolume(ctx, s?.progress ?: 0); resetTimer()
-                }
+                override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
             })
+        })
+        sliderCard.addView(modernButton("Tắt tiếng / Khôi phục").apply {
+            setOnClickListener {
+                val (v, m) = QuickControls.volume(ctx)
+                val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                if (v > 0) {
+                    prefs.edit().putInt("saved_volume", v).apply()
+                    QuickControls.setVolume(ctx, 0)
+                } else {
+                    val saved = prefs.getInt("saved_volume", -1)
+                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt() + 0).coerceIn(1, m)
+                    QuickControls.setVolume(ctx, restore)
+                }
+                refreshVolLabel(); resetTimer()
+            }
         })
 
         controlContent.addView(sliderCard)
@@ -452,44 +555,60 @@ object CoverControlCenterManager {
         tileRow("TB", "🔔") { a11yAction("Thông báo") { it.openNotifications() } }
         tileRow("CĐ nhanh", "⚡") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", "⚙️") { runCatching { QuickControls.openDeviceSettings(ctx) } }
-        // Rotate, 2.10.0: whole-display rotation via CoverRotateHostManager
-        // (1x1 screenOrientation overlay) FIRST, then verified: if the
-        // display's rotation has not moved after 600ms, Samsung ignored
-        // the host (the 2.9.0 failure), so CFlip falls back to rotating
-        // all of its own windows in sync and says so. Either way the
-        // panel closes and the cover interface returns, now rotated.
-        var rotateLabel: TextView? = null
-        val rotateTile = tileWithLabel("↻", "Xoay ${store.load().coverRotation}°") {
-            val cur = store.load()
-            val next = when (cur.coverRotation) { 0 -> 90; 90 -> 180; 180 -> 270; else -> 0 }
-            store.save(cur.copy(coverRotation = next))
-            rotateLabel?.text = "Xoay ${next}°"
-            val rotationBefore = display.rotation
-            CoverRotateHostManager.apply(ctx.applicationContext, display)
-            hide()
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (display.rotation == rotationBefore) {
-                    // Host ignored: fall back to synced content rotation.
-                    CoverRotateState.contentFallback = true
-                    android.widget.Toast.makeText(
-                        ctx.applicationContext,
-                        "Samsung không nhận ép hướng hệ thống, CFlip đã xoay giao diện của mình sang ${next}° thay thế",
-                        android.widget.Toast.LENGTH_LONG).show()
-                } else {
-                    CoverRotateState.contentFallback = false
-                    android.widget.Toast.makeText(
-                        ctx.applicationContext,
-                        "Đã xoay toàn màn phụ sang ${next}°",
-                        android.widget.Toast.LENGTH_SHORT).show()
-                }
+        // Rotate, 3.2.0 — ONLY two modes, per user request.
+        // Decompile (9Flip rotate host a(int)/h()): a 1x1 overlay with
+        // screenOrientation forces the display, and h() pulses
+        // FULL_SENSOR for 220ms then removes the view. CFlip uses
+        // exactly that, but only in two modes:
+        //  - FOLLOW (0): pulse FULL_SENSOR 220ms so the cover follows
+        //    the direction the phone is flipped, then release.
+        //  - LOCK (1, default): remove the host, so the cover stays
+        //    locked at its current orientation.
+        // The old 0/90/180/270 cycle is deleted — it only ever rotated
+        // CFlip's own Views, which is why the user correctly saw it
+        // rotating "only AssistiveTouch" (one View, not the display).
+        // These two buttons are in the tile card, below the grid, so
+        // they are not confused with a per-View rotation tile.
+        tileCard.addView(modernButton("Xoay theo hướng lật", store.load().rotateMode == 0).apply {
+            setOnClickListener {
+                store.save(store.load().copy(rotateMode = 0))
+                CoverRotateState.contentFallback = false
+                val rotationBefore = display.rotation
+                CoverRotateHostManager.pulse(ctx.applicationContext, display)
+                hide()
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (display.rotation == rotationBefore) {
+                        android.widget.Toast.makeText(
+                            ctx.applicationContext,
+                            "Đã gửi lệnh xoay theo hướng lật, nhưng Samsung không đổi hướng màn phụ — giữ nguyên hướng hiện tại.",
+                            android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        android.widget.Toast.makeText(
+                            ctx.applicationContext, "Màn phụ đã xoay theo hướng lật.",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                        CoverAssistiveTouchManager.hide()
+                        CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+                    }
+                }, 600)
+            }
+        })
+        tileCard.addView(modernButton("Khóa xoay ở hướng hiện tại", store.load().rotateMode == 1).apply {
+            setOnClickListener {
+                store.save(store.load().copy(rotateMode = 1))
+                CoverRotateState.contentFallback = false
+                CoverRotateHostManager.remove()
+                android.widget.Toast.makeText(
+                    ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
+                    android.widget.Toast.LENGTH_SHORT).show()
+                hide()
                 if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
                     CoverAssistiveTouchManager.hide()
                     CoverAssistiveTouchManager.show(ctx.applicationContext, display)
                 }
-            }, 600)
-        }
-        rotateLabel = rotateTile.second
-        grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+            }
+        })
         var sortLabel: TextView? = null
         val sortTile = tileWithLabel("⇅", "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()

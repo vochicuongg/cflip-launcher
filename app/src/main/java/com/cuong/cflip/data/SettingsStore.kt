@@ -28,6 +28,20 @@ data class CoverSettings(
     // (Music stays a Control tab control, not a widget, to avoid
     // duplicating it.) Stored as a comma-separated string.
     val coverWidgets: String = "",
+    // 3.2.0 rotate, simplified per user request (decompile: 9Flip's
+    // rotateMode is AUTO/MANUAL/OFF in code, but the user only wants
+    // two: 0 = FOLLOW (follow the flip direction, sensor pulse),
+    // 1 = LOCK (lock at the current orientation). coverRotation
+    // (0/90/180/270 cycle) is retired — it only rotated one View.
+    val rotateMode: Int = 1,
+    // 3.2.0 panel brightness, per 9Flip decompile (p6/t6): 9Flip does
+    // NOT write Settings.System for its panel. It keeps its own manual
+    // brightness value (clamp 0.05–1.0) and applies it as the panel
+    // window's screenBrightness, or -1 (follow system) when manual is
+    // off. CFlip now does the same, so the slider actually shows on
+    // the cover instead of silently failing on system brightness.
+    val panelBrightnessManual: Boolean = false,
+    val panelBrightness: Float = 0.72f,
 )
 
 object BackgroundStyles {
@@ -54,6 +68,9 @@ class SettingsStore(context: Context) {
         assistiveTouchSize = prefs.getInt("assistiveTouchSize", 1),
         assistiveTouchAutoDim = prefs.getBoolean("assistiveTouchAutoDim", true),
         coverWidgets = prefs.getString("coverWidgets", "") ?: "",
+        rotateMode = prefs.getInt("rotateMode", 1),
+        panelBrightnessManual = prefs.getBoolean("panelBrightnessManual", false),
+        panelBrightness = prefs.getFloat("panelBrightness", 0.72f),
     )
 
     fun save(s: CoverSettings) {
@@ -72,6 +89,9 @@ class SettingsStore(context: Context) {
             .putInt("assistiveTouchSize", s.assistiveTouchSize)
             .putBoolean("assistiveTouchAutoDim", s.assistiveTouchAutoDim)
             .putString("coverWidgets", s.coverWidgets)
+            .putInt("rotateMode", s.rotateMode)
+            .putBoolean("panelBrightnessManual", s.panelBrightnessManual)
+            .putFloat("panelBrightness", s.panelBrightness)
             .apply()
     }
 }

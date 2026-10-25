@@ -8,7 +8,7 @@ PASS - AssistiveTouch Menu opens Control Center panel, not only activity
 PASS - Panel has a11yAction helper with toast 
 PASS - No silent a11y()?.lock/open calls remain 
 PASS - Panel brightness clamp 13-255 present 
-PASS - Panel brightness missing-grant label present 
+PASS - Panel brightness label now explains panel vs system (3.2.0, system grant label retired) 
 PASS - Panel Rotate re-applies cover after saving (old 2.7.0 check, superseded by RotateHost in section 7) 
 PASS - Panel auto-dismiss 60s present 
 PASS - Panel has 5-column tile grid 
@@ -16,7 +16,7 @@ PASS - Panel banner removed in tabbed panel (notifications live in their own tab
 PASS - Panel Apps tab is the full app-list widget 
 PASS - Panel app list follows sortMode 
 PASS - Panel app list follows columns setting 
-PASS - Panel rotates content only under fallback flag 
+PASS - Panel does NOT rotate its own content alone (3.2.0) 
 PASS - Panel Control tab has Music card 
 PASS - SettingsStore persists assistiveTouchSize 
 PASS - SettingsStore persists assistiveTouchAutoDim 
@@ -36,12 +36,12 @@ PASS - RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 PASS - RotateHost has FULL_SENSOR pulse 220ms 
 PASS - RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE 
 PASS - RotateHost removed when service destroyed 
-PASS - Service applies RotateHost on cover show 
+PASS - Service applies rotate mode (pulse for FOLLOW, remove for LOCK) 
 PASS - Panel has 4 tabs 
 PASS - Panel CFlip tab opens MainActivity 
 PASS - Panel Notifications tab lists all notifications 
 PASS - Panel Apps tab launches on cover display 
-PASS - Panel Rotate tile uses RotateHost, not overlay re-show 
+PASS - Panel Rotate uses host pulse, not overlay re-show 
 PASS - AssistiveTouch button uses gradient + elevation 
 PASS - AssistiveTouch button uses bold mint letter 
 PASS - Panel uses rounded cards (GradientDrawable cornerRadius) 
@@ -49,17 +49,17 @@ PASS - Panel tiles are icon+label cards, not grey buttons
 PASS - Panel has pill tab bar (rounded 24) 
 PASS - Panel sliders use mint tint 
 PASS - Panel has modern primary button helper 
-PASS - Brightness grant uses main-display package Uri, not cover displayContext 
-PASS - Brightness applies live on drag, not only on release 
+PASS - Panel brightness no longer needs system grant (panel window brightness, 3.2.0) 
+PASS - Panel brightness applies live on drag via panel window 
 PASS - SeekBar drag is not stolen by ScrollView 
 PASS - Panel no longer restores Overlay (3.0.0: no overlay to restore) 
 PASS - Rotate verifies display.rotation after 600ms and falls back 
-PASS - Panel rotates content only when fallback is on 
+PASS - Panel does NOT rotate its own content alone (3.2.0) 
 PASS - RotateState flag exists in RotateHost 
 PASS - CoverPresentation.kt deleted locally 
 PASS - CoverOverlay.kt deleted locally (only AssistiveTouch remains) 
 PASS - Service never uses CoverPresentation class 
-PASS - Service shows only AssistiveTouch + RotateHost 
+PASS - Service shows only AssistiveTouch + rotate host (pulse/remove) 
 PASS - Service never shows Overlay 
 PASS - MainScreen never uses CoverPresentation class 
 PASS - Panel never restores Overlay 
@@ -69,6 +69,18 @@ PASS - MainScreen has widget toggles (appgrid/clock)
 PASS - MainScreen pins widgets via requestPinAppWidget, not forced placement 
 PASS - MainScreen has no leftover Presentation variable 
 PASS - Panel renders widgets only when user chose them 
-PASS - Panel widget section offers to open CFlip to add a widget 
+PASS - Panel widget section offers direct add on cover (3.2.0, no main jump) 
 PASS - Panel show() passes initialTab to buildPanel 
 PASS - Panel buildPanel() declares initialTab parameter 
+PASS - Widget add buttons exist on cover panel, not only on main 
+PASS - Widget add on cover refreshes panel in place, no main jump 
+PASS - Samsung cover widget settings ComponentName from 9Flip decompile 
+PASS - Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel 
+PASS - Rotate FOLLOW uses FULL_SENSOR pulse 
+PASS - Rotate LOCK removes host 
+PASS - SettingsStore has rotateMode 
+PASS - Panel brightness uses panel window, not system Settings 
+PASS - Panel brightness clamp 0.05-1.0 like 9Flip 
+PASS - Panel brightness slider alpha 0.42 when not manual, like 9Flip p6 
+PASS - Volume uses flag 0, no Samsung popup 
+PASS - Volume mute/restore button exists in panel 

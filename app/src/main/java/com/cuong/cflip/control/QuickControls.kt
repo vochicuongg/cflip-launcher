@@ -39,7 +39,11 @@ object QuickControls {
 
     fun setVolume(context: Context, value: Int) {
         val am = context.getSystemService(AudioManager::class.java) ?: return
-        runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, value, AudioManager.FLAG_SHOW_UI) }
+        // 3.2.0: flag 0, like 9Flip's ve.java setStreamVolume(3, v, 0).
+        // FLAG_SHOW_UI used to pop Samsung's own volume panel on the
+        // main display over the cover — that was the "Samsung sound bar"
+        // the user saw. CFlip's own slider is the bar now, no popup.
+        runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0) }
     }
 
     // ---- Brightness (needs "Modify system settings" grant for writing) ----
