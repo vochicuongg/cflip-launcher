@@ -1,4 +1,5 @@
 package com.cuong.cflip.cover
+import com.cuong.cflip.R
 
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,8 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.GridLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -450,10 +453,19 @@ object CoverControlCenterManager {
         mediaCard.addView(TextView(ctx).apply {
             text = mediaInfo?.title ?: "Chưa có nhạc"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
         })
+        // vc30 LOCAL-ONLY: media buttons use Samsung ic_sec drawables that
+        // exist only in the local samsung-icons-360-vc30 branch / D:\icons\sec_only.
+        // Do NOT push this file to main without replacing these with clean-room drawables.
+        fun mediaIconButton(iconRes: Int, primary: Boolean = false): ImageButton = ImageButton(ctx).apply {
+            setImageResource(iconRes)
+            setColorFilter(if (primary) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+            background = rounded(if (primary) mint else 0xFF23262B.toInt(), 24)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        mediaRow.addView(modernButton("⏮").apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(modernButton("⏯", true).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.playPause() } })
-        mediaRow.addView(modernButton("⏭").apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.next() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_prev).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.previous() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_play, true).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.playPause() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_next).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.next() } })
         mediaCard.addView(mediaRow)
         controlContent.addView(mediaCard)
 
@@ -554,11 +566,13 @@ object CoverControlCenterManager {
         val tileCard = card()
         tileCard.addView(title("Đảo chức năng"))
         val grid = GridLayout(ctx).apply { columnCount = 5 }
-        // 3.6.0 Samsung QS style tiles (in code, no copied icons):
+        // vc30 LOCAL-ONLY Samsung QS style tiles:
         // a 48dp circle + label below. Off = dark slate circle + white
-        // symbol, On = mint circle + black symbol, like Samsung's Quick
-        // Settings tiles. Symbols are generic Unicode, not Samsung's or
-        // 9Flip's ic_control_* PNGs, which CFlip must not copy.
+        // icon, On = mint circle + black icon, like Samsung's Quick
+        // Settings tiles. The Int overloads below use Samsung ic_sec
+        // drawables that exist ONLY in the local branch (never push
+        // this file to main as-is). The String overloads are kept for
+        // sort / columns / labels tiles, which have no ic_sec icon.
         fun tileWithLabel(icon: String, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
             val labelView = TextView(ctx).apply {
                 text = label; textSize = 10f
@@ -593,9 +607,46 @@ object CoverControlCenterManager {
             grid.addView(tileWithLabel(icon, label, active, onClick).first,
                 GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
+        // Int overloads (vc30 local): same QS circle, but an ImageView
+        // drawable instead of a Unicode TextView symbol.
+        fun tileWithLabel(iconRes: Int, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
+            val labelView = TextView(ctx).apply {
+                text = label; textSize = 10f
+                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+            }
+            val circle = ImageView(ctx).apply {
+                setImageResource(iconRes)
+                setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            }
+            val cardView = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+                gravity = Gravity.CENTER
+                setOnClickListener { resetTimer(); onClick() }
+            }
+            cardView.addView(circle)
+            cardView.addView(labelView)
+            return cardView to labelView
+        }
+        fun tile(label: String, iconRes: Int, onClick: () -> Unit): LinearLayout =
+            tileWithLabel(iconRes, label, false, onClick).first
+        fun tileRow(label: String, iconRes: Int, onClick: () -> Unit) {
+            grid.addView(tile(label, iconRes, onClick),
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        }
+        fun tileRowActive(label: String, iconRes: Int, active: Boolean, onClick: () -> Unit) {
+            grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        }
         // 3.6.0: Rotate lives INSIDE the function island, as two tiles.
         // The old buttons below the grid are deleted.
-        tileRowActive("Theo lật", "↻", store.load().rotateMode == 0) {
+        tileRowActive("Theo lật", R.drawable.ic_sec_rotate, store.load().rotateMode == 0) {
             store.save(store.load().copy(rotateMode = 0))
             CoverRotateState.contentFallback = false
             val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
@@ -611,7 +662,7 @@ object CoverControlCenterManager {
                 CoverAssistiveTouchManager.show(ctx.applicationContext, display)
             }
         }
-        tileRowActive("Khóa xoay", "🔒", store.load().rotateMode == 1) {
+        tileRowActive("Khóa xoay", R.drawable.ic_sec_lock, store.load().rotateMode == 1) {
             store.save(store.load().copy(rotateMode = 1))
             CoverRotateState.contentFallback = false
             CoverRotateHostManager.lock(ctx.applicationContext, display)
@@ -624,16 +675,16 @@ object CoverControlCenterManager {
                 CoverAssistiveTouchManager.show(ctx.applicationContext, display)
             }
         }
-        tileRow("Đèn", "💡") { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
-        tileRow("Wi-Fi", "📶") { runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth", "🔷") { runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet", "🌐") { runCatching { QuickControls.openInternetPanel(ctx) } }
-        tileRow("NFC", "📲") { runCatching { QuickControls.openNfcPanel(ctx) } }
-        tileRow("Khóa", "🔒") { a11yAction("Khóa máy") { it.lockScreen() } }
-        tileRow("Gần đây", "▦") { a11yAction("Gần đây") { it.openRecents() } }
-        tileRow("TB", "🔔") { a11yAction("Thông báo") { it.openNotifications() } }
-        tileRow("CĐ nhanh", "⚡") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
-        tileRow("Cài đặt", "⚙️") { runCatching { QuickControls.openDeviceSettings(ctx) } }
+        tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
+        tileRow("Wi-Fi", R.drawable.ic_sec_wifi) { runCatching { QuickControls.openWifiPanel(ctx) } }
+        tileRow("Bluetooth", R.drawable.ic_sec_bluetooth) { runCatching { QuickControls.openBluetoothSettings(ctx) } }
+        tileRow("Internet", R.drawable.ic_sec_mobiledata) { runCatching { QuickControls.openInternetPanel(ctx) } }
+        tileRow("NFC", R.drawable.ic_sec_nfc) { runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRow("Khóa", R.drawable.ic_sec_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
+        tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
+        tileRow("TB", R.drawable.ic_sec_notification) { a11yAction("Thông báo") { it.openNotifications() } }
+        tileRow("CĐ nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
+        tileRow("Cài đặt", R.drawable.ic_sec_settings) { runCatching { QuickControls.openDeviceSettings(ctx) } }
         var sortLabel: TextView? = null
         val sortTile = tileWithLabel("⇅", "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()
@@ -655,10 +706,10 @@ object CoverControlCenterManager {
         tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", "Aa") {
             val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
         }
-        tileRow("Xóa ghim", "✕") {
+        tileRow("Xóa ghim", R.drawable.ic_sec_close) {
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
         }
-        tileRow("Mirror", "🪞") {
+        tileRow("Mirror", R.drawable.ic_sec_cast) {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
