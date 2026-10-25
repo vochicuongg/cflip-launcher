@@ -204,11 +204,18 @@ object CoverControlCenterManager {
                 setMargins(0, 0, 0, dp(8))
             }
         }
+        // vc33 Samsung-style slider (code only, no asset): thick track,
+        // white progress + white round thumb on a dark track, like One UI
+        // QS brightness/volume sliders. Previously mint-on-dark.
         fun mintSeekBar(): SeekBar = SeekBar(ctx).apply {
             runCatching {
-                progressTintList = android.content.res.ColorStateList.valueOf(mint)
-                thumbTintList = android.content.res.ColorStateList.valueOf(mint)
+                progressTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF3A3F45.toInt())
+                thumbTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
             }
+            minimumHeight = dp(28); maxHeight = dp(28)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(36))
             // Fix 2.10.0: a SeekBar inside a ScrollView loses horizontal
             // drags to the scroll container. Tell the parent not to
             // intercept while the thumb is being dragged.
@@ -486,14 +493,14 @@ object CoverControlCenterManager {
         // The old system-brightness slider never moved the cover
         // because Samsung's cover brightness is not Settings.System.
         val sliderCard = card()
-        sliderCard.addView(title("Độ sáng panel màn phụ"))
+        sliderCard.addView(title("Độ sáng cover"))
         val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
         fun refreshBrightLabel() {
             val st = store.load()
             brightLabel.text = if (st.panelBrightnessManual) {
-                "Độ sáng panel: ${(st.panelBrightness * 100).toInt()}% (thủ công — chỉ panel này, không phải độ sáng hệ thống)"
+                "Độ sáng cover: ${(st.panelBrightness * 100).toInt()}% (thủ công — giữ nguyên khi đóng panel, chỉ khi bong bóng còn trên cover)"
             } else {
-                "Độ sáng panel: Theo hệ thống — bấm nút dưới để chỉnh thủ công cho panel"
+                "Độ sáng cover: Theo hệ thống — bấm nút dưới để chỉnh thủ công cho cover"
             }
         }
         refreshBrightLabel()
@@ -511,6 +518,7 @@ object CoverControlCenterManager {
                 val nextManual = !cur.panelBrightnessManual
                 store.save(cur.copy(panelBrightnessManual = nextManual))
                 applyPanelBrightness(ctx.applicationContext)
+                CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
                 refreshBrightLabel(); refreshBrightBar(); resetTimer()
             }
         })
@@ -525,13 +533,26 @@ object CoverControlCenterManager {
                     val v = (p / 255f).coerceIn(0.05f, 1.0f)
                     store.save(cur.copy(panelBrightness = v))
                     applyPanelBrightness(ctx.applicationContext)
-                    brightLabel.text = "Độ sáng panel: ${(v * 100).toInt()}% (thủ công)"
+                    CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                    brightLabel.text = "Độ sáng cover: ${(v * 100).toInt()}% (thủ công)"
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
                 override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
             })
         }
-        sliderCard.addView(brightBar)
+        // vc33 Samsung row: sun icon + slider, like One UI QS.
+        sliderCard.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_sec_brightness)
+                setColorFilter(0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER_VERTICAL }
+            })
+            brightBar?.let { bar ->
+                bar.layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f)
+                addView(bar)
+            }
+        })
         refreshBrightBar()
 
         // 3.2.0 volume: CFlip's own bar, flag 0 (no Samsung popup).
@@ -544,7 +565,7 @@ object CoverControlCenterManager {
         }
         refreshVolLabel()
         sliderCard.addView(volLabel)
-        sliderCard.addView(mintSeekBar().apply {
+        val volBar = mintSeekBar().apply {
             val (vol, volMax) = QuickControls.volume(ctx)
             max = volMax.coerceAtLeast(1)
             progress = vol.coerceIn(0, max)
@@ -555,6 +576,16 @@ object CoverControlCenterManager {
                 override fun onStartTrackingTouch(s: SeekBar?) {}
                 override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
             })
+        }
+        sliderCard.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_sec_volume)
+                setColorFilter(0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER_VERTICAL }
+            })
+            volBar.layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f)
+            addView(volBar)
         })
         sliderCard.addView(modernButton("Tắt tiếng / Khôi phục").apply {
             setOnClickListener {
@@ -669,10 +700,14 @@ object CoverControlCenterManager {
                 else -> "Mặc định"
             }
             val rotateIcon = when (currentMode) {
-                1 -> R.drawable.ic_sec_lock
+                1 -> R.drawable.ic_cflip_lock
                 else -> R.drawable.ic_sec_rotate
             }
-            tileRowActive(rotateLabel, rotateIcon, currentMode != 2) {
+            // vc33: 9Flip toggle tiles re-render in place and do NOT close
+            // the panel. Previously CFlip closed the panel and hid+re-showed
+            // the bubble here, so the bubble could disappear entirely if
+            // re-show failed or assistiveTouchEnabled was off.
+            val rotateTile = tileWithLabel(rotateIcon, rotateLabel, currentMode != 2) {
                 val next = when (currentMode) { 0 -> 1; 1 -> 2; else -> 0 }
                 store.save(store.load().copy(rotateMode = next))
                 CoverRotateState.contentFallback = false
@@ -699,23 +734,31 @@ object CoverControlCenterManager {
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
-                hide()
-                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                    CoverAssistiveTouchManager.hide()
-                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
-                }
+                // vc33: panel stays open, bubble untouched. Update the
+                // tile itself in place so the new mode is visible immediately.
+                val newLabel = when (next) { 0 -> "Theo lật"; 1 -> "Khóa xoay"; else -> "Mặc định" }
+                val newIcon = if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate
+                val newActive = next != 2
+                rotateTile.second.text = newLabel
+                rotateTile.second.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
+                val circle = rotateTile.first.getChildAt(0) as ImageView
+                circle.setImageResource(newIcon)
+                circle.setColorFilter(if (newActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                (circle.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                    if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
+            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
-        tileRow("Wi-Fi", R.drawable.ic_sec_wifi) { runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth", R.drawable.ic_sec_bluetooth) { runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet", R.drawable.ic_sec_mobiledata) { runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
-        tileRow("NFC", R.drawable.ic_sec_nfc) { runCatching { QuickControls.openNfcPanel(ctx) } }
-        tileRow("Khóa", R.drawable.ic_sec_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
+        tileRow("Wi-Fi", R.drawable.ic_sec_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
+        tileRow("Bluetooth", R.drawable.ic_sec_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
+        tileRow("Internet", R.drawable.ic_sec_mobiledata) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
+        tileRow("NFC", R.drawable.ic_sec_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRow("Khóa", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("TB", R.drawable.ic_sec_notification) { a11yAction("Thông báo") { it.openNotifications() } }
         tileRow("CĐ nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
-        tileRow("Cài đặt", R.drawable.ic_sec_settings) { runCatching { QuickControls.openDeviceSettings(ctx) } }
+        tileRow("Cài đặt", R.drawable.ic_sec_settings) { hide(); runCatching { QuickControls.openDeviceSettings(ctx) } }
         var sortLabel: TextView? = null
         val sortTile = tileWithLabel(R.drawable.ic_cflip_sort, "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()

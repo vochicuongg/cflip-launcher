@@ -48,6 +48,7 @@ object CoverAssistiveTouchManager {
 
     private var wm: WindowManager? = null
     private var button: View? = null
+    private var bubbleParams: WindowManager.LayoutParams? = null
     private var displayId: Int = -1
     private val handler = Handler(Looper.getMainLooper())
     private var dimRunnable: Runnable? = null
@@ -71,6 +72,20 @@ object CoverAssistiveTouchManager {
     }
 
     fun isShown(): Boolean = button != null
+
+    // vc33 brightness holder: the bubble window itself carries
+    // screenBrightness while it is alive on the cover, so a brightness
+    // chosen in the panel does NOT revert when the panel closes.
+    // When the bubble is removed (phone unfolded), the window goes
+    // away and brightness returns to system — cover-only scope, no
+    // WRITE_SETTINGS, no effect on the main display.
+    fun applyCoverBrightness(appContext: Context) {
+        val params = bubbleParams; val v = button; val manager = wm
+        if (params == null || v == null || manager == null) return
+        val st = com.cuong.cflip.data.SettingsStore(appContext).load()
+        params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+        runCatching { manager.updateViewLayout(v, params) }
+    }
 
     fun show(appContext: Context, display: Display): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
@@ -174,12 +189,23 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    // vc33: cancel long-press on ANY move, not only after
+                    // slop. A slow swipe that paused under slop used to
+                    // fire Recents mid-drag and kill the drag.
+                    if (longPressRunnable != null) {
+                        handler.removeCallbacks(longPressRunnable!!)
+                        longPressRunnable = null
+                    }
                     // vc32: Euclidean distance (like 9Flip c1 hypot),
-                    // not Manhattan; keep float until the final round
-                    // (toInt() truncated toward zero and stepped unevenly).
+                    // not Manhattan; keep float until the final round.
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (kotlin.math.hypot(dx, dy) > touchSlop) {
-                        if (!moved) { cancelTapRunnables(); moved = true }
+                        if (!moved) {
+                            cancelTapRunnables(); moved = true
+                            // Elevation shadow is recomputed on every
+                            // updateViewLayout; drop it during drag.
+                            v.elevation = 0f
+                        }
                         val newX = Math.round(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
                         val newY = Math.round(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
                         // Skip redundant relayouts (9Flip b6 does the same).
@@ -192,6 +218,7 @@ object CoverAssistiveTouchManager {
                 }
                 MotionEvent.ACTION_UP -> {
                     cancelTapRunnables()
+                    v.elevation = dp(8).toFloat()
                     if (moved) {
                         prefs.edit()
                             .putInt("x", params.x).putInt("y", params.y)
@@ -218,14 +245,31 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    cancelTapRunnables(); pendingSingleTap = false; scheduleDim(); true
+                    cancelTapRunnables(); pendingSingleTap = false
+                    v.elevation = dp(8).toFloat()
+                    scheduleDim(); true
                 }
                 else -> false
             }
         }
 
+        // vc33: 9Flip sets gesture exclusion to the whole button rect,
+        // so edge swipes do not steal the drag. CFlip never set it, so a
+        // bubble near the edge lost MOVE events to the system back/home
+        // gesture (ACTION_CANCEL) — the "swipe does not move" symptom.
+        runCatching {
+            btn.systemGestureExclusionRects = listOf(
+                android.graphics.Rect(0, 0, size, size))
+        }
         manager.addView(btn, params)
-        wm = manager; button = btn; displayId = display.displayId
+        wm = manager; button = btn; bubbleParams = params; displayId = display.displayId
+        // Apply the saved cover brightness immediately, not only after
+        // the panel is opened once.
+        runCatching {
+            val st = com.cuong.cflip.data.SettingsStore(appContext).load()
+            params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+            manager.updateViewLayout(btn, params)
+        }
         scheduleDim()
         Log.i(TAG, "AssistiveTouch shown on cover display ${display.displayId} at ($startX,$startY)")
         Unit
@@ -240,7 +284,7 @@ object CoverAssistiveTouchManager {
         val v = button
         if (v != null) {
             runCatching { wm?.removeView(v) }
-            button = null; wm = null; displayId = -1
+            button = null; wm = null; bubbleParams = null; displayId = -1
             Log.i(TAG, "AssistiveTouch hidden")
         }
     }
