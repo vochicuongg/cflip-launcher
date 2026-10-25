@@ -53,7 +53,7 @@ class MyAccessibilityService : AccessibilityService() {
     // action above. Callback runs on the main executor.
     fun takeScreenshotForDisplay(displayId: Int, onDone: (Boolean, String) -> Unit) {
         runCatching {
-            takeScreenshot(displayId, mainExecutor, object : TakeScreenshotCallback() {
+            takeScreenshot(displayId, mainExecutor, object : TakeScreenshotCallback {
                 override fun onSuccess(result: ScreenshotResult) {
                     runCatching {
                         val buf = result.hardwareBuffer
