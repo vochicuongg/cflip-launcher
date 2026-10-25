@@ -496,7 +496,31 @@ object CoverControlCenterManager {
         // white, artist 11sp 75% white, elapsed/total + thin progress
         // bar (tap to seek, via the repository's seekTo), and a
         // play/pause icon that actually reflects isPlaying.
-        val mediaCard = card()
+        // vc37 media card: FrameLayout so album art can be a full-bleed
+        // background (Spotify/Samsung cover card in Cường's screenshot),
+        // with a dark overlay on top, like 9Flip e4.g (art alpha 0.96
+        // + argb(116,0,0,0) overlay). Content lives in mediaContent.
+        val mediaCard = FrameLayout(ctx).apply {
+            background = rounded(cardColor, 16)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        }
+        val mediaContent = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        if (mediaInfo?.albumArt != null) {
+            mediaCard.addView(ImageView(ctx).apply {
+                setImageBitmap(mediaInfo.albumArt)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                alpha = 0.96f
+            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            mediaCard.addView(View(ctx).apply {
+                setBackgroundColor(android.graphics.Color.argb(116, 0, 0, 0))
+            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
         if (mediaInfo == null) {
             mediaCard.visibility = View.GONE
         } else {
@@ -509,15 +533,15 @@ object CoverControlCenterManager {
                 .setInterpolator(android.view.animation.DecelerateInterpolator())
                 .start()
         }
-        mediaCard.addView(title("Nhạc"))
-        mediaCard.addView(TextView(ctx).apply {
+        mediaContent.addView(title("Nhạc"))
+        mediaContent.addView(TextView(ctx).apply {
             text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
             setHorizontallyScrolling(true)
             ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
             marqueeRepeatLimit = -1
         })
-        mediaCard.addView(TextView(ctx).apply {
+        mediaContent.addView(TextView(ctx).apply {
             text = mediaInfo?.artist ?: ""; textSize = 11f
             setTextColor(0xBFFFFFFF.toInt())
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
@@ -528,54 +552,35 @@ object CoverControlCenterManager {
         }
         val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
-        val mediaFill = View(ctx).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dp(2).toFloat()
-                setColor(0xFFFFFFFF.toInt())
+        val mediaProgress = MediaProgressBar(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(16))
+            if (mediaInfo != null && mediaInfo.durationMs > 0) {
+                progress = mediaInfo.positionMs.toFloat() / mediaInfo.durationMs
             }
-        }
-        val mediaTrack = FrameLayout(ctx).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dp(2).toFloat()
-                setColor(0xFF3A3F45.toInt())
-            }
-            layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f)
-            addView(mediaFill, FrameLayout.LayoutParams(0, FrameLayout.LayoutParams.MATCH_PARENT))
-            setOnTouchListener { v, e ->
+            onSeek = { frac ->
                 if (mediaInfo != null && mediaInfo.durationMs > 0) {
-                    val pos = ((e.x / v.width.toFloat()).coerceIn(0f, 1f) * mediaInfo.durationMs).toLong()
-                    runCatching { mediaRepo.seekTo(pos) }
+                    runCatching { mediaRepo.seekTo((frac * mediaInfo.durationMs).toLong()) }
                     runCatching { mediaRepo.refresh() }
                     val cur = MediaState.current.value
                     if (cur != null) {
                         mediaElapsed.text = fmtTime(cur.positionMs)
                         mediaTotal.text = fmtTime(cur.durationMs)
-                        post {
-                            val w = v.width
-                            val frac = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
-                            mediaFill.layoutParams = FrameLayout.LayoutParams((w * frac).toInt(), FrameLayout.LayoutParams.MATCH_PARENT)
-                        }
+                        progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
                     }
                 }
-                true
             }
         }
         if (mediaInfo != null) {
             mediaElapsed.text = fmtTime(mediaInfo.positionMs)
             mediaTotal.text = fmtTime(mediaInfo.durationMs)
-            mediaTrack.post {
-                val w = mediaTrack.width
-                val frac = if (mediaInfo.durationMs > 0) mediaInfo.positionMs.toFloat() / mediaInfo.durationMs else 0f
-                mediaFill.layoutParams = FrameLayout.LayoutParams((w * frac).toInt(), FrameLayout.LayoutParams.MATCH_PARENT)
-            }
         }
-        mediaCard.addView(LinearLayout(ctx).apply {
+        mediaContent.addView(mediaProgress)
+        mediaContent.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(mediaElapsed)
-            addView(mediaTrack)
+            addView(View(ctx), LinearLayout.LayoutParams(0, 0, 1f))
             addView(mediaTotal)
         })
         // vc30 LOCAL-ONLY: media buttons use Samsung ic_sec drawables that
@@ -583,13 +588,19 @@ object CoverControlCenterManager {
         // Do NOT push this file to main without replacing these with clean-room drawables.
         // vc34 Samsung media controls: circles, not wide pills.
         // Play is larger (56dp) and mint, prev/next are 48dp dark circles.
+        // vc37 media buttons: white outline icons on transparent
+        // background, like the Spotify card in Cường's screenshot,
+        // NOT dark circles with a mint play button (vc34/vc36).
+        // vc37 Play/Pause fix: Samsung's ic_sec_play draws PAUSE bars
+        // and ic_sec_pause draws a PLAY triangle (verified from the
+        // sec_only zip), so vc36's icon was backwards. CFlip now uses
+        // its own clean-room play/pause with standard names, and the
+        // icon shows the NEXT action: pause bars while playing,
+        // triangle while paused.
         fun mediaIconButton(iconRes: Int, primary: Boolean = false): ImageButton = ImageButton(ctx).apply {
             setImageResource(iconRes)
-            setColorFilter(if (primary) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(if (primary) mint else 0xFF23262B.toInt())
-            }
+            setColorFilter(0xFFFFFFFF.toInt())
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             val sz = if (primary) dp(56) else dp(48)
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -599,11 +610,60 @@ object CoverControlCenterManager {
             }
         }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_sec_pause else R.drawable.ic_sec_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); val cur = MediaState.current.value; setImageResource(if (cur?.isPlaying == true) R.drawable.ic_sec_pause else R.drawable.ic_sec_play) } })
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next() } })
-        mediaCard.addView(mediaRow)
+        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous() } })
+        mediaRow.addView(mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); val cur = MediaState.current.value; setImageResource(if (cur?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play) } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next() } })
+        mediaContent.addView(mediaRow)
+        mediaCard.addView(mediaContent, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         controlContent.addView(mediaCard)
+        // vc37 Play last song / Media output pill, from Cường's screenshot:
+        // shown ONLY when no media is active (instead of an empty card).
+        // Play resumes the last session; Media output cannot be opened
+        // directly by a third-party app, so it opens Connected Devices
+        // (Bluetooth) settings, where the output is actually chosen.
+        val playLastPill = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(cardColor, 24)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+            visibility = if (mediaInfo == null) View.VISIBLE else View.GONE
+        }
+        playLastPill.addView(ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_cflip_play)
+            setColorFilter(0xFFFFFFFF.toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+        })
+        playLastPill.addView(TextView(ctx).apply {
+            text = "Play last song"; textSize = 14f; setTextColor(0xFFFFFFFF.toInt())
+            setPadding(dp(8), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        playLastPill.addView(Button(ctx).apply {
+            text = "Media output"; textSize = 12f; isAllCaps = false
+            background = rounded(0xFF23262B.toInt(), 24)
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnClickListener {
+                hide()
+                android.widget.Toast.makeText(ctx, "Mở Cài đặt Thiết bị đã kết nối để chọn đầu ra âm thanh", android.widget.Toast.LENGTH_LONG).show()
+                runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
+        })
+        playLastPill.setOnClickListener {
+            resetTimer()
+            runCatching { mediaRepo.playPause() }
+            runCatching { mediaRepo.refresh() }
+            val cur = MediaState.current.value
+            if (cur == null) {
+                android.widget.Toast.makeText(ctx, "Chưa có nhạc để phát lại", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+        controlContent.addView(playLastPill)
 
         // 3.2.0 brightness: PANEL window brightness, not system.
         // 9Flip decompile (p6/t6): own manual value clamp 0.05–1.0,
@@ -615,31 +675,56 @@ object CoverControlCenterManager {
         // Left icon dark on the white fill, translucent pill track,
         // fill = thumb + (width-thumb)*value, alpha 1.0 manual / 0.42 auto.
         // Dragging once switches to manual, like 9Flip p6.d().
+        // vc37 Samsung vertical sliders, from Cường's screenshot:
+        // two tall translucent pills side by side, white oval thumb
+        // with a black icon inside (sun / speaker), and a small dark
+        // circle button below each (moon = auto/manual brightness,
+        // mute = mute/unmute volume). 9Flip's sliders are horizontal,
+        // but the VALUE logic is kept exactly: brightness manual
+        // clamp 0.05-1.0, alpha 1.0 manual / 0.42 auto, volume mute
+        // restores saved volume else ~45% of max.
         val sliderCard = card()
-        sliderCard.addView(title("Độ sáng"))
-        val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
-        var brightSlider: NineFlipSlider? = null
+        sliderCard.addView(title("Độ sáng & Âm lượng"))
+        val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER }
+        val volLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER }
         fun refreshBrightLabel() {
             val st = store.load()
-            brightLabel.text = if (st.panelBrightnessManual) {
-                "Độ sáng cover: ${(st.panelBrightness * 100).toInt()}% (thủ công)"
-            } else {
-                "Độ sáng cover: Theo hệ thống"
+            brightLabel.text = if (st.panelBrightnessManual) "Độ sáng ${(st.panelBrightness * 100).toInt()}%" else "Độ sáng: Tự động"
+        }
+        fun refreshVolLabel() {
+            val (v, m) = QuickControls.volume(ctx)
+            volLabel.text = "Âm lượng $v / $m" + if (v == 0) " (tắt tiếng)" else ""
+        }
+        refreshBrightLabel(); refreshVolLabel()
+        var brightSlider: VerticalSlider? = null
+        var volSlider: VerticalSlider? = null
+        fun smallCircleButton(iconRes: Int, onClick: () -> Unit): ImageButton = ImageButton(ctx).apply {
+            setImageResource(iconRes)
+            setColorFilter(0xFFFFFFFF.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xFF23262B.toInt())
             }
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                setMargins(0, dp(8), 0, 0)
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            setOnClickListener { onClick() }
         }
-        fun refreshBrightSlider() {
-            val st = store.load()
-            brightSlider?.setManual(st.panelBrightnessManual)
-            brightSlider?.minValue = 0.05f
-            brightSlider?.setValue(st.panelBrightness, animate = false)
+        val brightGroup = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        refreshBrightLabel()
-        sliderCard.addView(brightLabel)
-        brightSlider = NineFlipSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+        val volGroup = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        brightSlider = VerticalSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(180))
             setIcon(R.drawable.ic_sec_brightness)
-            setRightIcon(R.drawable.ic_cflip_lock)
             minValue = 0.05f
             setValue(store.load().panelBrightness, animate = false)
             setManual(store.load().panelBrightnessManual)
@@ -653,63 +738,13 @@ object CoverControlCenterManager {
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                brightLabel.text = "Độ sáng cover: ${(v * 100).toInt()}% (thủ công)"
+                brightLabel.text = "Độ sáng ${(v * 100).toInt()}%"
             }
             onDragEnd = { resetTimer() }
-            onRightClick = {
-                val cur = store.load()
-                val nextManual = !cur.panelBrightnessManual
-                store.save(cur.copy(panelBrightnessManual = nextManual))
-                applyPanelBrightness(ctx.applicationContext)
-                CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                refreshBrightLabel(); refreshBrightSlider(); resetTimer()
-            }
         }
-        sliderCard.addView(LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(brightSlider, LinearLayout.LayoutParams(0, dp(48), 1f))
-            addView(Button(ctx).apply {
-                text = if (store.load().panelBrightnessManual) "Thủ công" else "Tự động"
-                textSize = 11f; isAllCaps = false
-                background = rounded(if (store.load().panelBrightnessManual) mint else 0xFF23262B.toInt(), 24)
-                setTextColor(if (store.load().panelBrightnessManual) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                setPadding(dp(12), dp(8), dp(12), dp(8))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    setMargins(dp(8), 0, 0, 0)
-                    gravity = Gravity.CENTER_VERTICAL
-                }
-                setOnClickListener {
-                    val cur = store.load()
-                    val nextManual = !cur.panelBrightnessManual
-                    store.save(cur.copy(panelBrightnessManual = nextManual))
-                    applyPanelBrightness(ctx.applicationContext)
-                    CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                    refreshBrightLabel(); refreshBrightSlider(); resetTimer()
-                    text = if (nextManual) "Thủ công" else "Tự động"
-                    background = rounded(if (nextManual) mint else 0xFF23262B.toInt(), 24)
-                    setTextColor(if (nextManual) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                }
-            })
-        })
-        refreshBrightSlider()
-
-        // vc35 9Flip slider for media volume (STREAM_MUSIC, flag 0).
-        // Mute restores to saved volume, else ~45% of max (9Flip formula).
-        sliderCard.addView(title("Âm lượng nhạc"))
-        val volLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
-        var volSlider: NineFlipSlider? = null
-        fun refreshVolLabel() {
-            val (v, m) = QuickControls.volume(ctx)
-            volLabel.text = "Âm lượng nhạc: $v / $m" + if (v == 0) " (đang tắt tiếng)" else ""
-        }
-        refreshVolLabel()
-        sliderCard.addView(volLabel)
-        volSlider = NineFlipSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+        volSlider = VerticalSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(180))
             setIcon(R.drawable.ic_sec_volume)
-            setRightIcon(R.drawable.ic_sec_mute)
             minValue = 0f
             val (vol, volMax) = QuickControls.volume(ctx)
             setValue(if (volMax > 0) vol.toFloat() / volMax else 0f, animate = false)
@@ -720,55 +755,42 @@ object CoverControlCenterManager {
                 refreshVolLabel()
             }
             onDragEnd = { resetTimer() }
-            onRightClick = {
-                val (v, m) = QuickControls.volume(ctx)
-                val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-                if (v > 0) {
-                    prefs.edit().putInt("saved_volume", v).apply()
-                    QuickControls.setVolume(ctx, 0)
-                } else {
-                    val saved = prefs.getInt("saved_volume", -1)
-                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
-                    QuickControls.setVolume(ctx, restore)
-                }
-                val (v2, m2) = QuickControls.volume(ctx)
-                volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = true)
-                refreshVolLabel(); resetTimer()
-            }
         }
+        brightGroup.addView(brightSlider)
+        brightGroup.addView(smallCircleButton(R.drawable.ic_cflip_dnd) {
+            val cur = store.load()
+            val nextManual = !cur.panelBrightnessManual
+            store.save(cur.copy(panelBrightnessManual = nextManual))
+            applyPanelBrightness(ctx.applicationContext)
+            CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+            brightSlider?.setManual(nextManual)
+            brightSlider?.setValue(store.load().panelBrightness, animate = false)
+            refreshBrightLabel(); resetTimer()
+        })
+        brightGroup.addView(brightLabel)
+        volGroup.addView(volSlider)
+        volGroup.addView(smallCircleButton(R.drawable.ic_sec_mute) {
+            val (v, m) = QuickControls.volume(ctx)
+            val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+            if (v > 0) {
+                prefs.edit().putInt("saved_volume", v).apply()
+                QuickControls.setVolume(ctx, 0)
+            } else {
+                val saved = prefs.getInt("saved_volume", -1)
+                val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
+                QuickControls.setVolume(ctx, restore)
+            }
+            val (v2, m2) = QuickControls.volume(ctx)
+            volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = false)
+            refreshVolLabel(); resetTimer()
+        })
+        volGroup.addView(volLabel)
         sliderCard.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(volSlider, LinearLayout.LayoutParams(0, dp(48), 1f))
-            addView(ImageButton(ctx).apply {
-                setImageResource(R.drawable.ic_sec_mute)
-                setColorFilter(0xFFFFFFFF.toInt())
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(0xFF23262B.toInt())
-                }
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                    setMargins(dp(8), 0, 0, 0)
-                    gravity = Gravity.CENTER_VERTICAL
-                }
-                setOnClickListener {
-                    val (v, m) = QuickControls.volume(ctx)
-                    val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-                    if (v > 0) {
-                        prefs.edit().putInt("saved_volume", v).apply()
-                        QuickControls.setVolume(ctx, 0)
-                    } else {
-                        val saved = prefs.getInt("saved_volume", -1)
-                        val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
-                        QuickControls.setVolume(ctx, restore)
-                    }
-                    val (v2, m2) = QuickControls.volume(ctx)
-                    volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = true)
-                    refreshVolLabel(); resetTimer()
-                }
-            })
+            gravity = Gravity.CENTER
+            addView(brightGroup)
+            addView(volGroup)
         })
-
         controlContent.addView(sliderCard)
         val tileCard = card()
         tileCard.addView(title("Đảo chức năng"))

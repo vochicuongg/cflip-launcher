@@ -4,7 +4,11 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc36 DND on: moon crescent, like 9Flip / Samsung QS DND,
-         not a bell. Filled crescent. -->
-    <path android:fillColor="#FFFFFFFF" android:pathData="M21,13 A9,9 0 1,1 11,3 A7,7 0 0,0 21,13 Z" />
+    <!-- vc37 DND on: reliable crescent via evenOdd two circles.
+         vc36's single arc path rendered as a blob at tile size,
+         which is why it still did not look like Samsung's moon. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2 a10,10 0 1,0 0.01,0 Z M17,6 a7,7 0 1,0 0.01,0 Z" />
 </vector>

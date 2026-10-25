@@ -4,12 +4,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc36 airplane, outline paper plane like 9Flip ic_control_*,
-         not a solid triangle. -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.5"
-        android:strokeLineJoin="round"
-        android:pathData="M22,2 L11,21 L9,15 L2,12 Z M9,15 L22,2" />
+    <!-- vc37 airplane redraw: a REAL airplane silhouette (fuselage,
+         wings, tail), like the Android/Samsung system icon, not the
+         paper-plane outline vc36 used. -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M21,16 L13,11.5 V4 C13,3 12.5,2 11.5,2 C10.5,2 10,3 10,4 V11.5 L2,16 V18 L10,15.5 V20 L8,21.5 V23 L12,22 L16,23 V21.5 L14,20 V15.5 L22,18 Z" />
 </vector>

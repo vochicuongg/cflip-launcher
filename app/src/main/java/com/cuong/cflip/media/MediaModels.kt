@@ -1,5 +1,7 @@
 package com.cuong.cflip.media
 
+import android.graphics.Bitmap
+
 import android.media.session.PlaybackState
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -10,6 +12,7 @@ data class MediaInfo(
     val isPlaying: Boolean,
     val positionMs: Long,
     val durationMs: Long,
+    val albumArt: Bitmap? = null,
 )
 
 object MediaState {
