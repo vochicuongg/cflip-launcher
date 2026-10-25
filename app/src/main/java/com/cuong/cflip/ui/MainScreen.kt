@@ -298,16 +298,32 @@ fun MainScreen() {
                     if (secondary == null) {
                         toast("Chưa thấy màn hình phụ. Gập máy lại để thấy.")
                     } else {
+                        // 2.3.2: Presentation first, overlay fallback. If
+                        // Presentation is refused on the Flex Window, the
+                        // overlay route (CoverOverlayManager) is tried in
+                        // the same tap, so one tap tells us which path
+                        // actually works on this phone instead of failing
+                        // outright with a truncated window error.
                         presentation?.dismiss()
-                        presentation = CoverPresentation(context.applicationContext, secondary).also {
-                            runCatching { it.show() }.onFailure { e ->
-                                // BadTokenException messages are long; the
-                                // part after "--" is the actual reason
-                                // ("permission denied for window type 2032"
-                                // vs "token null is not valid").
-                                val reason = e.message?.substringAfter("--", e.message ?: "không rõ")
-                                    ?.trim() ?: "không rõ"
-                                toast("Presentation bị chặn: $reason")
+                        com.cuong.cflip.cover.CoverOverlayManager.hide()
+                        val presResult = runCatching {
+                            CoverPresentation(context.applicationContext, secondary).also {
+                                presentation = it; it.show()
+                            }
+                        }
+                        if (presResult.isSuccess) {
+                            toast("Presentation đã hiện lên màn phụ.")
+                        } else {
+                            presentation = null
+                            val overlayResult = com.cuong.cflip.cover.CoverOverlayManager
+                                .show(context.applicationContext, secondary)
+                            if (overlayResult.isSuccess) {
+                                toast("Presentation bị chặn, đã hiện bằng Overlay thay thế.")
+                            } else {
+                                val reason = presResult.exceptionOrNull()?.message
+                                    ?.substringAfter("--")?.trim()
+                                    ?: "không rõ"
+                                toast("Cả 2 đường đều bị chặn: $reason")
                             }
                         }
                     }

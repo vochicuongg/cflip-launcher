@@ -121,12 +121,21 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         }
         val secondary = DisplayRepository(this).secondaryDisplay() ?: return
         if (presentation != null && presentationDisplayId == secondary.displayId) return
+        if (com.cuong.cflip.cover.CoverOverlayManager.isShown() &&
+            presentationDisplayId == secondary.displayId) return
         presentation?.dismiss()
+        com.cuong.cflip.cover.CoverOverlayManager.hide()
         runCatching {
             presentation = CoverPresentation(this, secondary).also { it.show() }
             presentationDisplayId = secondary.displayId
             Log.i(TAG, "Presentation shown on display ${secondary.displayId}")
-        }.onFailure { Log.w(TAG, "System refused Presentation on cover display", it) }
+        }.onFailure { presError ->
+            Log.w(TAG, "System refused Presentation on cover display, trying overlay", presError)
+            presentation = null
+            com.cuong.cflip.cover.CoverOverlayManager.show(this, secondary)
+                .onSuccess { presentationDisplayId = secondary.displayId }
+                .onFailure { Log.w(TAG, "Overlay also refused on cover display", it) }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
