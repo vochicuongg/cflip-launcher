@@ -16,7 +16,7 @@ PASS - Panel banner removed in tabbed panel (notifications live in their own tab
 PASS - Overlay has full app-list widget 
 PASS - Overlay app list follows sortMode 
 PASS - Overlay app list follows columns setting 
-PASS - Overlay does NOT rotate its own content (2.8.0 bug fix) 
+PASS - Overlay rotates content only under fallback flag, never unconditionally 
 PASS - Overlay has Music card 
 PASS - Overlay shows battery percent 
 PASS - SettingsStore persists assistiveTouchSize 
@@ -50,3 +50,10 @@ PASS - Panel tiles are icon+label cards, not grey buttons
 PASS - Panel has pill tab bar (rounded 24) 
 PASS - Panel sliders use mint tint 
 PASS - Panel has modern primary button helper 
+PASS - Brightness grant uses main-display package Uri, not cover displayContext 
+PASS - Brightness applies live on drag, not only on release 
+PASS - SeekBar drag is not stolen by ScrollView 
+PASS - Panel replaces cover interface and restores it on close 
+PASS - Rotate verifies display.rotation after 600ms and falls back 
+PASS - Overlay rotates content only when fallback is on 
+PASS - RotateState flag exists in RotateHost 

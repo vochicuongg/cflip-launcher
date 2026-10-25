@@ -241,11 +241,25 @@ object CoverOverlayManager {
             text = "Đóng"
             setOnClickListener { hide() }
         })
-        // 2.8.0: NO content rotation here. Rotating this ScrollView alone
-        // was the 2.7.0 bug — it left the AssistiveTouch button, the panel
-        // and cover apps in the old orientation. Whole-display rotation is
-        // CoverRotateHostManager (1x1 screenOrientation overlay), applied
-        // by CoverOverlayManager.show() and by the panel Rotate tile.
+        // 2.10.0: content rotation ONLY as a fallback, when
+        // CoverRotateState.contentFallback is true (i.e. the system ignored
+        // the 1x1 host). When the host works, this stays 0, or the UI
+        // would double-rotate. The fallback rotates the overlay, and the
+        // panel does the same in its own show(), so all CFlip windows
+        // rotate together — never just one of them, as in 2.7.0.
+        if (CoverRotateState.contentFallback) {
+            val rotation = settings.coverRotation
+            if (rotation != 0) {
+                scroll.post {
+                    scroll.rotation = rotation.toFloat()
+                    if (rotation % 180 != 0 && scroll.width > 0 && scroll.height > 0) {
+                        val s = minOf(scroll.width, scroll.height).toFloat() /
+                            maxOf(scroll.width, scroll.height).toFloat()
+                        scroll.scaleX = s; scroll.scaleY = s
+                    }
+                }
+            }
+        }
         return scroll
     }
 }

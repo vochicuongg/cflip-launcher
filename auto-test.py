@@ -62,7 +62,7 @@ ov = read("cover/CoverOverlay.kt")
 check("Overlay has full app-list widget", "Tất cả ứng dụng" in ov)
 check("Overlay app list follows sortMode", "sortMode" in ov)
 check("Overlay app list follows columns setting", "gridColumns" in ov)
-check("Overlay does NOT rotate its own content (2.8.0 bug fix)", "scroll.rotation" not in ov)
+check("Overlay rotates content only under fallback flag, never unconditionally", "CoverRotateState.contentFallback" in ov and "scroll.rotation" in ov)
 check("Overlay has Music card", "MediaControllerRepository" in ov)
 check("Overlay shows battery percent", "Pin $" in ov or "Pin " in ov)
 
@@ -142,3 +142,19 @@ check("Panel tiles are icon+label cards, not grey buttons", "tileWithLabel" in c
 check("Panel has pill tab bar (rounded 24)", "rounded(cardColor, 24)" in cc2)
 check("Panel sliders use mint tint", "progressTintList" in cc2 and "thumbTintList" in cc2)
 check("Panel has modern primary button helper", "modernButton" in cc2)
+
+# --- 9. Brightness / rotate fixes + replacement interface (2.10.0) ---
+check("Brightness grant uses main-display package Uri, not cover displayContext",
+      "openWriteSettingsPermission(ctx.applicationContext)" in cc2)
+check("Brightness applies live on drag, not only on release",
+      "onProgressChanged" in cc2 and "setBrightness(ctx, v)" in cc2)
+check("SeekBar drag is not stolen by ScrollView",
+      "requestDisallowInterceptTouchEvent" in cc2)
+check("Panel replaces cover interface and restores it on close",
+      "restoreDisplay" in cc2 and "CoverOverlayManager.hide()" in cc2 and "CoverOverlayManager.show(ac, d)" in cc2)
+check("Rotate verifies display.rotation after 600ms and falls back",
+      "rotationBefore" in cc2 and "contentFallback" in cc2 and "600" in cc2)
+check("Overlay rotates content only when fallback is on",
+      "CoverRotateState.contentFallback" in ov)
+check("RotateState flag exists in RotateHost",
+      "CoverRotateState" in rh)

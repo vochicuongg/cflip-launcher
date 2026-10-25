@@ -43,6 +43,17 @@ import com.cuong.cflip.data.SettingsStore
  * touches from the cover UI. It must be removed when the cover service
  * stops, otherwise a stale forced orientation would survive CFlip.
  */
+/**
+ * Runtime fallback flag (2.10.0): true when the system ignored the 1x1
+ * screenOrientation host (Samsung Flex Window does this on some builds),
+ * so CFlip's own windows rotate their content in sync instead of
+ * leaving the cover unrotated. False means the host worked and content
+ * must NOT rotate again, or it would double-rotate.
+ */
+object CoverRotateState {
+    @Volatile var contentFallback: Boolean = false
+}
+
 object CoverRotateHostManager {
     private const val TAG = "CFlipRotateHost"
     private const val PULSE_MS = 220L
