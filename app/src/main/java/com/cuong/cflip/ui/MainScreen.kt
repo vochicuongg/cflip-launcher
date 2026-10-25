@@ -114,7 +114,11 @@ fun MainScreen() {
             secondarySeen = displayRepo.secondaryDisplay() != null,
         )
     }
-    val notifCount by NotificationState.active.collectAsState()
+    // Fix 25/10/2026: this used to be `val notifCount by ...collectAsState()`,
+    // which made notifCount a List, not a count - so `notifCount > 0` failed
+    // to compile with "Unresolved reference: compareTo".
+    val notifications by NotificationState.active.collectAsState()
+    val notifCount = notifications.size
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "2.2"
     }
