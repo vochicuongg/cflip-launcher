@@ -4,13 +4,19 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc41 screenshot, clean-room: screen outline + capture circle,
-         single colour (stroke) for tile tint, like the NFC icon style. -->
+    <!-- vc42 screenshot, from Cường's reference: rounded viewfinder
+         corners around a photo icon (mountain cut out, so the tile
+         background shows through the mountain, like the reference).
+         Clean-room redraw, single colour for tile tint. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4,5 H20 V17 H4 Z M9,12 A3,3 0 1 0 15,12 A3,3 0 1 0 9,12" />
+        android:pathData="M9,4 H5 A1,1 0 0 0 4,5 V9 M15,4 H19 A1,1 0 0 1 20,5 V9 M9,20 H5 A1,1 0 0 1 4,19 V15 M15,20 H19 A1,1 0 0 0 20,19 V15" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M9.5,9.5 H14.5 A1,1 0 0 1 15.5,10.5 V13.5 A1,1 0 0 1 14.5,14.5 H9.5 A1,1 0 0 1 8.5,13.5 V10.5 A1,1 0 0 1 9.5,9.5 Z M8.5,14.5 L11,11 L12.5,13 L14,11.5 L15.5,13.5 V14.5 Z" />
 </vector>

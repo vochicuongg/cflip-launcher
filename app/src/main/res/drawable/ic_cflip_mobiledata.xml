@@ -4,8 +4,8 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M3,20 H6 V16 H3 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M8,20 H11 V13 H8 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M13,20 H16 V10 H13 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M18,20 H21 V7 H18 Z" />
+    <!-- vc42 mobile data, from Cường's reference: up arrow + down
+         arrow side by side (data up/down), NOT signal bars. The old
+         bars looked like signal strength, not data. Clean-room redraw. -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M8,4 L11,9 H9 V16 H7 V9 H5 Z M16,20 L13,15 H15 V8 H17 V15 H19 Z" />
 </vector>

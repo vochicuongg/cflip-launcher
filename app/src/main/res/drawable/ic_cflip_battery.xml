@@ -4,12 +4,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc36 battery saver, outline style: battery outline + bolt
-         inside, not a charge bar, so it reads as saving, not level. -->
+    <!-- vc42 battery saver, from Cường's reference: VERTICAL battery,
+         solid, with a LEAF cut out (not the old horizontal battery +
+         bolt). The leaf hole shows the tile background through, like
+         the reference (white battery, dark leaf). Clean-room redraw. -->
     <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.5"
-        android:pathData="M3,8 H18 V16 H3 Z M20,10 H22 V14 H20 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M13,6 L9,13 H11.5 L10.5,18 L15,11 H12.5 Z" />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M10,2 H14 V5 H17 A2,2 0 0 1 19,7 V20 A2,2 0 0 1 17,22 H7 A2,2 0 0 1 5,20 V7 A2,2 0 0 1 7,5 H10 Z M12,19 C9.5,19 8,16.5 9,13.5 C10,10.5 13,9.5 15,10.5 C16,12.5 15,16 13,18 C12.5,18.5 12,19 12,19 Z" />
 </vector>

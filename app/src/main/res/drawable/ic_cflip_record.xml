@@ -4,15 +4,15 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc41 screen record, clean-room: rounded screen outline + solid
-         centre dot (recording), single colour for tile tint. The dot is
-         filled, the outline is stroked, both tint to the same colour. -->
+    <!-- vc42 record, from Cường's reference: same rounded viewfinder
+         corners as screenshot, centre is a video camera (body +
+         lens triangle), not a plain dot. Clean-room redraw. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M5,4 H19 V20 H5 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 Z" />
+        android:pathData="M9,4 H5 A1,1 0 0 0 4,5 V9 M15,4 H19 A1,1 0 0 1 20,5 V9 M9,20 H5 A1,1 0 0 1 4,19 V15 M15,20 H19 A1,1 0 0 0 20,19 V15" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M8,10 A1,1 0 0 1 9,9 H14 A1,1 0 0 1 15,10 V10.5 L18.5,8.5 V15.5 L15,13.5 V14 A1,1 0 0 1 14,15 H9 A1,1 0 0 1 8,14 Z" />
 </vector>
