@@ -29,14 +29,21 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             views.setRemoteAdapter(R.id.app_grid, svc)
             views.setEmptyView(R.id.app_grid, R.id.app_grid_empty)
+            // 3.5.0 click fix, decompiled from 9Flip t5.h.i():
+            // the grid template MUST be MUTABLE (33554432) + UPDATE_CURRENT
+            // (134217728), with requestCode = 10000 + appWidgetId.
+            // CFlip used IMMUTABLE + requestCode 0, so Android 12+ dropped
+            // the fill-in extras and onReceive got pkg=null and returned
+            // silently — the widget showed apps but no tap did anything.
+            // IMMUTABLE is correct for fixed clicks, WRONG for a template.
             val template = PendingIntent.getBroadcast(
-                context, 0,
+                context, 10000 + id,
                 Intent(context, AppGridWidgetProvider::class.java).setAction(ACTION_LAUNCH_APP),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
             )
             views.setPendingIntentTemplate(R.id.app_grid, template)
             val refresh = PendingIntent.getBroadcast(
-                context, 1,
+                context, 5000 + id,
                 Intent(context, AppGridWidgetProvider::class.java).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
@@ -51,7 +58,10 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         when (intent.action) {
             ACTION_LAUNCH_APP -> {
-                val pkg = intent.getStringExtra(CoverWidgetProvider.EXTRA_PKG) ?: return
+                // Accept both the old "pkg" key and 9Flip's "package_name",
+                // so a fill-in from either side launches.
+                val pkg = intent.getStringExtra(CoverWidgetProvider.EXTRA_PKG)
+                    ?: intent.getStringExtra("package_name") ?: return
                 val coverId = DisplayRepository(context).secondaryDisplay()?.displayId
                 AppLauncher.launch(context, pkg, coverId)
             }
@@ -73,11 +83,12 @@ class AppGridWidgetProvider : AppWidgetProvider() {
 /** RemoteViewsService backing the grid; the factory loads apps on demand. */
 class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
-        return AppGridFactory(applicationContext)
+        val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0)
+        return AppGridFactory(applicationContext, widgetId)
     }
 }
 
-private class AppGridFactory(private val context: Context) :
+private class AppGridFactory(private val context: Context, private val widgetId: Int = 0) :
     android.widget.RemoteViewsService.RemoteViewsFactory {
 
     private var apps: List<com.cuong.cflip.data.AppInfo> = emptyList()
@@ -99,7 +110,16 @@ private class AppGridFactory(private val context: Context) :
             views.setImageViewBitmap(R.id.app_grid_item_icon, bmp)
         }
         views.setTextViewText(R.id.app_grid_item_label, app.label)
-        val fill = Intent().putExtra(CoverWidgetProvider.EXTRA_PKG, app.packageName)
+        // Fill-in, 9Flip t5.a style: app_widget_id + appWidgetId +
+        // click_action + package_name, plus CFlip's own "pkg" key.
+        // With a MUTABLE template above, these extras now actually arrive.
+        val fill = Intent()
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            .putExtra("app_widget_id", widgetId)
+            .putExtra("appWidgetId", widgetId)
+            .putExtra("click_action", "open_package")
+            .putExtra("package_name", app.packageName)
+            .putExtra(CoverWidgetProvider.EXTRA_PKG, app.packageName)
         views.setOnClickFillInIntent(R.id.app_grid_item_root, fill)
         return views
     }

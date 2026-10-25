@@ -32,7 +32,7 @@ import com.cuong.cflip.service.NotificationState
 class CoverWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        for (id in ids) manager.updateAppWidget(id, buildViews(context))
+        for (id in ids) manager.updateAppWidget(id, buildViews(context, id))
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -62,12 +62,19 @@ class CoverWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    private fun buildViews(context: Context): RemoteViews {
+    private fun buildViews(context: Context, widgetId: Int = 0): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_cover)
 
+        // 3.5.0: distinct requestCode + cover display, like Clock/Music.
+        val coverId = DisplayRepository(context).secondaryDisplay()?.displayId
+        val opts = coverId?.let {
+            android.app.ActivityOptions.makeBasic().setLaunchDisplayId(it).toBundle()
+        }
         val openApp = PendingIntent.getActivity(
-            context, 0, Intent(context, MainActivity::class.java),
+            context, 3000 + widgetId,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            opts,
         )
         views.setOnClickPendingIntent(R.id.widget_root, openApp)
 

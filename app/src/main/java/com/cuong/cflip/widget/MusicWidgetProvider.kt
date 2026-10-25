@@ -46,12 +46,18 @@ class MusicWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.music_playpause, broadcast(302, ACTION_PLAYPAUSE))
             views.setOnClickPendingIntent(R.id.music_next, broadcast(303, ACTION_NEXT))
             views.setOnClickPendingIntent(R.id.music_refresh, broadcast(304, ACTION_REFRESH))
+            val coverId = com.cuong.cflip.display.DisplayRepository(context).secondaryDisplay()?.displayId
+            val opts = coverId?.let {
+                android.app.ActivityOptions.makeBasic().setLaunchDisplayId(it).toBundle()
+            }
             val open = PendingIntent.getActivity(
-                context, 0,
+                context, 2000 + id,
                 Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra("cflip_show_cover", true)
                     .putExtra("cflip_cover_tab", "MEDIA"),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                opts,
             )
             views.setOnClickPendingIntent(R.id.music_title, open)
             manager.updateAppWidget(id, views)

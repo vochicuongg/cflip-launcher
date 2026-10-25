@@ -128,9 +128,13 @@
                 android:resource="@xml/samsung_appgrid_widget_info" />
         </receiver>
 
+        <!-- 3.5.0: exported=true, like 9Flip's RemoteViewsService.
+             BIND_REMOTEVIEWS still restricts binding to system hosts,
+             but exported=false can stop Samsung's cover host from
+             binding the grid service at all. -->
         <service
             android:name=".widget.AppGridRemoteViewsService"
-            android:exported="false"
+            android:exported="true"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <receiver

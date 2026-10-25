@@ -101,3 +101,11 @@ PASS - Standard widget info is cover size 352x339
 PASS - Samsung helper exists and opens Samsung settings activity 
 PASS - Samsung helper checks cover status by appWidgetCategory 
 PASS - Panel widget card offers Samsung status check from cover 
+PASS - AppGrid template is MUTABLE, not IMMUTABLE (9Flip t5.h.i) 
+PASS - AppGrid template is NOT IMMUTABLE 
+PASS - AppGrid fill-in carries package_name + click_action + widget id 
+PASS - AppGrid onReceive accepts package_name as well as pkg 
+PASS - AppGrid factory receives widget id from service intent 
+PASS - RemoteViewsService exported=true like 9Flip 
+PASS - Clock/Music/Cover getActivity use distinct per-id requestCodes, not shared 0 
+PASS - Widget getActivity launches on cover display when available 

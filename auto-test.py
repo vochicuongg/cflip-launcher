@@ -253,3 +253,21 @@ check("Samsung helper checks cover status by appWidgetCategory",
       "appWidgetCategory" in read("widget/SamsungCoverWidgetHelper.kt"))
 check("Panel widget card offers Samsung status check from cover",
       "SamsungCoverWidgetHelper.statusText" in cc2)
+
+# --- 16. Widget clicks (3.5.0) ---
+check("AppGrid template is MUTABLE, not IMMUTABLE (9Flip t5.h.i)",
+      "FLAG_MUTABLE" in read("widget/AppGridWidgetProvider.kt") and "10000 + id" in read("widget/AppGridWidgetProvider.kt"))
+check("AppGrid template is NOT IMMUTABLE",
+      "setPendingIntentTemplate" in read("widget/AppGridWidgetProvider.kt") and "FLAG_IMMUTABLE" not in read("widget/AppGridWidgetProvider.kt").split("setPendingIntentTemplate")[1].split(")")[0])
+check("AppGrid fill-in carries package_name + click_action + widget id",
+      "package_name" in read("widget/AppGridWidgetProvider.kt") and "open_package" in read("widget/AppGridWidgetProvider.kt"))
+check("AppGrid onReceive accepts package_name as well as pkg",
+      'getStringExtra("package_name")' in read("widget/AppGridWidgetProvider.kt"))
+check("AppGrid factory receives widget id from service intent",
+      "EXTRA_APPWIDGET_ID" in read("widget/AppGridWidgetProvider.kt") and "widgetId" in read("widget/AppGridWidgetProvider.kt"))
+check("RemoteViewsService exported=true like 9Flip",
+      'android:exported="true"' in (ROOT / "app/src/main/AndroidManifest.xml").read_text().split("AppGridRemoteViewsService")[1].split("/>")[0])
+check("Clock/Music/Cover getActivity use distinct per-id requestCodes, not shared 0",
+      "1000 + id" in read("widget/ClockWidgetProvider.kt") and "2000 + id" in read("widget/MusicWidgetProvider.kt") and "3000 + widgetId" in read("widget/CoverWidgetProvider.kt"))
+check("Widget getActivity launches on cover display when available",
+      "setLaunchDisplayId" in read("widget/ClockWidgetProvider.kt") and "setLaunchDisplayId" in read("widget/MusicWidgetProvider.kt") and "setLaunchDisplayId" in read("widget/CoverWidgetProvider.kt"))

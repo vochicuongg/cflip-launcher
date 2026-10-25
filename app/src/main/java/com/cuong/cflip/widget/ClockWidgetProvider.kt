@@ -29,12 +29,23 @@ class ClockWidgetProvider : AppWidgetProvider() {
                 R.id.clock_notif,
                 "🔔 ${NotificationState.active.value.size} thông báo",
             )
+            // 3.5.0: distinct requestCode per widget id (all widgets
+            // used to share 0, so FLAG_UPDATE_CURRENT overwrote each
+            // other's extras), NEW_TASK, and launch on the cover display
+            // when one exists — otherwise tapping a cover widget opened
+            // MainActivity on the main display, invisible while folded.
+            val coverId = com.cuong.cflip.display.DisplayRepository(context).secondaryDisplay()?.displayId
+            val opts = coverId?.let {
+                android.app.ActivityOptions.makeBasic().setLaunchDisplayId(it).toBundle()
+            }
             val open = PendingIntent.getActivity(
-                context, 0,
+                context, 1000 + id,
                 Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra("cflip_show_cover", true)
                     .putExtra("cflip_cover_tab", "HOME"),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                opts,
             )
             views.setOnClickPendingIntent(R.id.clock_root, open)
             manager.updateAppWidget(id, views)
