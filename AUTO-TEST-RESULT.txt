@@ -1,0 +1,34 @@
+PASS - AssistiveTouch reads size setting 
+PASS - AssistiveTouch size factors 0.8/1.0/1.2 
+PASS - AssistiveTouch reads auto-dim setting 
+PASS - AssistiveTouch refuses default display 
+PASS - AssistiveTouch Home failure shows toast 
+PASS - AssistiveTouch Recents failure shows toast 
+PASS - AssistiveTouch Menu opens Control Center panel, not only activity 
+PASS - Panel has a11yAction helper with toast 
+PASS - No silent a11y()?.lock/open calls remain 
+PASS - Panel brightness clamp 13-255 present 
+PASS - Panel brightness missing-grant label present 
+PASS - Panel Rotate re-applies cover after saving 
+PASS - Panel auto-dismiss 60s present 
+PASS - Panel has 5-column tile grid 
+PASS - Panel banner X only hides banner (no system cancel in banner code) 
+PASS - Overlay has full app-list widget 
+PASS - Overlay app list follows sortMode 
+PASS - Overlay app list follows columns setting 
+PASS - Overlay applies coverRotation 
+PASS - Overlay has Music card 
+PASS - Overlay shows battery percent 
+PASS - SettingsStore persists assistiveTouchSize 
+PASS - SettingsStore persists assistiveTouchAutoDim 
+PASS - MainScreen has size selector 
+PASS - MainScreen has auto-dim switch 
+PASS - MainScreen has position reset 
+PASS - Rotate cycle returns to 0 after 4 steps got 0
+PASS - Sort cycle returns to A-Z after 3 steps got 0
+PASS - Columns cycle returns to auto after 5 steps got 0
+PASS - Brightness clamp: 0->13, 255->255, 100->100 
+PASS - Brightness clamp maps 0.05*255 to 13 
+PASS - No Good Lock / MultiStar mention in Kotlin sources 
+
+ALL CHECKS PASSED

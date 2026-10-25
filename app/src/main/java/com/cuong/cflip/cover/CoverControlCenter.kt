@@ -109,7 +109,19 @@ object CoverControlCenterManager {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
-        val a11y: () -> MyAccessibilityService? = { MyAccessibilityService.instance }
+        // Fix 2.7.0: previously these tiles called a11y()?.action() with no
+        // feedback, so a missing Accessibility grant looked like a dead tile.
+        // Now every such tile says so out loud.
+        fun a11yAction(name: String, action: (MyAccessibilityService) -> Boolean) {
+            val svc = MyAccessibilityService.instance
+            if (svc == null) {
+                android.widget.Toast.makeText(
+                    ctx, "$name không chạy: cần bật Accessibility cho CFlip",
+                    android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                action(svc)
+            }
+        }
 
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -166,7 +178,29 @@ object CoverControlCenterManager {
         root.addView(mediaRow)
 
         // Brightness slider (0.05–1.0 -> 13–255), applied on release.
+        // Fix 2.7.0: previously a missing WRITE_SETTINGS grant silently
+        // opened the grant page and the slider looked broken. Now the panel
+        // says the grant is missing up front, with a tap-to-grant line.
         root.addView(title("Độ sáng"))
+        val brightLabel = TextView(ctx).apply {
+            textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+        }
+        fun refreshBrightLabel() {
+            val pct = QuickControls.brightness(ctx) * 100 / 255
+            brightLabel.text = if (QuickControls.canWriteSettings(ctx)) {
+                "Độ sáng: $pct% (kéo rồi thả để áp dụng)"
+            } else {
+                "Độ sáng: chưa cấp quyền Sửa cài đặt — bấm vào đây để cấp"
+            }
+        }
+        refreshBrightLabel()
+        brightLabel.setOnClickListener {
+            if (!QuickControls.canWriteSettings(ctx)) {
+                ctx.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        root.addView(brightLabel)
         val brightBar = SeekBar(ctx).apply {
             max = 255
             progress = QuickControls.brightness(ctx).coerceIn(13, 255)
@@ -176,9 +210,11 @@ object CoverControlCenterManager {
                 override fun onStopTrackingTouch(s: SeekBar?) {
                     val v = (s?.progress ?: 125).coerceIn(13, 255)
                     if (!QuickControls.setBrightness(ctx, v)) {
-                        ctx.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        android.widget.Toast.makeText(
+                            ctx, "Chưa cấp quyền Sửa cài đặt nên chưa đổi được độ sáng",
+                            android.widget.Toast.LENGTH_SHORT).show()
                     }
+                    refreshBrightLabel()
                     resetTimer()
                 }
             })
@@ -220,10 +256,10 @@ object CoverControlCenterManager {
         tileRow("Bluetooth") { runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet") { runCatching { QuickControls.openInternetPanel(ctx) } }
         tileRow("NFC") { runCatching { QuickControls.openNfcPanel(ctx) } }
-        tileRow("Khóa") { a11y()?.lockScreen() }
-        tileRow("Gần đây") { a11y()?.openRecents() }
-        tileRow("TB") { a11y()?.openNotifications() }
-        tileRow("CĐ nhanh") { a11y()?.openQuickSettings() }
+        tileRow("Khóa") { a11yAction("Khóa máy") { it.lockScreen() } }
+        tileRow("Gần đây") { a11yAction("Gần đây") { it.openRecents() } }
+        tileRow("TB") { a11yAction("Thông báo") { it.openNotifications() } }
+        tileRow("CĐ nhanh") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt") { runCatching { QuickControls.openDeviceSettings(ctx) } }
         // Rotate / Sort / Columns cycle and update their own label.
         var rotateBtn: Button? = null
@@ -232,6 +268,13 @@ object CoverControlCenterManager {
             val next = when (cur.coverRotation) { 0 -> 90; 90 -> 180; 180 -> 270; else -> 0 }
             store.save(cur.copy(coverRotation = next))
             rotateBtn?.text = "Xoay ${next}°"
+            // Fix 2.7.0: previously this only saved the number and the
+            // cover never re-read it, so rotation looked dead. Now the
+            // panel closes and the cover overlay re-opens with the new
+            // rotation applied (CoverOverlay applies rotation in build).
+            hide()
+            CoverOverlayManager.hide()
+            CoverOverlayManager.show(ctx.applicationContext, display)
         }
         grid.addView(rotateBtn, GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
         var sortBtn: Button? = null

@@ -65,7 +65,12 @@ object CoverAssistiveTouchManager {
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val density = displayContext.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
-        val size = dp(56)
+        // Redesign 2.7.0: size from settings (0.8 / 1.0 / 1.2), mint-on-dark
+        // button matching CFlip's own design system (not a copied icon).
+        val settings = com.cuong.cflip.data.SettingsStore(appContext).load()
+        val sizeFactor = when (settings.assistiveTouchSize) { 0 -> 0.8f; 2 -> 1.2f; else -> 1.0f }
+        val autoDim = settings.assistiveTouchAutoDim
+        val size = (dp(56) * sizeFactor).toInt()
 
         // Saved position, clamped to the current display size.
         val dispW = displayContext.resources.displayMetrics.widthPixels
@@ -90,13 +95,13 @@ object CoverAssistiveTouchManager {
 
         val btn = TextView(displayContext).apply {
             text = "C"
-            textSize = 22f
-            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 22f * sizeFactor
+            setTextColor(0xFF7FE3C0.toInt())
             gravity = Gravity.CENTER
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFF0B3D5C.toInt())
-                setStroke(dp(2), 0xFFFFFFFF.toInt())
+                setColor(0xFF0B1F1A.toInt())
+                setStroke(dp(2), 0xFF7FE3C0.toInt())
             }
         }
 
@@ -112,6 +117,7 @@ object CoverAssistiveTouchManager {
 
         fun scheduleDim() {
             dimRunnable?.let { handler.removeCallbacks(it) }
+            if (!autoDim) { btn.alpha = 1f; return }
             val r = Runnable { btn.alpha = DIM_ALPHA }
             dimRunnable = r
             handler.postDelayed(r, DIM_DELAY_MS)
@@ -210,13 +216,23 @@ object CoverAssistiveTouchManager {
         }.isSuccess
         if (!ok) {
             val a11y = MyAccessibilityService.instance
-            if (a11y?.goHome() != true) Log.w(TAG, "Home failed: no AccessibilityService")
+            if (a11y?.goHome() != true) {
+                Log.w(TAG, "Home failed: no AccessibilityService")
+                android.widget.Toast.makeText(
+                    context, "Home không chạy: cần bật Accessibility cho CFlip",
+                    android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun doRecents(context: Context) {
         val a11y = MyAccessibilityService.instance
-        if (a11y?.openRecents() != true) Log.w(TAG, "Recents failed: no AccessibilityService")
+        if (a11y?.openRecents() != true) {
+            Log.w(TAG, "Recents failed: no AccessibilityService")
+            android.widget.Toast.makeText(
+                context, "Gần đây không chạy: cần bật Accessibility cho CFlip",
+                android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun doMenu(context: Context, displayId: Int) {

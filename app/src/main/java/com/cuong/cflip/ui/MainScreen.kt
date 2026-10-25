@@ -262,6 +262,38 @@ fun MainScreen(
                     settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
                     if (!it) com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 }
+                // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
+                // auto-dim, and position reset. Size/auto-dim only take
+                // effect the next time the button is shown (service re-show
+                // or panel close), because the overlay button is built once.
+                if (settings.assistiveTouchEnabled) {
+                    Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+                        for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
+                            val selected = settings.assistiveTouchSize == size
+                            Box(modifier = Modifier.weight(1f).clip(CircleShape)
+                                .background(if (selected) CFlipColors.Accent else Color.Transparent)
+                                .clickable {
+                                    settings = settings.copy(assistiveTouchSize = size)
+                                    settingsStore.save(settings)
+                                }
+                                .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                    color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
+                            }
+                        }
+                    }
+                    HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
+                        settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                    }
+                    TextButton(onClick = {
+                        context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                            .edit().clear().apply()
+                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                        toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
+                    }, modifier = Modifier.align(Alignment.Start)) {
+                        Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                }
             }
         }
 

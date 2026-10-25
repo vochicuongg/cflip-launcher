@@ -18,6 +18,10 @@ data class CoverSettings(
     // The main display is custom/settings only, like 9Flip's MainActivity -
     // it never shows a bubble. Default true so the cover gets its button.
     val assistiveTouchEnabled: Boolean = true,
+    // AssistiveTouch redesign 2.7.0 (9Flip size pattern, own values):
+    // 0 = small 0.8, 1 = default 1.0, 2 = large 1.2; auto-dim default true.
+    val assistiveTouchSize: Int = 1,
+    val assistiveTouchAutoDim: Boolean = true,
 )
 
 object BackgroundStyles {
@@ -41,6 +45,8 @@ class SettingsStore(context: Context) {
         dualDisplay = prefs.getBoolean("dualDisplay", false),
         sortMode = prefs.getInt("sortMode", 0),
         assistiveTouchEnabled = prefs.getBoolean("assistiveTouchEnabled", true),
+        assistiveTouchSize = prefs.getInt("assistiveTouchSize", 1),
+        assistiveTouchAutoDim = prefs.getBoolean("assistiveTouchAutoDim", true),
     )
 
     fun save(s: CoverSettings) {
@@ -56,6 +62,8 @@ class SettingsStore(context: Context) {
             .putBoolean("dualDisplay", s.dualDisplay)
             .putInt("sortMode", s.sortMode)
             .putBoolean("assistiveTouchEnabled", s.assistiveTouchEnabled)
+            .putInt("assistiveTouchSize", s.assistiveTouchSize)
+            .putBoolean("assistiveTouchAutoDim", s.assistiveTouchAutoDim)
             .apply()
     }
 }

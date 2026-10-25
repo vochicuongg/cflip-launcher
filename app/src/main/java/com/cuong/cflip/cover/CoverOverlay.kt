@@ -99,6 +99,25 @@ object CoverOverlayManager {
         val byPackage = allApps.associateBy { it.packageName }
         val favorites = FavoritesStore(ctx).getFavorites().mapNotNull { byPackage[it] }.take(8)
         val recents = RecentAppsRepository(ctx).recentPackages(4).mapNotNull { byPackage[it] }
+        // Full App List widget (2.7.0, 9Flip app-grid equivalent, own layout):
+        // the overlay previously showed only favorites (max 8) + recents (4),
+        // so the cover had no usable app list at all. Sort follows the same
+        // SettingsStore sortMode as the Compose cover: A-Z / recently opened
+        // / newly installed; favorites-first still wins when enabled.
+        val settings = com.cuong.cflip.data.SettingsStore(ctx).load()
+        val recentOrder = RecentAppsRepository(ctx).recentPackages(100)
+        val installTimes = appRepo.installTimes(allApps.map { it.packageName })
+        val appListOrdered = run {
+            val base = when (settings.sortMode) {
+                1 -> allApps.sortedBy { recentOrder.indexOf(it.packageName).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+                2 -> allApps.sortedByDescending { installTimes[it.packageName] ?: 0L }
+                else -> allApps
+            }
+            if (settings.favoritesFirst) {
+                base.sortedByDescending { it.packageName in FavoritesStore(ctx).getFavorites() }
+            } else base
+        }
+        val gridColumns = when (settings.columns) { 0 -> 4; in 3..6 -> settings.columns; else -> 4 }
 
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -199,6 +218,17 @@ object CoverOverlayManager {
                 })
             }
         }
+        // Full app-list widget grid (see appListOrdered above).
+        root.addView(TextView(ctx).apply {
+            text = "Tất cả ứng dụng (${appListOrdered.size})"; textSize = 14f; setTextColor(0xFFFFFFFF.toInt())
+        })
+        val allGrid = GridLayout(ctx).apply { columnCount = gridColumns }
+        for (app in appListOrdered) {
+            allGrid.addView(appButton(app.label, app.icon, app.packageName),
+                GridLayout.LayoutParams().apply { width = dp(76); height = dp(84) })
+        }
+        root.addView(allGrid)
+
         root.addView(Button(ctx).apply {
             text = "Điều khiển"
             setOnClickListener {
@@ -209,6 +239,20 @@ object CoverOverlayManager {
             text = "Đóng"
             setOnClickListener { hide() }
         })
+        // Rotation, applied here (2.7.0 fix): previously the overlay never
+        // read coverRotation at all, so the panel Rotate tile looked dead.
+        // Same shrink rule as CoverPresentation for 90/270 on a near-square cover.
+        val rotation = settings.coverRotation
+        if (rotation != 0) {
+            scroll.post {
+                scroll.rotation = rotation.toFloat()
+                if (rotation % 180 != 0 && scroll.width > 0 && scroll.height > 0) {
+                    val s = minOf(scroll.width, scroll.height).toFloat() /
+                        maxOf(scroll.width, scroll.height).toFloat()
+                    scroll.scaleX = s; scroll.scaleY = s
+                }
+            }
+        }
         return scroll
     }
 }
