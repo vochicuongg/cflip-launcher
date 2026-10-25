@@ -38,20 +38,24 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 /**
- * CFlip 2.0 design system.
- * One accent (mint), deep AMOLED blacks, glass cards, 8dp spacing rhythm,
- * big touch targets for a 720px-wide cover screen used one-handed.
+ * CFlip design system, refined in 2.3 (main-screen redesign):
+ * one mint accent used sparingly (primary action + active state only),
+ * near-black background, quiet surfaces, and a strict hierarchy -
+ * one hero, one primary action, then grid, then lists. Secondary text
+ * is dimmer than before so the eye lands on titles and actions first.
+ * Cover screens (CoverApp) reuse the same tokens, so they stay consistent.
  */
 object CFlipColors {
-    val Bg = Color(0xFF060807)
+    val Bg = Color(0xFF08090A)
     val Accent = Color(0xFF7FE3C0)
     val AccentDeep = Color(0xFF2FBF8F)
     val AccentDark = Color(0xFF07271C)
-    val TextPrimary = Color(0xFFF4F9F7)
-    val TextSecondary = Color(0xFFA7BDB3)
-    val TextFaint = Color(0xFF6B7F76)
-    val CardFill = Color(0x17FFFFFF)       // white 9%
-    val CardStroke = Color(0x1FFFFFFF)     // white 12%
+    val TextPrimary = Color(0xFFF5F7F6)
+    val TextSecondary = Color(0xFF9AA8A1)
+    val TextFaint = Color(0xFF66766E)
+    val CardFill = Color(0x12FFFFFF)       // white 7%, quieter than before
+    val CardStroke = Color(0x14FFFFFF)     // white 8%
+    val Surface = Color(0xFF131517)
     val Danger = Color(0xFFFF9E8A)
     val NavFill = Color(0xE6141B18)
 
