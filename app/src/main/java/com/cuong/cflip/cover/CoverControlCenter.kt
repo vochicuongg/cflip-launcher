@@ -268,6 +268,7 @@ object CoverControlCenterManager {
         // renders ONLY widgets the user turned on in MainScreen
         // (SettingsStore.coverWidgets, default empty). If none are on,
         // the section says so and offers to open CFlip to add one.
+        var widgetCardDeferred: LinearLayout? = null
         run {
             val chosen = store.load().coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             val widgetCard = card()
@@ -437,7 +438,7 @@ object CoverControlCenterManager {
                     }
                 })
             }
-            controlContent.addView(widgetCard)
+            widgetCardDeferred = widgetCard
         }
 
         // ---- Tab 1: Điều khiển ----
@@ -551,32 +552,77 @@ object CoverControlCenterManager {
 
         controlContent.addView(sliderCard)
         val tileCard = card()
-        tileCard.addView(title("Chức năng"))
+        tileCard.addView(title("Đảo chức năng"))
         val grid = GridLayout(ctx).apply { columnCount = 5 }
-        // Modern tiles 2.9.0: rounded mini-cards with an icon on top and
-        // a label below, instead of the default grey Android buttons.
-        fun tileWithLabel(icon: String, label: String, onClick: () -> Unit): Pair<LinearLayout, TextView> {
+        // 3.6.0 Samsung QS style tiles (in code, no copied icons):
+        // a 48dp circle + label below. Off = dark slate circle + white
+        // symbol, On = mint circle + black symbol, like Samsung's Quick
+        // Settings tiles. Symbols are generic Unicode, not Samsung's or
+        // 9Flip's ic_control_* PNGs, which CFlip must not copy.
+        fun tileWithLabel(icon: String, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
             val labelView = TextView(ctx).apply {
-                text = label; textSize = 10f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+                text = label; textSize = 10f
+                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+            }
+            val circle = TextView(ctx).apply {
+                text = icon; textSize = 18f; gravity = Gravity.CENTER
+                setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
             }
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                background = rounded(0xFF23262B.toInt(), 12)
-                setPadding(dp(4), dp(8), dp(4), dp(8))
+                setPadding(dp(4), dp(4), dp(4), dp(4))
                 gravity = Gravity.CENTER
                 setOnClickListener { resetTimer(); onClick() }
             }
-            cardView.addView(TextView(ctx).apply {
-                text = icon; textSize = 20f; gravity = Gravity.CENTER
-            })
+            cardView.addView(circle)
             cardView.addView(labelView)
             return cardView to labelView
         }
         fun tile(label: String, icon: String, onClick: () -> Unit): LinearLayout =
-            tileWithLabel(icon, label, onClick).first
+            tileWithLabel(icon, label, false, onClick).first
         fun tileRow(label: String, icon: String, onClick: () -> Unit) {
             grid.addView(tile(label, icon, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        }
+        fun tileRowActive(label: String, icon: String, active: Boolean, onClick: () -> Unit) {
+            grid.addView(tileWithLabel(icon, label, active, onClick).first,
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        }
+        // 3.6.0: Rotate lives INSIDE the function island, as two tiles.
+        // The old buttons below the grid are deleted.
+        tileRowActive("Theo lật", "↻", store.load().rotateMode == 0) {
+            store.save(store.load().copy(rotateMode = 0))
+            CoverRotateState.contentFallback = false
+            val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
+            CoverRotateHostManager.follow(ctx.applicationContext, display)
+            android.widget.Toast.makeText(
+                ctx,
+                if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
+                else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
+                android.widget.Toast.LENGTH_LONG).show()
+            hide()
+            if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                CoverAssistiveTouchManager.hide()
+                CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+            }
+        }
+        tileRowActive("Khóa xoay", "🔒", store.load().rotateMode == 1) {
+            store.save(store.load().copy(rotateMode = 1))
+            CoverRotateState.contentFallback = false
+            CoverRotateHostManager.lock(ctx.applicationContext, display)
+            android.widget.Toast.makeText(
+                ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
+                android.widget.Toast.LENGTH_SHORT).show()
+            hide()
+            if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                CoverAssistiveTouchManager.hide()
+                CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+            }
         }
         tileRow("Đèn", "💡") { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
         tileRow("Wi-Fi", "📶") { runCatching { QuickControls.openWifiPanel(ctx) } }
@@ -588,60 +634,6 @@ object CoverControlCenterManager {
         tileRow("TB", "🔔") { a11yAction("Thông báo") { it.openNotifications() } }
         tileRow("CĐ nhanh", "⚡") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", "⚙️") { runCatching { QuickControls.openDeviceSettings(ctx) } }
-        // Rotate, 3.2.0 — ONLY two modes, per user request.
-        // Decompile (9Flip rotate host a(int)/h()): a 1x1 overlay with
-        // screenOrientation forces the display, and h() pulses
-        // FULL_SENSOR for 220ms then removes the view. CFlip uses
-        // exactly that, but only in two modes:
-        //  - FOLLOW (0): pulse FULL_SENSOR 220ms so the cover follows
-        //    the direction the phone is flipped, then release.
-        //  - LOCK (1, default): remove the host, so the cover stays
-        //    locked at its current orientation.
-        // The old 0/90/180/270 cycle is deleted — it only ever rotated
-        // CFlip's own Views, which is why the user correctly saw it
-        // rotating "only AssistiveTouch" (one View, not the display).
-        // These two buttons are in the tile card, below the grid, so
-        // they are not confused with a per-View rotation tile.
-        tileCard.addView(modernButton("Xoay theo hướng lật", store.load().rotateMode == 0).apply {
-            setOnClickListener {
-                store.save(store.load().copy(rotateMode = 0))
-                CoverRotateState.contentFallback = false
-                // 3.3.0: FOLLOW keeps a FULL_SENSOR host alive, it does
-                // NOT pulse-and-remove. The old 600ms check was wrong:
-                // if the user is holding the phone still, rotation
-                // correctly does NOT change at button-press time — it
-                // changes when the phone is flipped afterwards.
-                val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
-                CoverRotateHostManager.follow(ctx.applicationContext, display)
-                android.widget.Toast.makeText(
-                    ctx,
-                    if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
-                    else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
-                    android.widget.Toast.LENGTH_LONG).show()
-                hide()
-                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                    CoverAssistiveTouchManager.hide()
-                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
-                }
-            }
-        })
-        tileCard.addView(modernButton("Khóa xoay ở hướng hiện tại", store.load().rotateMode == 1).apply {
-            setOnClickListener {
-                store.save(store.load().copy(rotateMode = 1))
-                CoverRotateState.contentFallback = false
-                // 3.3.0: LOCK is an explicit fixed-orientation host at
-                // the current display rotation, not just "remove".
-                CoverRotateHostManager.lock(ctx.applicationContext, display)
-                android.widget.Toast.makeText(
-                    ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
-                    android.widget.Toast.LENGTH_SHORT).show()
-                hide()
-                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                    CoverAssistiveTouchManager.hide()
-                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
-                }
-            }
-        })
         var sortLabel: TextView? = null
         val sortTile = tileWithLabel("⇅", "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()
@@ -678,6 +670,9 @@ object CoverControlCenterManager {
         }
         tileCard.addView(grid)
         controlContent.addView(tileCard)
+        // 3.6.0 order: Media first, Brightness second, Function island
+        // third, Widget last. Widget was built first but is added here.
+        widgetCardDeferred?.let { controlContent.addView(it) }
 
         // ---- Tab 2: Thông báo ----
         notifContent.addView(title("Thông báo"))

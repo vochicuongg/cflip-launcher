@@ -109,3 +109,8 @@ PASS - AppGrid factory receives widget id from service intent
 PASS - RemoteViewsService exported=true like 9Flip 
 PASS - Clock/Music/Cover getActivity use distinct per-id requestCodes, not shared 0 
 PASS - Widget getActivity launches on cover display when available 
+PASS - Panel order: Media before Brightness before Function island before Widget (addView order) 
+PASS - Function island title is 'Đảo chức năng' 
+PASS - Rotate is inside function island as tiles, not buttons below grid 
+PASS - Tiles use Samsung QS circle style (OVAL, 48dp, mint when active) 
+PASS - AssistiveTouch tap=Home, long=Recents, double=Menu still present 

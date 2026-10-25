@@ -271,3 +271,15 @@ check("Clock/Music/Cover getActivity use distinct per-id requestCodes, not share
       "1000 + id" in read("widget/ClockWidgetProvider.kt") and "2000 + id" in read("widget/MusicWidgetProvider.kt") and "3000 + widgetId" in read("widget/CoverWidgetProvider.kt"))
 check("Widget getActivity launches on cover display when available",
       "setLaunchDisplayId" in read("widget/ClockWidgetProvider.kt") and "setLaunchDisplayId" in read("widget/MusicWidgetProvider.kt") and "setLaunchDisplayId" in read("widget/CoverWidgetProvider.kt"))
+
+# --- 17. Panel order + Samsung QS tiles + rotate in island (3.6.0) ---
+check("Panel order: Media before Brightness before Function island before Widget (addView order)",
+      cc2.index("controlContent.addView(mediaCard)") < cc2.index("controlContent.addView(sliderCard)") < cc2.index("controlContent.addView(tileCard)") < cc2.index("widgetCardDeferred?.let"))
+check("Function island title is 'Đảo chức năng'",
+      'title("Đảo chức năng")' in cc2)
+check("Rotate is inside function island as tiles, not buttons below grid",
+      'tileRowActive("Theo lật"' in cc2 and 'tileRowActive("Khóa xoay"' in cc2 and 'modernButton("Khóa xoay ở hướng hiện tại"' not in cc2)
+check("Tiles use Samsung QS circle style (OVAL, 48dp, mint when active)",
+      "GradientDrawable.OVAL" in cc2 and "dp(48)" in cc2)
+check("AssistiveTouch tap=Home, long=Recents, double=Menu still present",
+      "Home" in at and "Recents" in at and "Menu" in at)
