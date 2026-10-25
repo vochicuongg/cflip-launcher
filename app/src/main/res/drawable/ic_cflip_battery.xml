@@ -4,10 +4,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- vc36 battery saver, outline style: battery outline + bolt
+         inside, not a charge bar, so it reads as saving, not level. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="1.5"
         android:pathData="M3,8 H18 V16 H3 Z M20,10 H22 V14 H20 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M5,10 H12 V14 H5 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M13,6 L9,13 H11.5 L10.5,18 L15,11 H12.5 Z" />
 </vector>

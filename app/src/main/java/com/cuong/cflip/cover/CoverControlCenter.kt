@@ -13,6 +13,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -487,10 +488,95 @@ object CoverControlCenterManager {
         val mediaRepo = MediaControllerRepository(ctx)
         runCatching { mediaRepo.refresh() }
         val mediaInfo = MediaState.current.value
+        // vc36 9Flip media view (e4.g / a9.setMediaVisible): the bar
+        // exists ONLY while media is active, and appears with
+        // alpha 0->1, translationY -10dp->0, scale 0.985->1 in 190ms.
+        // Previously CFlip always showed "Chưa có nhạc" with no artist,
+        // no progress and a fixed play icon. Now: title marquee 13sp
+        // white, artist 11sp 75% white, elapsed/total + thin progress
+        // bar (tap to seek, via the repository's seekTo), and a
+        // play/pause icon that actually reflects isPlaying.
         val mediaCard = card()
+        if (mediaInfo == null) {
+            mediaCard.visibility = View.GONE
+        } else {
+            mediaCard.alpha = 0f
+            mediaCard.translationY = -dp(10).toFloat()
+            mediaCard.scaleX = 0.985f
+            mediaCard.scaleY = 0.985f
+            mediaCard.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                .setDuration(190L)
+                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .start()
+        }
         mediaCard.addView(title("Nhạc"))
         mediaCard.addView(TextView(ctx).apply {
-            text = mediaInfo?.title ?: "Chưa có nhạc"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+            text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+            maxLines = 1; isSingleLine = true; isSelected = true
+            isHorizontallyScrolling = true
+            ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+            marqueeRepeatLimit = -1
+        })
+        mediaCard.addView(TextView(ctx).apply {
+            text = mediaInfo?.artist ?: ""; textSize = 11f
+            setTextColor(0xBFFFFFFF.toInt())
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        fun fmtTime(ms: Long): String {
+            val total = (ms / 1000).toInt()
+            return "%d:%02d".format(total / 60, total % 60)
+        }
+        val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
+        val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
+        val mediaFill = View(ctx).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(2).toFloat()
+                setColor(0xFFFFFFFF.toInt())
+            }
+        }
+        val mediaTrack = FrameLayout(ctx).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(2).toFloat()
+                setColor(0xFF3A3F45.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(0, dp(4), 1f)
+            addView(mediaFill, FrameLayout.LayoutParams(0, FrameLayout.LayoutParams.MATCH_PARENT))
+            setOnTouchListener { v, e ->
+                if (mediaInfo != null && mediaInfo.durationMs > 0) {
+                    val pos = ((e.x / v.width.toFloat()).coerceIn(0f, 1f) * mediaInfo.durationMs).toLong()
+                    runCatching { mediaRepo.seekTo(pos) }
+                    runCatching { mediaRepo.refresh() }
+                    val cur = MediaState.current.value
+                    if (cur != null) {
+                        mediaElapsed.text = fmtTime(cur.positionMs)
+                        mediaTotal.text = fmtTime(cur.durationMs)
+                        post {
+                            val w = v.width
+                            val frac = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
+                            mediaFill.layoutParams = FrameLayout.LayoutParams((w * frac).toInt(), FrameLayout.LayoutParams.MATCH_PARENT)
+                        }
+                    }
+                }
+                true
+            }
+        }
+        if (mediaInfo != null) {
+            mediaElapsed.text = fmtTime(mediaInfo.positionMs)
+            mediaTotal.text = fmtTime(mediaInfo.durationMs)
+            mediaTrack.post {
+                val w = mediaTrack.width
+                val frac = if (mediaInfo.durationMs > 0) mediaInfo.positionMs.toFloat() / mediaInfo.durationMs else 0f
+                mediaFill.layoutParams = FrameLayout.LayoutParams((w * frac).toInt(), FrameLayout.LayoutParams.MATCH_PARENT)
+            }
+        }
+        mediaCard.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(mediaElapsed)
+            addView(mediaTrack)
+            addView(mediaTotal)
         })
         // vc30 LOCAL-ONLY: media buttons use Samsung ic_sec drawables that
         // exist only in the local samsung-icons-360-vc30 branch / D:\icons\sec_only.
@@ -514,7 +600,7 @@ object CoverControlCenterManager {
         }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(mediaIconButton(R.drawable.ic_sec_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause() } })
+        mediaRow.addView(mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_sec_pause else R.drawable.ic_sec_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); val cur = MediaState.current.value; setImageResource(if (cur?.isPlaying == true) R.drawable.ic_sec_pause else R.drawable.ic_sec_play) } })
         mediaRow.addView(mediaIconButton(R.drawable.ic_sec_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next() } })
         mediaCard.addView(mediaRow)
         controlContent.addView(mediaCard)
@@ -922,8 +1008,12 @@ object CoverControlCenterManager {
             hide()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
+        // vc36: Battery Saver settings only show on the main display,
+        // so say so explicitly and open from applicationContext (main),
+        // not from the cover display context.
         tileRow("Tiết kiệm pin", R.drawable.ic_cflip_battery) {
             hide()
+            android.widget.Toast.makeText(ctx, "Mở máy ra để bật Tiết kiệm pin — Cài đặt Pin chỉ hiện trên màn chính", android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val appCtx = ctx.applicationContext
                 val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -931,22 +1021,37 @@ object CoverControlCenterManager {
                 else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
+        // vc36 DND toggle in place, like rotate: press once -> on,
+        // press again -> off, and the tile itself changes (moon filled
+        // + mint circle when on, moon outline + dark circle when off).
+        // Previously the tile never updated, so a successful toggle
+        // looked like nothing happened until the panel reopened.
         run {
             val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
             val dndOn = nm?.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
-            tileRowActive("Không làm phiền", R.drawable.ic_cflip_dnd, dndOn) {
+            var dndTileRef: Pair<LinearLayout, TextView>? = null
+            val dndTile = tileWithLabel(if (dndOn) R.drawable.ic_cflip_dnd else R.drawable.ic_cflip_dnd_off, "Không làm phiền", dndOn) {
                 if (nm != null && nm.isNotificationPolicyAccessGranted) {
                     val next = if (nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
                         android.app.NotificationManager.INTERRUPTION_FILTER_NONE
                     else android.app.NotificationManager.INTERRUPTION_FILTER_ALL
                     nm.setInterruptionFilter(next)
-                    android.widget.Toast.makeText(ctx, if (next == android.app.NotificationManager.INTERRUPTION_FILTER_NONE) "Đã bật Không làm phiền" else "Đã tắt Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
+                    val nowOn = next == android.app.NotificationManager.INTERRUPTION_FILTER_NONE
+                    android.widget.Toast.makeText(ctx, if (nowOn) "Đã bật Không làm phiền" else "Đã tắt Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
+                    dndTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
+                    val circle = dndTileRef?.first?.getChildAt(0) as? ImageView
+                    circle?.setImageResource(if (nowOn) R.drawable.ic_cflip_dnd else R.drawable.ic_cflip_dnd_off)
+                    circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                    (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                        if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
                 } else {
                     hide()
                     android.widget.Toast.makeText(ctx, "Cần cấp quyền Không làm phiền cho CFlip", android.widget.Toast.LENGTH_LONG).show()
                     runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
             }
+            dndTileRef = dndTile
+            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
         tileCard.addView(grid)
         controlContent.addView(tileCard)

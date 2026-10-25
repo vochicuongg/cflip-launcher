@@ -4,5 +4,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M22,2 L11,21 L9,15 L2,12 Z M11,15 L22,2" />
+    <!-- vc36 airplane, outline paper plane like 9Flip ic_control_*,
+         not a solid triangle. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineJoin="round"
+        android:pathData="M22,2 L11,21 L9,15 L2,12 Z M9,15 L22,2" />
 </vector>
