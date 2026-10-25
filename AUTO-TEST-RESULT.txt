@@ -63,3 +63,10 @@ PASS - Service shows only AssistiveTouch + RotateHost
 PASS - Service never shows Overlay 
 PASS - MainScreen never uses CoverPresentation class 
 PASS - Panel never restores Overlay 
+PASS - No forced CoverWidget overlay on cover by default 
+PASS - SettingsStore has coverWidgets, default empty 
+PASS - MainScreen has widget toggles (appgrid/clock) 
+PASS - MainScreen pins widgets via requestPinAppWidget, not forced placement 
+PASS - MainScreen has no leftover Presentation variable 
+PASS - Panel renders widgets only when user chose them 
+PASS - Panel widget section offers to open CFlip to add a widget 

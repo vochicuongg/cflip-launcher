@@ -22,6 +22,12 @@ data class CoverSettings(
     // 0 = small 0.8, 1 = default 1.0, 2 = large 1.2; auto-dim default true.
     val assistiveTouchSize: Int = 1,
     val assistiveTouchAutoDim: Boolean = true,
+    // 3.1.0: cover widgets are USER-ADDED ONLY, never forced.
+    // Empty by default: no widget shows on the cover until the user
+    // turns one on in MainScreen. Values: "appgrid", "clock".
+    // (Music stays a Control tab control, not a widget, to avoid
+    // duplicating it.) Stored as a comma-separated string.
+    val coverWidgets: String = "",
 )
 
 object BackgroundStyles {
@@ -47,6 +53,7 @@ class SettingsStore(context: Context) {
         assistiveTouchEnabled = prefs.getBoolean("assistiveTouchEnabled", true),
         assistiveTouchSize = prefs.getInt("assistiveTouchSize", 1),
         assistiveTouchAutoDim = prefs.getBoolean("assistiveTouchAutoDim", true),
+        coverWidgets = prefs.getString("coverWidgets", "") ?: "",
     )
 
     fun save(s: CoverSettings) {
@@ -64,6 +71,7 @@ class SettingsStore(context: Context) {
             .putBoolean("assistiveTouchEnabled", s.assistiveTouchEnabled)
             .putInt("assistiveTouchSize", s.assistiveTouchSize)
             .putBoolean("assistiveTouchAutoDim", s.assistiveTouchAutoDim)
+            .putString("coverWidgets", s.coverWidgets)
             .apply()
     }
 }

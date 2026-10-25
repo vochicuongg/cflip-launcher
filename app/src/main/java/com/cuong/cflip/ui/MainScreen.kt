@@ -97,10 +97,6 @@ fun MainScreen(
     var showCover by remember { mutableStateOf(showCoverInitially) }
     var coverTab by remember { mutableStateOf(initialTab) }
 
-    DisposableEffect(presentation) {
-        onDispose { presentation?.dismiss() }
-    }
-
     if (showCover) {
         BackHandler { showCover = false }
         Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)) {
@@ -197,30 +193,73 @@ fun MainScreen(
             }
         }
 
-        // Widgets for the cover (2.5.0, revised 2.5.1): NO external host.
-        // The cover widgets are cards inside CFlip's own
-        // cover UI (Overlay/Presentation): Clock & Battery, App Grid,
-        // Music and Notifications. Starting the cover service and folding
-        // the phone shows them — nothing else needs to be installed or
-        // placed. The AppWidgetProviders in widget/ are only for the main
-        // home screen's own widget picker, never for the cover.
-        SectionLabel("Widget cho màn phụ")
+        // Widgets, 3.1.0 — USER-ADDED ONLY, corrected after the user's
+        // complaint. Decompile truth (9Flip v149, static only):
+        // NineCoverAppGridWidgetProvider + RemoteViewsService and the
+        // Cassette widget family are standard Android AppWidgetProviders.
+        // No AppWidgetHost code and no forced overlay widget were found
+        // in the native scope — the user places widgets, the app does not
+        // force them. CFlip now follows that exactly:
+        //  - Nothing shows on the cover until the user turns a widget on
+        //    below (stored in SettingsStore.coverWidgets, default empty).
+        //  - The standard providers in widget/ are also pin-able from here
+        //    via AppWidgetManager.requestPinAppWidget(): the system asks
+        //    the user, and only on their confirmation does the launcher
+        //    place the widget on the main home screen.
+        //  - Honest limit: Samsung's Flex Window host does not accept
+        //    third-party AppWidgets via pin, so a pinned widget lands on
+        //    the main home, not on the cover. The cover widgets below
+        //    live inside CFlip's own AssistiveTouch panel, and only after
+        //    the user adds them there.
+        SectionLabel("Widget — chỉ thêm khi bạn tự thêm")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Đồng hồ & Pin: giờ, ngày, % pin, số thông báo — trong giao diện cover",
+                Text("Widget màn phụ (hiện trong panel AssistiveTouch, chỉ khi bạn bật):",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Lưới ứng dụng: yêu thích + gần đây trong Overlay, toàn bộ app trong tab Ứng dụng",
-                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Nhạc: bài đang phát, lùi / phát / tới (cần quyền Thông báo) — trong giao diện cover",
-                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Thông báo: danh sách thông báo đang active — trong giao diện cover",
-                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Riêng màn hình chính vẫn có 4 widget chuẩn Android (Tổng hợp, Lưới app, Nhạc, Đồng hồ & Pin) để thêm từ trình chọn widget của màn hình chính, không liên quan tới màn phụ.",
+                run {
+                    val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                    fun toggleWidget(key: String, on: Boolean) {
+                        val next = if (on) chosen + key else chosen - key
+                        settings = settings.copy(coverWidgets = next.sorted().joinToString(","))
+                        settingsStore.save(settings)
+                    }
+                    HubSwitch("Widget Đồng hồ & Pin", "clock" in chosen) { toggleWidget("clock", it) }
+                    HubSwitch("Widget Lưới ứng dụng yêu thích", "appgrid" in chosen) { toggleWidget("appgrid", it) }
+                }
+                Text("Chưa bật Widget nào thì panel AssistiveTouch sẽ ghi rõ là chưa thêm Widget — không tự hiện gì cả.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("Cách dùng: Bắt đầu dịch vụ cover rồi gập máy — các thẻ Đồng hồ, Lưới app, Nhạc, Thông báo hiện ngay trong chính giao diện cover của CFlip, không cần cài thêm gì, không cần ứng dụng bên ngoài.",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("Widget chuẩn Android (gắn lên màn hình chính bằng hộp thoại hệ thống):",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                run {
+                    val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+                    fun pin(label: String, cls: Class<*>) {
+                        val provider = android.content.ComponentName(context, cls)
+                        val ok = runCatching { mgr.requestPinAppWidget(provider, null, null) }.getOrDefault(false)
+                        if (ok) {
+                            toast("Đã hỏi hệ thống để gắn Widget $label — xác nhận trên màn hình chính.")
+                        } else {
+                            toast("Launcher này không hỗ trợ ghim Widget. Giữ màn hình chính → Widget → CFlip → kéo $label vào.")
+                        }
+                    }
+                    TextButton(onClick = { pin("Lưới ứng dụng", com.cuong.cflip.widget.AppGridWidgetProvider::class.java) },
+                        modifier = Modifier.align(Alignment.Start)) {
+                        Text("Ghim Widget: Lưới ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { pin("Nhạc", com.cuong.cflip.widget.MusicWidgetProvider::class.java) },
+                        modifier = Modifier.align(Alignment.Start)) {
+                        Text("Ghim Widget: Nhạc", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { pin("Đồng hồ & Pin", com.cuong.cflip.widget.ClockWidgetProvider::class.java) },
+                        modifier = Modifier.align(Alignment.Start)) {
+                        Text("Ghim Widget: Đồng hồ & Pin", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { pin("Tổng hợp", com.cuong.cflip.widget.CoverWidgetProvider::class.java) },
+                        modifier = Modifier.align(Alignment.Start)) {
+                        Text("Ghim Widget: Tổng hợp", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                }
             }
         }
 

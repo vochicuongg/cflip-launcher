@@ -85,8 +85,8 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Home-screen widget: for the main home screen's widget picker only.
-             Cover widgets live inside CFlip's own cover UI. -->
+        <!-- Standard widget (3.1.0): user-placed only, via the system
+             picker or requestPinAppWidget from MainScreen. Never forced. -->
         <receiver
             android:name=".widget.CoverWidgetProvider"
             android:exported="false"
@@ -99,9 +99,9 @@
                 android:resource="@xml/cover_widget_info" />
         </receiver>
 
-        <!-- 2.5.0 cover widgets (standard Android widgets, host-independent):
-             App Grid, Music, Clock & Battery. Each is a separate provider so
-             the user can place exactly the ones they want on the cover. -->
+        <!-- Standard widgets: App Grid, Music, Clock & Battery. Each is a
+             separate provider so the user can place exactly the ones they
+             want, via the system picker / pin dialog only. -->
         <receiver
             android:name=".widget.AppGridWidgetProvider"
             android:exported="false"

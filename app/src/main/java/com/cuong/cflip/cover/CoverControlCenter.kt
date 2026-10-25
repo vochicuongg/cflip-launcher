@@ -67,7 +67,7 @@ object CoverControlCenterManager {
 
     fun isShown(): Boolean = view != null
 
-    fun show(appContext: Context, display: Display): Result<Unit> = runCatching {
+    fun show(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
@@ -235,6 +235,7 @@ object CoverControlCenterManager {
             setTextColor(0xFFFFFFFF.toInt())
         })
         outer.addView(tabBar); outer.addView(scroll)
+        // initialTab is set after selectTab(0) below, via the stored list.
         // Fallback rotation, in sync with the overlay (2.10.0).
         if (CoverRotateState.contentFallback) {
             val rotation = store.load().coverRotation
@@ -249,7 +250,94 @@ object CoverControlCenterManager {
                 }
             }
         }
-        selectTab(0)
+        selectTab(initialTab.coerceIn(0, 3))
+
+        // ---- User-added Widgets (3.1.0, NOT forced) ----
+        // Decompile truth: 9Flip's widgets are standard AppWidgetProviders
+        // (NineCoverAppGridWidgetProvider + RemoteViewsService, and the
+        // Cassette family) — the system/user places them, the app never
+        // forces them onto the cover. CFlip follows that: this section
+        // renders ONLY widgets the user turned on in MainScreen
+        // (SettingsStore.coverWidgets, default empty). If none are on,
+        // the section says so and offers to open CFlip to add one.
+        run {
+            val chosen = store.load().coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+            val widgetCard = card()
+            widgetCard.addView(title("Widget đã thêm"))
+            if (chosen.isEmpty()) {
+                widgetCard.addView(TextView(ctx).apply {
+                    text = "Chưa thêm Widget nào. Widget chỉ hiện khi bạn tự thêm ở CFlip trên màn hình chính."
+                    textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                })
+                widgetCard.addView(modernButton("Mở CFlip để thêm Widget").apply {
+                    setOnClickListener {
+                        ctx.applicationContext.startActivity(
+                            Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        hide()
+                    }
+                })
+            } else {
+                if ("clock" in chosen) {
+                    val batteryPct = runCatching {
+                        val intent = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                        val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                        val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                        if (level >= 0 && scale > 0) level * 100 / scale else -1
+                    }.getOrDefault(-1)
+                    widgetCard.addView(TextView(ctx).apply {
+                        text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                        textSize = 28f; setTextColor(0xFFFFFFFF.toInt())
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                    })
+                    widgetCard.addView(TextView(ctx).apply {
+                        val battery = if (batteryPct >= 0) " · Pin $batteryPct%" else ""
+                        text = java.text.SimpleDateFormat("EEE, dd/MM", java.util.Locale.getDefault()).format(java.util.Date()) +
+                            " · TB: ${NotificationState.active.value.size}$battery"
+                        textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                    })
+                }
+                if ("appgrid" in chosen) {
+                    widgetCard.addView(TextView(ctx).apply {
+                        text = "Ứng dụng yêu thích"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+                    })
+                    val favApps = run {
+                        val repo = com.cuong.cflip.data.AppRepository(ctx)
+                        val byPkg = repo.loadLaunchableApps().associateBy { it.packageName }
+                        com.cuong.cflip.data.FavoritesStore(ctx).getFavorites().mapNotNull { byPkg[it] }.take(8)
+                    }
+                    if (favApps.isEmpty()) {
+                        widgetCard.addView(TextView(ctx).apply {
+                            text = "Chưa ghim app nào — ghim ở CFlip rồi Widget này mới có nội dung."
+                            textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                        })
+                    } else {
+                        val favGrid = GridLayout(ctx).apply { columnCount = 4 }
+                        for (app in favApps) {
+                            favGrid.addView(Button(ctx).apply {
+                                text = app.label; textSize = 10f; isAllCaps = false
+                                background = rounded(0xFF23262B.toInt(), 12)
+                                setTextColor(0xFFFFFFFF.toInt())
+                                if (app.icon != null) {
+                                    val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
+                                    d.setBounds(0, 0, dp(40), dp(40))
+                                    setCompoundDrawables(null, d, null, null)
+                                }
+                                setOnClickListener {
+                                    com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
+                                    hide()
+                                }
+                            }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(84) })
+                        }
+                        widgetCard.addView(favGrid)
+                    }
+                    widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
+                        setOnClickListener { selectTab(2) }
+                    })
+                }
+            }
+            controlContent.addView(widgetCard)
+        }
 
         // ---- Tab 1: Điều khiển ----
         val mediaRepo = MediaControllerRepository(ctx)

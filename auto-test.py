@@ -173,3 +173,18 @@ check("Service shows only AssistiveTouch + RotateHost", "CoverAssistiveTouchMana
 check("Service never shows Overlay", "CoverOverlayManager" not in svc)
 check("MainScreen never uses CoverPresentation class", "CoverPresentation" not in read("ui/MainScreen.kt"))
 check("Panel never restores Overlay", "CoverOverlayManager" not in cc2)
+
+# --- 11. User-added widgets only (3.1.0) ---
+check("No forced CoverWidget overlay on cover by default",
+      "CoverWidgetManager" not in read("service/CoverForegroundService.kt"))
+check("SettingsStore has coverWidgets, default empty",
+      "coverWidgets" in ss and 'coverWidgets = prefs.getString("coverWidgets", "")' in ss)
+ms2 = read("ui/MainScreen.kt")
+check("MainScreen has widget toggles (appgrid/clock)", '"appgrid"' in ms2 and '"clock"' in ms2)
+check("MainScreen pins widgets via requestPinAppWidget, not forced placement",
+      "requestPinAppWidget" in ms2)
+check("MainScreen has no leftover Presentation variable", "presentation" not in ms2)
+check("Panel renders widgets only when user chose them",
+      "coverWidgets" in cc2 and "Chưa thêm Widget" in cc2)
+check("Panel widget section offers to open CFlip to add a widget",
+      "Mở CFlip để thêm Widget" in cc2)
