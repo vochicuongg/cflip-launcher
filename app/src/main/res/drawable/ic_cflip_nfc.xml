@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- vc38 NFC redraw: the Samsung ic_sec_nfc in sec_only is a
+         48dp card outline that renders as a rectangle at tile size,
+         not as NFC. This is the standard NFC mark: an N with
+         broadcast waves on both sides, single colour for tile tint. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,6 V18 L15,6 V18 M6.5,9 A4,4 0 0 0 6.5,15 M3.5,6 A8,8 0 0 0 3.5,18 M17.5,9 A4,4 0 0 1 17.5,15 M20.5,6 A8,8 0 0 1 20.5,18" />
+</vector>

@@ -74,6 +74,7 @@ object CoverControlCenterManager {
         runCatching { manager.updateViewLayout(v, params) }
     }
     private val handler = Handler(Looper.getMainLooper())
+    private var mediaTickRunnable: Runnable? = null
     private var dismissRunnable: Runnable? = null
     // 3.0.0: no cover overlay to restore — Presentation and the
     // full-screen overlay launcher are both gone. Closing the panel
@@ -120,6 +121,8 @@ object CoverControlCenterManager {
     private fun hidePanelOnly() {
         dismissRunnable?.let { handler.removeCallbacks(it) }
         dismissRunnable = null
+        mediaTickRunnable?.let { handler.removeCallbacks(it) }
+        mediaTickRunnable = null
         val v = view
         if (v != null) {
             v.keepScreenOn = false
@@ -441,7 +444,7 @@ object CoverControlCenterManager {
                                     com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
                                     hide()
                                 }
-                            }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(84) })
+                            }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
                         }
                         widgetCard.addView(favGrid)
                     }
@@ -533,19 +536,21 @@ object CoverControlCenterManager {
                 .setInterpolator(android.view.animation.DecelerateInterpolator())
                 .start()
         }
-        mediaContent.addView(title("Nhạc"))
-        mediaContent.addView(TextView(ctx).apply {
+        mediaContent.addView(title("Âm thanh"))
+        val mediaTitleView = TextView(ctx).apply {
             text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
             setHorizontallyScrolling(true)
             ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
             marqueeRepeatLimit = -1
-        })
-        mediaContent.addView(TextView(ctx).apply {
+        }
+        mediaContent.addView(mediaTitleView)
+        val mediaArtistView = TextView(ctx).apply {
             text = mediaInfo?.artist ?: ""; textSize = 11f
             setTextColor(0xBFFFFFFF.toInt())
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
-        })
+        }
+        mediaContent.addView(mediaArtistView)
         fun fmtTime(ms: Long): String {
             val total = (ms / 1000).toInt()
             return "%d:%02d".format(total / 60, total % 60)
@@ -609,14 +614,44 @@ object CoverControlCenterManager {
                 gravity = Gravity.CENTER_VERTICAL
             }
         }
+        // vc38 real-time media: the panel was built ONCE, so progress
+        // never moved and a click's immediate refresh() read the session's
+        // STALE state (session updates asynchronously), which is why
+        // Prev/Next looked dead and Play/Pause looked reversed until the
+        // panel was reopened. updateMediaViews() re-reads the session
+        // and rewrites title/artist/progress/elapsed/play icon.
+        var mediaPlayButtonRef: ImageButton? = null
+        fun updateMediaViews() {
+            runCatching { mediaRepo.refresh() }
+            val cur = MediaState.current.value ?: return
+            mediaTitleView.text = cur.title
+            mediaArtistView.text = cur.artist
+            mediaElapsed.text = fmtTime(cur.positionMs)
+            mediaTotal.text = fmtTime(cur.durationMs)
+            mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
+            mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
+        }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play, true).apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); val cur = MediaState.current.value; setImageResource(if (cur?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play) } })
-        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next() } })
+        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } })
+        val mediaPlayButton = mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play, true).also { mediaPlayButtonRef = it }.apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } }
+        mediaRow.addView(mediaPlayButton)
+        mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } })
+        // vc38 real-time tick: runs updateMediaViews() every 1s while
+        // the panel is open (cancelled on hide in hidePanelOnly).
+        val mediaTick = object : Runnable {
+            override fun run() {
+                if (view != null) {
+                    updateMediaViews()
+                    handler.postDelayed(this, 1000)
+                }
+            }
+        }
+        mediaTickRunnable = mediaTick
+        handler.postDelayed(mediaTick, 1000)
         mediaContent.addView(mediaRow)
         mediaCard.addView(mediaContent, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
-        controlContent.addView(mediaCard)
+        // vc38: mediaCard is added later, in the combined row with sliders.
         // vc37 Play last song / Media output pill, from Cường's screenshot:
         // shown ONLY when no media is active (instead of an empty card).
         // Play resumes the last session; Media output cannot be opened
@@ -675,56 +710,40 @@ object CoverControlCenterManager {
         // Left icon dark on the white fill, translucent pill track,
         // fill = thumb + (width-thumb)*value, alpha 1.0 manual / 0.42 auto.
         // Dragging once switches to manual, like 9Flip p6.d().
-        // vc37 Samsung vertical sliders, from Cường's screenshot:
-        // two tall translucent pills side by side, white oval thumb
-        // with a black icon inside (sun / speaker), and a small dark
-        // circle button below each (moon = auto/manual brightness,
-        // mute = mute/unmute volume). 9Flip's sliders are horizontal,
-        // but the VALUE logic is kept exactly: brightness manual
-        // clamp 0.05-1.0, alpha 1.0 manual / 0.42 auto, volume mute
-        // restores saved volume else ~45% of max.
-        val sliderCard = card()
-        sliderCard.addView(title("Độ sáng & Âm lượng"))
-        val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER }
-        val volLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER }
-        fun refreshBrightLabel() {
+        // vc38 horizontal sliders in the SAME row as the Âm thanh card:
+        // vc37's vertical sliders took a whole tall card below media.
+        // Now the row is: [Âm thanh card | brightness slider + volume
+        // slider stacked], so the panel saves ~200dp of vertical space.
+        // Sliders are horizontal NineFlipSliders again (vc35, 9Flip p6/e
+        // logic), with the same value logic as before: brightness
+        // manual clamp 0.05-1.0, alpha 1.0 manual / 0.42 auto, volume
+        // mute restores saved volume else ~45% of max.
+        val sliderColumn = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(cardColor, 16)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        val brightLabel2 = TextView(ctx).apply { text = "Độ sáng"; textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
+        val volLabel2 = TextView(ctx).apply { text = "Âm lượng"; textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
+        var brightSlider2: NineFlipSlider? = null
+        var volSlider2: NineFlipSlider? = null
+        fun refreshBright2() {
             val st = store.load()
-            brightLabel.text = if (st.panelBrightnessManual) "Độ sáng ${(st.panelBrightness * 100).toInt()}%" else "Độ sáng: Tự động"
+            brightLabel2.text = if (st.panelBrightnessManual) "Độ sáng ${(st.panelBrightness * 100).toInt()}%" else "Độ sáng: Tự động"
+            brightSlider2?.setManual(st.panelBrightnessManual)
+            brightSlider2?.minValue = 0.05f
+            brightSlider2?.setValue(st.panelBrightness, animate = false)
         }
-        fun refreshVolLabel() {
+        fun refreshVol2() {
             val (v, m) = QuickControls.volume(ctx)
-            volLabel.text = "Âm lượng $v / $m" + if (v == 0) " (tắt tiếng)" else ""
+            volLabel2.text = "Âm lượng $v / $m" + if (v == 0) " (tắt tiếng)" else ""
+            volSlider2?.setValue(if (m > 0) v.toFloat() / m else 0f, animate = false)
         }
-        refreshBrightLabel(); refreshVolLabel()
-        var brightSlider: VerticalSlider? = null
-        var volSlider: VerticalSlider? = null
-        fun smallCircleButton(iconRes: Int, onClick: () -> Unit): ImageButton = ImageButton(ctx).apply {
-            setImageResource(iconRes)
-            setColorFilter(0xFFFFFFFF.toInt())
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFF23262B.toInt())
-            }
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                setMargins(0, dp(8), 0, 0)
-                gravity = Gravity.CENTER_HORIZONTAL
-            }
-            setOnClickListener { onClick() }
-        }
-        val brightGroup = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val volGroup = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        brightSlider = VerticalSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(180))
+        sliderColumn.addView(brightLabel2)
+        brightSlider2 = NineFlipSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_brightness)
+            setRightIcon(R.drawable.ic_cflip_auto)
             minValue = 0.05f
             setValue(store.load().panelBrightness, animate = false)
             setManual(store.load().panelBrightnessManual)
@@ -738,13 +757,24 @@ object CoverControlCenterManager {
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                brightLabel.text = "Độ sáng ${(v * 100).toInt()}%"
+                brightLabel2.text = "Độ sáng ${(v * 100).toInt()}%"
             }
             onDragEnd = { resetTimer() }
+            onRightClick = {
+                val cur = store.load()
+                val nextManual = !cur.panelBrightnessManual
+                store.save(cur.copy(panelBrightnessManual = nextManual))
+                applyPanelBrightness(ctx.applicationContext)
+                CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                refreshBright2(); resetTimer()
+            }
         }
-        volSlider = VerticalSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(180))
+        sliderColumn.addView(brightSlider2)
+        sliderColumn.addView(volLabel2)
+        volSlider2 = NineFlipSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_volume)
+            setRightIcon(R.drawable.ic_sec_mute)
             minValue = 0f
             val (vol, volMax) = QuickControls.volume(ctx)
             setValue(if (volMax > 0) vol.toFloat() / volMax else 0f, animate = false)
@@ -752,48 +782,46 @@ object CoverControlCenterManager {
             onValueChanged = { v ->
                 val (_, volMax2) = QuickControls.volume(ctx)
                 QuickControls.setVolume(ctx, (v * volMax2).toInt())
-                refreshVolLabel()
+                refreshVol2()
             }
             onDragEnd = { resetTimer() }
-        }
-        brightGroup.addView(brightSlider)
-        brightGroup.addView(smallCircleButton(R.drawable.ic_cflip_dnd) {
-            val cur = store.load()
-            val nextManual = !cur.panelBrightnessManual
-            store.save(cur.copy(panelBrightnessManual = nextManual))
-            applyPanelBrightness(ctx.applicationContext)
-            CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-            brightSlider?.setManual(nextManual)
-            brightSlider?.setValue(store.load().panelBrightness, animate = false)
-            refreshBrightLabel(); resetTimer()
-        })
-        brightGroup.addView(brightLabel)
-        volGroup.addView(volSlider)
-        volGroup.addView(smallCircleButton(R.drawable.ic_sec_mute) {
-            val (v, m) = QuickControls.volume(ctx)
-            val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-            if (v > 0) {
-                prefs.edit().putInt("saved_volume", v).apply()
-                QuickControls.setVolume(ctx, 0)
-            } else {
-                val saved = prefs.getInt("saved_volume", -1)
-                val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
-                QuickControls.setVolume(ctx, restore)
+            onRightClick = {
+                val (v, m) = QuickControls.volume(ctx)
+                val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                if (v > 0) {
+                    prefs.edit().putInt("saved_volume", v).apply()
+                    QuickControls.setVolume(ctx, 0)
+                } else {
+                    val saved = prefs.getInt("saved_volume", -1)
+                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
+                    QuickControls.setVolume(ctx, restore)
+                }
+                refreshVol2(); resetTimer()
             }
-            val (v2, m2) = QuickControls.volume(ctx)
-            volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = false)
-            refreshVolLabel(); resetTimer()
-        })
-        volGroup.addView(volLabel)
-        sliderCard.addView(LinearLayout(ctx).apply {
+        }
+        sliderColumn.addView(volSlider2)
+        refreshBright2(); refreshVol2()
+        // Combined row: media frame (weight 3) + slider column (weight 2).
+        // When media is GONE (no media), the slider column expands to
+        // full width on its own, and the Play last song pill above it
+        // (added earlier) stays visible.
+        val combinedRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            addView(brightGroup)
-            addView(volGroup)
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        }
+        combinedRow.addView(mediaCard, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 3f))
+        combinedRow.addView(sliderColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
+            setMargins(dp(8), 0, 0, 0)
         })
-        controlContent.addView(sliderCard)
+        controlContent.addView(combinedRow)
+
         val tileCard = card()
         tileCard.addView(title("Đảo chức năng"))
+        tileCard.addView(View(ctx).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
         val grid = GridLayout(ctx).apply { columnCount = 5 }
         // vc30 LOCAL-ONLY Samsung QS style tiles:
         // a 48dp circle + label below. Off = dark slate circle + white
@@ -806,6 +834,9 @@ object CoverControlCenterManager {
             val labelView = TextView(ctx).apply {
                 text = label; textSize = 10f
                 setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+                maxLines = 2
+                setPadding(0, dp(4), 0, 0)
+                setLineSpacing(dp(2).toFloat(), 1f)
             }
             val circle = TextView(ctx).apply {
                 text = icon; textSize = 18f; gravity = Gravity.CENTER
@@ -830,11 +861,11 @@ object CoverControlCenterManager {
             tileWithLabel(icon, label, false, onClick).first
         fun tileRow(label: String, icon: String, onClick: () -> Unit) {
             grid.addView(tile(label, icon, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         fun tileRowActive(label: String, icon: String, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(icon, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         // Int overloads (vc30 local): same QS circle, but an ImageView
         // drawable instead of a Unicode TextView symbol.
@@ -842,6 +873,9 @@ object CoverControlCenterManager {
             val labelView = TextView(ctx).apply {
                 text = label; textSize = 10f
                 setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+                maxLines = 2
+                setPadding(0, dp(4), 0, 0)
+                setLineSpacing(dp(2).toFloat(), 1f)
             }
             val circle = ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -868,11 +902,11 @@ object CoverControlCenterManager {
             tileWithLabel(iconRes, label, false, onClick).first
         fun tileRow(label: String, iconRes: Int, onClick: () -> Unit) {
             grid.addView(tile(label, iconRes, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         fun tileRowActive(label: String, iconRes: Int, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         // vc31: Rotate is ONE tile cycling FOLLOW -> LOCK -> SYSTEM.
         // Press 1 = FOLLOW (FULL_SENSOR host, follows flip direction),
@@ -940,16 +974,16 @@ object CoverControlCenterManager {
                     if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             rotateTileRef = rotateTile
-            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
         tileRow("Wi-Fi", R.drawable.ic_cflip_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_cflip_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
-        tileRow("NFC", R.drawable.ic_sec_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
-        tileRow("Khóa", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
+        tileRow("NFC", R.drawable.ic_cflip_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
-        tileRow("TB", R.drawable.ic_sec_notification) { a11yAction("Thông báo") { it.openNotifications() } }
+        tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         tileRow("CĐ nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", R.drawable.ic_sec_settings) { hide(); runCatching { QuickControls.openDeviceSettings(ctx) } }
         var sortLabel: TextView? = null
@@ -960,7 +994,7 @@ object CoverControlCenterManager {
             sortLabel?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
         }
         sortLabel = sortTile.second
-        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         var colLabel: TextView? = null
         val colTile = tileWithLabel(R.drawable.ic_cflip_columns, "Cột ${store.load().columns}") {
             val cur = store.load()
@@ -969,7 +1003,7 @@ object CoverControlCenterManager {
             colLabel?.text = "Cột $next"
         }
         colLabel = colTile.second
-        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", "Aa") {
             val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
         }
@@ -1007,7 +1041,7 @@ object CoverControlCenterManager {
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Dữ liệu di động để bật/tắt (Android không cho app thường bật/tắt trực tiếp)", android.widget.Toast.LENGTH_LONG).show()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        tileRow("Chia sẻ", R.drawable.ic_cflip_hotspot) {
+        tileRow("Chia sẻ Internet", R.drawable.ic_cflip_hotspot) {
             hide()
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Chia sẻ kết nối để bật/tắt điểm phát sóng", android.widget.Toast.LENGTH_LONG).show()
             runCatching {
@@ -1073,7 +1107,7 @@ object CoverControlCenterManager {
                 }
             }
             dndTileRef = dndTile
-            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
+            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         tileCard.addView(grid)
         controlContent.addView(tileCard)
@@ -1138,7 +1172,7 @@ object CoverControlCenterManager {
                         com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
                         hide()
                     }
-                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(84) })
+                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
             }
             appsContent.addView(appGrid)
         }

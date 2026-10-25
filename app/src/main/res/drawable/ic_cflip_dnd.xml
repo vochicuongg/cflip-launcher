@@ -4,11 +4,14 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- vc37 DND on: reliable crescent via evenOdd two circles.
-         vc36's single arc path rendered as a blob at tile size,
-         which is why it still did not look like Samsung's moon. -->
+    <!-- vc38 DND: circle with a horizontal bar, exactly as in Cường's
+         screenshot (light circle, black bar) and as in 9Flip's
+         ic_control_do_not_disturb / Android do_not_disturb icon.
+         EvenOdd cutout: filled circle with a horizontal slot cut out,
+         so the bar shows the tile background colour (mint when on,
+         dark when off) and the single-colour tint still works. -->
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M12,2 a10,10 0 1,0 0.01,0 Z M17,6 a7,7 0 1,0 0.01,0 Z" />
+        android:pathData="M12,2 a10,10 0 1,0 0.01,0 Z M5,11 H19 V13 H5 Z" />
 </vector>
