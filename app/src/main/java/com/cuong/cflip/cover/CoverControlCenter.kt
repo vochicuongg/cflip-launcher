@@ -513,7 +513,7 @@ object CoverControlCenterManager {
         mediaCard.addView(TextView(ctx).apply {
             text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
-            isHorizontallyScrolling = true
+            setHorizontallyScrolling(true)
             ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
             marqueeRepeatLimit = -1
         })
