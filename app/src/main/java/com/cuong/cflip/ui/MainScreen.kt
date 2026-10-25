@@ -286,14 +286,28 @@ fun MainScreen() {
                         color = if (statuses.serviceRunning) CFlipColors.TextPrimary else CFlipColors.AccentDark)
                 }
                 TextButton(onClick = {
+                    // Fix 25/10/2026: use the application context (not the
+                    // activity context, whose token dies on fold) and check
+                    // the overlay permission first, so a failure shows its
+                    // real reason instead of a truncated window dump.
+                    if (!Settings.canDrawOverlays(context)) {
+                        toast("Chưa cấp quyền Hiển thị trên app khác — cấp ở mục Quyền rồi thử lại.")
+                        return@TextButton
+                    }
                     val secondary = displayRepo.secondaryDisplay()
                     if (secondary == null) {
                         toast("Chưa thấy màn hình phụ. Gập máy lại để thấy.")
                     } else {
                         presentation?.dismiss()
-                        presentation = CoverPresentation(context, secondary).also {
+                        presentation = CoverPresentation(context.applicationContext, secondary).also {
                             runCatching { it.show() }.onFailure { e ->
-                                toast("Presentation bị chặn: ${e.message}")
+                                // BadTokenException messages are long; the
+                                // part after "--" is the actual reason
+                                // ("permission denied for window type 2032"
+                                // vs "token null is not valid").
+                                val reason = e.message?.substringAfter("--", e.message ?: "không rõ")
+                                    ?.trim() ?: "không rõ"
+                                toast("Presentation bị chặn: $reason")
                             }
                         }
                     }

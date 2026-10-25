@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.Gravity
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -32,6 +33,22 @@ import java.util.Locale
  * Content: clock, favourite apps grid, recent apps, notification count, media controls.
  */
 class CoverPresentation(context: Context, display: Display) : Presentation(context, display) {
+
+    init {
+        // Fix 25/10/2026: a Presentation built from an Activity context uses
+        // that activity's window token. When the Flip is folded, MainActivity
+        // on the inner screen stops and the token dies, so show() fails with
+        // "Unable to add window ... token null is not valid". An overlay-type
+        // window does not depend on the activity token, so it survives the
+        // fold - at the cost of requiring SYSTEM_ALERT_WINDOW ("Hiển thị trên
+        // app khác"), which CFlip already asks for on the main screen. If that
+        // permission is missing, show() now fails with the much clearer
+        // "permission denied for window type 2032" instead of a token error.
+        // This still cannot beat a Samsung-level block on third-party cover
+        // windows (One UI 9 Flex Window); that case stays a platform limit
+        // and the Good Lock widget route remains the fallback.
+        window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+    }
 
     private val mediaRepo = MediaControllerRepository(context)
     private val clockHandler = Handler(Looper.getMainLooper())
