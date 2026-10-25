@@ -934,7 +934,16 @@ object CoverControlCenterManager {
             // holder declared BEFORE the tile, assigned right after.
             var rotateTileRef: Pair<LinearLayout, TextView>? = null
             val rotateTile = tileWithLabel(rotateIcon, rotateLabel, currentMode != 2) {
-                val next = when (currentMode) { 0 -> 1; 1 -> 2; else -> 0 }
+                // vc39 FIX: previously `next` was computed from `currentMode`,
+                // a val captured when the panel was built. First click
+                // worked, second click recomputed the SAME next, so the
+                // tile looked stuck until the panel was rebuilt (close +
+                // reopen, or toggle AssistiveTouch off/on). Now every
+                // click re-reads the stored mode, so the cycle
+                // FOLLOW -> LOCK -> SYSTEM -> FOLLOW works repeatedly
+                // in the same panel, with no reopen needed.
+                val curMode = store.load().rotateMode
+                val next = when (curMode) { 0 -> 1; 1 -> 2; else -> 0 }
                 store.save(store.load().copy(rotateMode = next))
                 CoverRotateState.contentFallback = false
                 when (next) {
@@ -976,7 +985,26 @@ object CoverControlCenterManager {
             rotateTileRef = rotateTile
             grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
-        tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
+        // vc39: Đèn was a plain tileRow with no active state, so
+        // toggling it twice looked like nothing happened. Now it is a
+        // tileWithLabel with a ref: each click re-reads QuickControls
+        // (torchOn is updated by setTorch itself) and repaints the
+        // circle mint when on, dark when off, in place.
+        run {
+            var torchTileRef: Pair<LinearLayout, TextView>? = null
+            val torchTile = tileWithLabel(R.drawable.ic_sec_flashlight, "Đèn", QuickControls.torchOn) {
+                val nextOn = !QuickControls.torchOn
+                QuickControls.setTorch(ctx, nextOn)
+                val nowOn = QuickControls.torchOn
+                torchTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
+                val circle = torchTileRef?.first?.getChildAt(0) as? ImageView
+                circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                    if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+            }
+            torchTileRef = torchTile
+            grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+        }
         tileRow("Wi-Fi", R.drawable.ic_cflip_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_cflip_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
@@ -1004,8 +1032,25 @@ object CoverControlCenterManager {
         }
         colLabel = colTile.second
         grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
-        tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", "Aa") {
-            val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
+        // vc39: Tên had the same captured-label bug as Rotate:
+        // the label was built once from showLabels, the click toggled
+        // the store but never rewrote the label, so repeated clicks
+        // looked dead. Now the label rewrites in place on every click.
+        run {
+            var nameTileRef: Pair<LinearLayout, TextView>? = null
+            val nameTile = tileWithLabel("Aa", if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", store.load().showLabels) {
+                val cur = store.load()
+                val nextOn = !cur.showLabels
+                store.save(cur.copy(showLabels = nextOn))
+                nameTileRef?.second?.text = if (nextOn) "Tên: Bật" else "Tên: Tắt"
+                nameTileRef?.second?.setTextColor(if (nextOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
+                val circle = nameTileRef?.first?.getChildAt(0) as? TextView
+                circle?.setTextColor(if (nextOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                    if (nextOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+            }
+            nameTileRef = nameTile
+            grid.addView(nameTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
         }
         tileRow("Xóa ghim", R.drawable.ic_sec_close) {
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
