@@ -72,6 +72,9 @@ object CoverOverlayManager {
         wm = manager
         view = root
         Log.i(TAG, "Overlay shown on display ${display.displayId}")
+        // Fix 25/10/2026: Log.i returns Int, so without this line the
+        // runCatching block is Result<Int>, not the declared Result<Unit>.
+        Unit
     }.onFailure { Log.w(TAG, "Overlay addView failed on display ${display.displayId}", it) }
 
     fun hide() {
