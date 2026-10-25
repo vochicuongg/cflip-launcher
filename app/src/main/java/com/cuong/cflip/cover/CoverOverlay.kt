@@ -71,6 +71,8 @@ object CoverOverlayManager {
         manager.addView(root, params)
         wm = manager
         view = root
+        // Whole-cover rotation, not content rotation (2.8.0).
+        CoverRotateHostManager.apply(appContext, display)
         Log.i(TAG, "Overlay shown on display ${display.displayId}")
         // Fix 25/10/2026: Log.i returns Int, so without this line the
         // runCatching block is Result<Int>, not the declared Result<Unit>.
@@ -239,20 +241,11 @@ object CoverOverlayManager {
             text = "Đóng"
             setOnClickListener { hide() }
         })
-        // Rotation, applied here (2.7.0 fix): previously the overlay never
-        // read coverRotation at all, so the panel Rotate tile looked dead.
-        // Same shrink rule as CoverPresentation for 90/270 on a near-square cover.
-        val rotation = settings.coverRotation
-        if (rotation != 0) {
-            scroll.post {
-                scroll.rotation = rotation.toFloat()
-                if (rotation % 180 != 0 && scroll.width > 0 && scroll.height > 0) {
-                    val s = minOf(scroll.width, scroll.height).toFloat() /
-                        maxOf(scroll.width, scroll.height).toFloat()
-                    scroll.scaleX = s; scroll.scaleY = s
-                }
-            }
-        }
+        // 2.8.0: NO content rotation here. Rotating this ScrollView alone
+        // was the 2.7.0 bug — it left the AssistiveTouch button, the panel
+        // and cover apps in the old orientation. Whole-display rotation is
+        // CoverRotateHostManager (1x1 screenOrientation overlay), applied
+        // by CoverOverlayManager.show() and by the panel Rotate tile.
         return scroll
     }
 }

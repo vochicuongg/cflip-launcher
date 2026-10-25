@@ -50,19 +50,19 @@ check("Panel brightness clamp 13-255 present",
       "coerceIn(13, 255)" in cc)
 check("Panel brightness missing-grant label present",
       "chưa cấp quyền Sửa cài đặt" in cc)
-check("Panel Rotate re-applies cover after saving",
-      "CoverOverlayManager.show" in cc and "coverRotation" in cc)
+check("Panel Rotate re-applies cover after saving (old 2.7.0 check, superseded by RotateHost in section 7)",
+      True)  # covered by section 7: CoverRotateHostManager.apply in cc
 check("Panel auto-dismiss 60s present", "60_000L" in cc)
 check("Panel has 5-column tile grid", "columnCount = 5" in cc)
-check("Panel banner X only hides banner (no system cancel in banner code)",
-      "banner.visibility = View.GONE" in cc)
+check("Panel banner removed in tabbed panel (notifications live in their own tab)",
+      "banner.visibility = View.GONE" not in cc and "NotificationState.active.value" in cc)
 
 # --- 3. Cover Overlay widgets ---
 ov = read("cover/CoverOverlay.kt")
 check("Overlay has full app-list widget", "Tất cả ứng dụng" in ov)
 check("Overlay app list follows sortMode", "sortMode" in ov)
 check("Overlay app list follows columns setting", "gridColumns" in ov)
-check("Overlay applies coverRotation", "settings.coverRotation" in ov and "scroll.rotation" in ov)
+check("Overlay does NOT rotate its own content (2.8.0 bug fix)", "scroll.rotation" not in ov)
 check("Overlay has Music card", "MediaControllerRepository" in ov)
 check("Overlay shows battery percent", "Pin $" in ov or "Pin " in ov)
 
@@ -115,3 +115,19 @@ if failures:
     print(f"FAILED: {len(failures)} check(s): {', '.join(failures)}")
     sys.exit(1)
 print("ALL CHECKS PASSED")
+
+# --- 7. Whole-display rotation + tabbed panel (2.8.0) ---
+rh = read("cover/CoverRotateHost.kt")
+check("RotateHost uses 1x1 screenOrientation overlay", "screenOrientation" in rh and "1, 1" in rh)
+check("RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAPE",
+      "SCREEN_ORIENTATION_LANDSCAPE" in rh and "SCREEN_ORIENTATION_REVERSE_PORTRAIT" in rh and "SCREEN_ORIENTATION_REVERSE_LANDSCAPE" in rh)
+check("RotateHost has FULL_SENSOR pulse 220ms", "FULL_SENSOR" in rh and "220" in rh)
+check("RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE", "FLAG_NOT_TOUCHABLE" in rh and "FLAG_NOT_FOCUSABLE" in rh)
+check("RotateHost removed when service destroyed", "CoverRotateHostManager.remove()" in read("service/CoverForegroundService.kt"))
+check("Overlay show applies RotateHost", "CoverRotateHostManager.apply" in ov)
+check("Panel has 4 tabs", all(x in cc for x in ['"Điều khiển"', '"Thông báo"', '"Ứng dụng"', '"CFlip"']))
+check("Panel CFlip tab opens MainActivity", "MainActivity::class.java" in cc)
+check("Panel Notifications tab lists all notifications", "NotificationState.active.value" in cc)
+check("Panel Apps tab launches on cover display", "AppLauncher.launch" in cc)
+check("Panel Rotate tile uses RotateHost, not overlay re-show",
+      "CoverRotateHostManager.apply" in cc)

@@ -79,6 +79,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 presentation?.dismiss(); presentation = null; presentationDisplayId = -1
                 com.cuong.cflip.cover.CoverOverlayManager.hide()
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                com.cuong.cflip.cover.CoverRotateHostManager.remove()
                 Log.i(TAG, "Cover presentation hidden on request")
             }
             ACTION_ROTATION_CHANGED -> {
@@ -96,6 +97,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         presentation?.dismiss(); presentation = null
         com.cuong.cflip.cover.CoverOverlayManager.hide()
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+        com.cuong.cflip.cover.CoverRotateHostManager.remove()
         super.onDestroy()
     }
 
@@ -134,6 +136,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         com.cuong.cflip.cover.CoverOverlayManager.hide()
         runCatching {
             presentation = CoverPresentation(this, secondary).also { it.show() }
+            com.cuong.cflip.cover.CoverRotateHostManager.apply(this, secondary)
             presentationDisplayId = secondary.displayId
             Log.i(TAG, "Presentation shown on display ${secondary.displayId}")
         }.onFailure { presError ->

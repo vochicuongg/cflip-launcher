@@ -158,20 +158,7 @@ class CoverPresentation(context: Context, display: Display) : Presentation(conte
         })
 
         setContentView(scroll)
-
-        // User-chosen cover rotation (Style: 0/90/180/270). Rotation pivots on the
-        // view centre; for 90/270 the near-square cover needs a small shrink so
-        // the rotated corners stay on screen.
-        val rotation = com.cuong.cflip.data.SettingsStore(context).load().coverRotation
-        if (rotation != 0) {
-            scroll.post {
-                scroll.rotation = rotation.toFloat()
-                if (rotation % 180 != 0 && scroll.width > 0 && scroll.height > 0) {
-                    val s = minOf(scroll.width, scroll.height).toFloat() /
-                        maxOf(scroll.width, scroll.height).toFloat()
-                    scroll.scaleX = s; scroll.scaleY = s
-                }
-            }
-        }
+        // 2.8.0: no content rotation here either — whole-display rotation
+        // is CoverRotateHostManager, applied when the cover is shown.
     }
 }

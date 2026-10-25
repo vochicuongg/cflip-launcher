@@ -9,14 +9,14 @@ PASS - Panel has a11yAction helper with toast
 PASS - No silent a11y()?.lock/open calls remain 
 PASS - Panel brightness clamp 13-255 present 
 PASS - Panel brightness missing-grant label present 
-PASS - Panel Rotate re-applies cover after saving 
+PASS - Panel Rotate re-applies cover after saving (old 2.7.0 check, superseded by RotateHost in section 7) 
 PASS - Panel auto-dismiss 60s present 
 PASS - Panel has 5-column tile grid 
-PASS - Panel banner X only hides banner (no system cancel in banner code) 
+PASS - Panel banner removed in tabbed panel (notifications live in their own tab) 
 PASS - Overlay has full app-list widget 
 PASS - Overlay app list follows sortMode 
 PASS - Overlay app list follows columns setting 
-PASS - Overlay applies coverRotation 
+PASS - Overlay does NOT rotate its own content (2.8.0 bug fix) 
 PASS - Overlay has Music card 
 PASS - Overlay shows battery percent 
 PASS - SettingsStore persists assistiveTouchSize 
@@ -32,3 +32,14 @@ PASS - Brightness clamp maps 0.05*255 to 13
 PASS - No Good Lock / MultiStar mention in Kotlin sources 
 
 ALL CHECKS PASSED
+PASS - RotateHost uses 1x1 screenOrientation overlay 
+PASS - RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAPE 
+PASS - RotateHost has FULL_SENSOR pulse 220ms 
+PASS - RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE 
+PASS - RotateHost removed when service destroyed 
+PASS - Overlay show applies RotateHost 
+PASS - Panel has 4 tabs 
+PASS - Panel CFlip tab opens MainActivity 
+PASS - Panel Notifications tab lists all notifications 
+PASS - Panel Apps tab launches on cover display 
+PASS - Panel Rotate tile uses RotateHost, not overlay re-show 

@@ -105,13 +105,19 @@ object CoverControlCenterManager {
         handler.postDelayed(r, AUTO_DISMISS_MS)
     }
 
+    // 2.8.0: AssistiveTouch panel is now 4 tabs at the top, in CFlip's
+    // own layout (not 9Flip's): Điều khiển / Thông báo / Ứng dụng / CFlip.
+    // - Điều khiển: media, brightness, volume, 5-column tiles (as before).
+    // - Thông báo: full active-notification list (tap opens, Xóa cancels
+    //   the system notification — labelled honestly, unlike the old
+    //   banner X which only hid the banner).
+    // - Ứng dụng: full app grid on the cover display.
+    // - CFlip: opens CFlip itself on the MAIN display for settings/custom,
+    //   plus permission shortcuts. It never opens an external cover app.
     private fun buildPanel(ctx: Context, display: Display): View {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
-        // Fix 2.7.0: previously these tiles called a11y()?.action() with no
-        // feedback, so a missing Accessibility grant looked like a dead tile.
-        // Now every such tile says so out loud.
         fun a11yAction(name: String, action: (MyAccessibilityService) -> Boolean) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
@@ -122,69 +128,67 @@ object CoverControlCenterManager {
                 action(svc)
             }
         }
-
-        val root = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setBackgroundColor(0xF0000000.toInt())
-        }
-        val scroll = ScrollView(ctx); scroll.addView(root)
-
+        fun resetTimer() = scheduleDismiss()
         fun title(text: String): TextView = TextView(ctx).apply {
             this.text = text; textSize = 15f; setTextColor(0xFFFFFFFF.toInt())
         }
-        fun resetTimer() = scheduleDismiss()
 
-        // Header + close
-        val header = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        header.addView(TextView(ctx).apply {
-            text = "Điều khiển"; textSize = 18f; setTextColor(0xFFFFFFFF.toInt())
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        header.addView(Button(ctx).apply { text = "Đóng"; setOnClickListener { hide() } })
-        root.addView(header)
-
-        // Notification banner (latest only; X hides it from this panel only)
-        val latest = NotificationState.active.value.firstOrNull()
-        if (latest != null) {
-            root.addView(title("Thông báo mới nhất"))
-            val banner = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-            banner.addView(TextView(ctx).apply {
-                text = "${latest.title}\n${latest.text}"; textSize = 12f
-                setTextColor(0xFFFFFFFF.toInt())
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            banner.setOnClickListener {
-                resetTimer()
-                NotificationController.open(latest.key)
-                hide()
-            }
-            banner.addView(Button(ctx).apply { text = "✕"; setOnClickListener { banner.visibility = View.GONE } })
-            root.addView(banner)
+        val outer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xF0000000.toInt())
         }
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        val scroll = ScrollView(ctx); scroll.addView(root)
+        val controlContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val notifContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        val appsContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        val cflipContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        root.addView(controlContent); root.addView(notifContent)
+        root.addView(appsContent); root.addView(cflipContent)
 
-        // Media
+        // Tab bar at the top.
+        val tabBar = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabContents = listOf(controlContent, notifContent, appsContent, cflipContent)
+        val tabButtons = mutableListOf<Button>()
+        fun selectTab(i: Int) {
+            tabContents.forEachIndexed { idx, v -> v.visibility = if (idx == i) View.VISIBLE else View.GONE }
+            tabButtons.forEachIndexed { idx, b ->
+                if (idx == i) { b.setBackgroundColor(0xFF7FE3C0.toInt()); b.setTextColor(0xFF000000.toInt()) }
+                else { b.setBackgroundColor(0xFF222222.toInt()); b.setTextColor(0xFFFFFFFF.toInt()) }
+            }
+            resetTimer()
+        }
+        for ((i, label) in listOf("Điều khiển", "Thông báo", "Ứng dụng", "CFlip").withIndex()) {
+            val b = Button(ctx).apply {
+                text = label; textSize = 11f; isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { selectTab(i) }
+            }
+            tabButtons.add(b); tabBar.addView(b)
+        }
+        tabBar.addView(Button(ctx).apply { text = "✕"; setOnClickListener { hide() } })
+        outer.addView(tabBar); outer.addView(scroll)
+        selectTab(0)
+
+        // ---- Tab 1: Điều khiển ----
         val mediaRepo = MediaControllerRepository(ctx)
         runCatching { mediaRepo.refresh() }
         val mediaInfo = MediaState.current.value
-        root.addView(title("Nhạc"))
-        root.addView(TextView(ctx).apply {
+        controlContent.addView(title("Nhạc"))
+        controlContent.addView(TextView(ctx).apply {
             text = mediaInfo?.title ?: "Chưa có nhạc"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
         })
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         mediaRow.addView(Button(ctx).apply { text = "⏮"; setOnClickListener { resetTimer(); mediaRepo.previous() } })
         mediaRow.addView(Button(ctx).apply { text = "⏯"; setOnClickListener { resetTimer(); mediaRepo.playPause() } })
         mediaRow.addView(Button(ctx).apply { text = "⏭"; setOnClickListener { resetTimer(); mediaRepo.next() } })
-        root.addView(mediaRow)
+        controlContent.addView(mediaRow)
 
-        // Brightness slider (0.05–1.0 -> 13–255), applied on release.
-        // Fix 2.7.0: previously a missing WRITE_SETTINGS grant silently
-        // opened the grant page and the slider looked broken. Now the panel
-        // says the grant is missing up front, with a tap-to-grant line.
-        root.addView(title("Độ sáng"))
-        val brightLabel = TextView(ctx).apply {
-            textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-        }
+        controlContent.addView(title("Độ sáng"))
+        val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
         fun refreshBrightLabel() {
             val pct = QuickControls.brightness(ctx) * 100 / 255
             brightLabel.text = if (QuickControls.canWriteSettings(ctx)) {
@@ -196,12 +200,11 @@ object CoverControlCenterManager {
         refreshBrightLabel()
         brightLabel.setOnClickListener {
             if (!QuickControls.canWriteSettings(ctx)) {
-                ctx.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ctx.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        root.addView(brightLabel)
-        val brightBar = SeekBar(ctx).apply {
+        controlContent.addView(brightLabel)
+        controlContent.addView(SeekBar(ctx).apply {
             max = 255
             progress = QuickControls.brightness(ctx).coerceIn(13, 255)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -214,17 +217,14 @@ object CoverControlCenterManager {
                             ctx, "Chưa cấp quyền Sửa cài đặt nên chưa đổi được độ sáng",
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
-                    refreshBrightLabel()
-                    resetTimer()
+                    refreshBrightLabel(); resetTimer()
                 }
             })
-        }
-        root.addView(brightBar)
+        })
 
-        // Volume slider (music stream), applied on release.
-        root.addView(title("Âm lượng"))
+        controlContent.addView(title("Âm lượng"))
         val (vol, volMax) = QuickControls.volume(ctx)
-        val volBar = SeekBar(ctx).apply {
+        controlContent.addView(SeekBar(ctx).apply {
             max = volMax.coerceAtLeast(1)
             progress = vol.coerceIn(0, max)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -234,11 +234,9 @@ object CoverControlCenterManager {
                     QuickControls.setVolume(ctx, s?.progress ?: 0); resetTimer()
                 }
             })
-        }
-        root.addView(volBar)
+        })
 
-        // Tile grid, 5 columns like 9Flip's default, own labels and actions.
-        root.addView(title("Chức năng"))
+        controlContent.addView(title("Chức năng"))
         val grid = GridLayout(ctx).apply { columnCount = 5 }
         fun tile(label: String, onClick: () -> Unit): Button = Button(ctx).apply {
             text = label; textSize = 10f; isAllCaps = false
@@ -248,10 +246,7 @@ object CoverControlCenterManager {
             grid.addView(tile(label, onClick),
                 GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
         }
-        tileRow("Đèn") {
-            val next = !QuickControls.torchOn
-            QuickControls.setTorch(ctx, next)
-        }
+        tileRow("Đèn") { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
         tileRow("Wi-Fi") { runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth") { runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet") { runCatching { QuickControls.openInternetPanel(ctx) } }
@@ -261,20 +256,27 @@ object CoverControlCenterManager {
         tileRow("TB") { a11yAction("Thông báo") { it.openNotifications() } }
         tileRow("CĐ nhanh") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt") { runCatching { QuickControls.openDeviceSettings(ctx) } }
-        // Rotate / Sort / Columns cycle and update their own label.
+        // Rotate, 2.8.0: whole-display rotation via CoverRotateHostManager
+        // (1x1 screenOrientation overlay), NOT a View rotation. After
+        // applying, the panel closes and AssistiveTouch re-shows so its
+        // position is re-clamped to the rotated display.
         var rotateBtn: Button? = null
         rotateBtn = tile("Xoay ${store.load().coverRotation}°") {
             val cur = store.load()
             val next = when (cur.coverRotation) { 0 -> 90; 90 -> 180; 180 -> 270; else -> 0 }
             store.save(cur.copy(coverRotation = next))
             rotateBtn?.text = "Xoay ${next}°"
-            // Fix 2.7.0: previously this only saved the number and the
-            // cover never re-read it, so rotation looked dead. Now the
-            // panel closes and the cover overlay re-opens with the new
-            // rotation applied (CoverOverlay applies rotation in build).
+            CoverRotateHostManager.apply(ctx.applicationContext, display)
+            android.widget.Toast.makeText(
+                ctx, "Đã xoay toàn màn phụ sang ${next}°",
+                android.widget.Toast.LENGTH_SHORT).show()
             hide()
-            CoverOverlayManager.hide()
-            CoverOverlayManager.show(ctx.applicationContext, display)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                    CoverAssistiveTouchManager.hide()
+                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+                }
+            }, 300)
         }
         grid.addView(rotateBtn, GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
         var sortBtn: Button? = null
@@ -297,7 +299,6 @@ object CoverControlCenterManager {
             val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
         }
         tileRow("Xóa ghim") {
-            // Clear favorites via the same store the cover reads.
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
         }
         tileRow("Mirror") {
@@ -310,9 +311,94 @@ object CoverControlCenterManager {
                     android.widget.Toast.LENGTH_SHORT).show()
             }
         }
-        root.addView(grid)
+        controlContent.addView(grid)
 
-        root.addView(Button(ctx).apply { text = "Đóng"; setOnClickListener { hide() } })
-        return scroll
+        // ---- Tab 2: Thông báo ----
+        notifContent.addView(title("Thông báo"))
+        val notifs = NotificationState.active.value
+        if (notifs.isEmpty()) {
+            notifContent.addView(TextView(ctx).apply {
+                text = "Chưa có thông báo.\nNếu có thông báo mà không hiện, cần cấp quyền Truy cập thông báo cho CFlip (xem tab CFlip)."
+                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+            })
+        }
+        for (n in notifs) {
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(TextView(ctx).apply {
+                text = "${n.title}\n${n.text}"; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(Button(ctx).apply { text = "Mở"; setOnClickListener { NotificationController.open(n.key); hide() } })
+            row.addView(Button(ctx).apply { text = "Xóa"; setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
+            notifContent.addView(row)
+        }
+
+        // ---- Tab 3: Ứng dụng ----
+        appsContent.addView(title("Ứng dụng"))
+        run {
+            val appRepo = com.cuong.cflip.data.AppRepository(ctx)
+            val allApps = appRepo.loadLaunchableApps()
+            val settings = store.load()
+            val recentOrder = com.cuong.cflip.data.RecentAppsRepository(ctx).recentPackages(100)
+            val installTimes = appRepo.installTimes(allApps.map { it.packageName })
+            val ordered = when (settings.sortMode) {
+                1 -> allApps.sortedBy { recentOrder.indexOf(it.packageName).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+                2 -> allApps.sortedByDescending { installTimes[it.packageName] ?: 0L }
+                else -> allApps
+            }
+            val cols = when (settings.columns) { 0 -> 4; in 3..6 -> settings.columns; else -> 4 }
+            val appGrid = GridLayout(ctx).apply { columnCount = cols }
+            for (app in ordered) {
+                appGrid.addView(Button(ctx).apply {
+                    text = app.label; textSize = 10f; isAllCaps = false
+                    if (app.icon != null) {
+                        val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
+                        d.setBounds(0, 0, dp(40), dp(40))
+                        setCompoundDrawables(null, d, null, null)
+                    }
+                    setOnClickListener {
+                        com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
+                        hide()
+                    }
+                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(84) })
+            }
+            appsContent.addView(appGrid)
+        }
+
+        // ---- Tab 4: CFlip ----
+        cflipContent.addView(title("CFlip Launcher"))
+        cflipContent.addView(TextView(ctx).apply {
+            text = "Mở CFlip trên màn hình chính để cài đặt và tùy chỉnh:\n- AssistiveTouch: cỡ nút, tự mờ, vị trí\n- Widget, sắp xếp, số cột, hình nền cover\n- Quyền: Accessibility, Thông báo, Overlay"
+            textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+        })
+        fun openOnMain(intent: Intent) {
+            // Application context, no launch display id: the system puts
+            // this on the main display, not on the cover.
+            ctx.applicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            hide()
+        }
+        cflipContent.addView(Button(ctx).apply {
+            text = "Mở CFlip (màn hình chính)"
+            setOnClickListener {
+                openOnMain(Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java))
+            }
+        })
+        cflipContent.addView(Button(ctx).apply {
+            text = "Quyền Accessibility"
+            setOnClickListener { openOnMain(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        })
+        cflipContent.addView(Button(ctx).apply {
+            text = "Quyền Truy cập thông báo"
+            setOnClickListener { openOnMain(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+        })
+        cflipContent.addView(Button(ctx).apply {
+            text = "Quyền Hiện trên ứng dụng khác"
+            setOnClickListener {
+                openOnMain(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:${ctx.packageName}")))
+            }
+        })
+
+        return outer
     }
 }
