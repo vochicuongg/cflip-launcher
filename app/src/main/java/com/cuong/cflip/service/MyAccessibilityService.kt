@@ -41,16 +41,25 @@ class MyAccessibilityService : AccessibilityService() {
     // the system screenshot UI, no MediaProjection needed. The panel
     // hides first, so the shot captures what is underneath, not the panel.
     fun takeScreenshot(): Boolean = performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
-    // vc42: cover screenshot via takeScreenshot(displayId) (API 30+,
-    // minSdk 33 here), saved to Gallery by CFlip itself. Why this
-    // exists: vc41's GLOBAL_ACTION_TAKE_SCREENSHOT targets the
-    // DEFAULT display, so while folded it captures (or fails on)
-    // the main display the user cannot see, and looked like
-    // "không hoạt động" on the cover. This API takes a displayId,
-    // so the cover display (display 1) can be captured while folded.
-    // On success the bitmap is saved as PNG to Pictures/Screenshots
-    // via MediaStore. On failure the caller falls back to the global
-    // action above. Callback runs on the main executor.
+    // vc42/vc44: cover screenshot via takeScreenshot(displayId)
+    // (API 30+, minSdk 33 here), saved to Gallery by CFlip itself.
+    // vc44 ROOT CAUSE found: vc42's takeScreenshot ALWAYS failed
+    // because this service never declared canTakeScreenshot in its
+    // meta-data (accessibility_service_config.xml) - Android docs
+    // require that declaration, otherwise the call fails with
+    // NO_ACCESSIBILITY_ACCESS (code 2). The panel then fell back
+    // to GLOBAL_ACTION_TAKE_SCREENSHOT, which targets the DEFAULT
+    // (main) display, so folded it captured the main display and
+    // looked like "chụp màn chính, không phải màn phụ". vc44 adds
+    // canTakeScreenshot=true to the config AND removes the silent
+    // main-display fallback: if the cover API fails, the panel
+    // reports the real error code instead of capturing the wrong
+    // display. Note: after this config change the service must
+    // re-bind - if the first screenshot after update still reports
+    // code 2, toggle CFlip Accessibility off/on once.
+    // Error codes (Android): 1 internal, 2 no screenshot access,
+    // 3 too soon after previous shot (1s interval), 4 invalid
+    // display, 5 invalid window, 6 secure window.
     fun takeScreenshotForDisplay(displayId: Int, onDone: (Boolean, String) -> Unit) {
         runCatching {
             takeScreenshot(displayId, mainExecutor, object : TakeScreenshotCallback {
@@ -81,7 +90,16 @@ class MyAccessibilityService : AccessibilityService() {
                 }
                 override fun onFailure(errorCode: Int) {
                     Log.w(TAG, "Cover screenshot failed: $errorCode")
-                    onDone(false, "error $errorCode")
+                    val why = when (errorCode) {
+                        1 -> "lỗi nội bộ hệ thống"
+                        2 -> "chưa có quyền chụp (tắt/bật lại Accessibility cho CFlip một lần để nhận cấu hình mới)"
+                        3 -> "chụp quá nhanh sau lần trước (cách nhau ít nhất 1 giây)"
+                        4 -> "display màn phụ không hợp lệ với API chụp của hệ thống"
+                        5 -> "cửa sổ không hợp lệ"
+                        6 -> "nội dung bảo mật, hệ thống cấm chụp"
+                        else -> "lỗi không rõ"
+                    }
+                    onDone(false, "mã $errorCode: $why")
                 }
             })
         }.onFailure { e ->
