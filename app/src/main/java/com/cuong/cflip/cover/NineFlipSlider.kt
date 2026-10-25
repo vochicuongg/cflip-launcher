@@ -45,6 +45,21 @@ class NineFlipSlider @JvmOverloads constructor(
     var onValueChanged: ((Float) -> Unit)? = null
     var onDragEnd: (() -> Unit)? = null
     var onRightClick: (() -> Unit)? = null
+    // vc41: left-icon click is opt-in via setLeftClickListener(),
+    // NOT a blanket OnClickListener in init - otherwise the
+    // brightness slider's sun icon would also become clickable and
+    // block drags starting on it. Only the volume slider opts in.
+    private var onLeftClick: (() -> Unit)? = null
+    fun setLeftClickListener(action: (() -> Unit)?) {
+        onLeftClick = action
+        if (action != null) {
+            leftIcon.isClickable = true
+            leftIcon.setOnClickListener { action.invoke() }
+        } else {
+            leftIcon.isClickable = false
+            leftIcon.setOnClickListener(null)
+        }
+    }
 
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -79,6 +94,7 @@ class NineFlipSlider @JvmOverloads constructor(
         })
         leftIcon.scaleType = ImageView.ScaleType.CENTER_INSIDE
         leftIcon.setColorFilter(Color.rgb(63, 63, 63))
+        // Left icon is non-clickable by default; see setLeftClickListener().
         leftIcon.setPadding(dp(8), dp(8), dp(8), dp(8))
         addView(leftIcon, LayoutParams(dp(40), LayoutParams.MATCH_PARENT).apply {
             gravity = Gravity.START or Gravity.CENTER_VERTICAL

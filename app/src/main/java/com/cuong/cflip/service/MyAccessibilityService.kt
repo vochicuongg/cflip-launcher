@@ -36,6 +36,11 @@ class MyAccessibilityService : AccessibilityService() {
     fun openNotifications(): Boolean = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
     fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
     fun goHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
+    // vc41: system screenshot via Accessibility (API 28+, minSdk 33 here).
+    // This is the supported route for a third-party app - it triggers
+    // the system screenshot UI, no MediaProjection needed. The panel
+    // hides first, so the shot captures what is underneath, not the panel.
+    fun takeScreenshot(): Boolean = performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT)
     fun pressBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
 
     companion object {

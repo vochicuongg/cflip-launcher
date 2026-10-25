@@ -152,6 +152,7 @@ object CoverAssistiveTouchManager {
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
         var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
         var moved = false; var longPressed = false; var pendingSingleTap = false
+        var doubleTapOpened = false
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
 
@@ -177,6 +178,30 @@ object CoverAssistiveTouchManager {
                 MotionEvent.ACTION_DOWN -> {
                     btn.alpha = 1f
                     dimRunnable?.let { handler.removeCallbacks(it) }
+                    // vc41 fast double-tap: previously the panel opened
+                    // only on ACTION_UP of the second tap, so the user
+                    // paid a full tap duration before anything happened.
+                    // Now, if a first tap is already pending, the second
+                    // DOWN opens the panel immediately (no long-press
+                    // scheduled for this DOWN, no waiting for UP).
+                    // Trade-off, stated honestly: a tap-tap-drag that
+                    // starts a drag on the second tap will open the
+                    // panel instead of dragging - drags normally start
+                    // on the first touch, not the second, so this is
+                    // the standard double-tap trade-off for speed.
+                    if (pendingSingleTap) {
+                        pendingSingleTap = false
+                        singleTapRunnable?.let { handler.removeCallbacks(it) }
+                        singleTapRunnable = null
+                        doubleTapOpened = true
+                        downX = e.rawX; downY = e.rawY
+                        paramsX = params.x; paramsY = params.y
+                        moved = false; longPressed = false
+                        doMenu(appContext, display.displayId)
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
+                    doubleTapOpened = false
                     downX = e.rawX; downY = e.rawY
                     paramsX = params.x; paramsY = params.y
                     moved = false; longPressed = false
@@ -217,6 +242,15 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    // vc41: UP belonging to the DOWN that already opened
+                    // the panel must not start a new pending single tap
+                    // (which would later fire Home over the panel).
+                    if (doubleTapOpened) {
+                        doubleTapOpened = false
+                        v.elevation = dp(8).toFloat()
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
                     cancelTapRunnables()
                     v.elevation = dp(8).toFloat()
                     if (moved) {
@@ -272,6 +306,7 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    doubleTapOpened = false
                     cancelTapRunnables(); pendingSingleTap = false
                     v.elevation = dp(8).toFloat()
                     scheduleDim(); true

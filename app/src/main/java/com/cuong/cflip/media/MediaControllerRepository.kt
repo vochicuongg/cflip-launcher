@@ -36,6 +36,7 @@ class MediaControllerRepository(private val context: Context) {
             positionMs = c.playbackState?.position ?: 0L,
             durationMs = md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L,
             albumArt = md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ART),
+            sessionActivity = runCatching { c.sessionActivity }.getOrNull(),
         )
     }
 
