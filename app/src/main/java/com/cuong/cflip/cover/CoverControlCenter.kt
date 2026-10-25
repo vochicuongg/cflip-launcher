@@ -707,6 +707,10 @@ object CoverControlCenterManager {
             // the panel. Previously CFlip closed the panel and hid+re-showed
             // the bubble here, so the bubble could disappear entirely if
             // re-show failed or assistiveTouchEnabled was off.
+            // vc33 fix: a local val cannot be referenced inside its own
+            // initializer lambda (Kotlin: unresolved reference). Use a
+            // holder declared BEFORE the tile, assigned right after.
+            var rotateTileRef: Pair<LinearLayout, TextView>? = null
             val rotateTile = tileWithLabel(rotateIcon, rotateLabel, currentMode != 2) {
                 val next = when (currentMode) { 0 -> 1; 1 -> 2; else -> 0 }
                 store.save(store.load().copy(rotateMode = next))
@@ -739,14 +743,15 @@ object CoverControlCenterManager {
                 val newLabel = when (next) { 0 -> "Theo lật"; 1 -> "Khóa xoay"; else -> "Mặc định" }
                 val newIcon = if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate
                 val newActive = next != 2
-                rotateTile.second.text = newLabel
-                rotateTile.second.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
-                val circle = rotateTile.first.getChildAt(0) as ImageView
+                rotateTileRef?.second?.text = newLabel
+                rotateTileRef?.second?.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
+                val circle = rotateTileRef?.first?.getChildAt(0) as? ImageView ?: return@tileWithLabel
                 circle.setImageResource(newIcon)
                 circle.setColorFilter(if (newActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
                 (circle.background as? android.graphics.drawable.GradientDrawable)?.setColor(
                     if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
+            rotateTileRef = rotateTile
             grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
