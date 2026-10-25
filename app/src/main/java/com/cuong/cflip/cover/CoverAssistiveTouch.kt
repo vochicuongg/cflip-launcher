@@ -220,14 +220,28 @@ object CoverAssistiveTouchManager {
     }
 
     private fun doMenu(context: Context, displayId: Int) {
-        // Menu = CFlip's own Control Center: cover UI at the Quick tab,
-        // launched on the cover display (not on the main display).
-        val intent = Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            .putExtra("cflip_show_cover", true)
-            .putExtra("cflip_cover_tab", "QUICK")
-        val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
-        runCatching { context.startActivity(intent, opts.toBundle()) }
-            .onFailure { Log.w(TAG, "Menu (Quick tab) launch failed", it) }
+        // Menu = CFlip's own Control Center panel, as an overlay on the
+        // cover display (2.6.0). It used to launch MainActivity at the
+        // Quick tab on the cover display, but that activity route is the
+        // one Samsung blocks most often — the panel uses the same
+        // WindowManager overlay route as CoverOverlay, so it survives
+        // where the activity does not. Only if the panel itself fails do
+        // we fall back to the activity route.
+        val display = runCatching {
+            (context.getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager)
+                .getDisplay(displayId)
+        }.getOrNull()
+        val panelOk = if (display != null) {
+            CoverControlCenterManager.show(context, display).isSuccess
+        } else false
+        if (!panelOk) {
+            val intent = Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("cflip_show_cover", true)
+                .putExtra("cflip_cover_tab", "QUICK")
+            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
+            runCatching { context.startActivity(intent, opts.toBundle()) }
+                .onFailure { Log.w(TAG, "Menu (Quick tab) launch failed", it) }
+        }
     }
 }

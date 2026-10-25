@@ -200,6 +200,12 @@ object CoverOverlayManager {
             }
         }
         root.addView(Button(ctx).apply {
+            text = "Điều khiển"
+            setOnClickListener {
+                CoverControlCenterManager.show(ctx.applicationContext, display)
+            }
+        })
+        root.addView(Button(ctx).apply {
             text = "Đóng"
             setOnClickListener { hide() }
         })
