@@ -133,10 +133,12 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // (Widget) opens from the button's double-tap.
         // 3.3.0 rotate modes: FOLLOW = persistent FULL_SENSOR host,
         // LOCK = fixed-orientation host at current rotation.
-        if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
-            com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
-        } else {
-            com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
+        // vc31: rotateMode 2 = SYSTEM (no host). The old else->lock
+        // branch would have locked the cover even in SYSTEM mode.
+        when (com.cuong.cflip.data.SettingsStore(this).load().rotateMode) {
+            0 -> com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
+            1 -> com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
+            else -> com.cuong.cflip.cover.CoverRotateHostManager.remove()
         }
         if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)

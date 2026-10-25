@@ -644,35 +644,51 @@ object CoverControlCenterManager {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
                 GridLayout.LayoutParams().apply { width = dp(64); height = dp(76) })
         }
-        // 3.6.0: Rotate lives INSIDE the function island, as two tiles.
-        // The old buttons below the grid are deleted.
-        tileRowActive("Theo lật", R.drawable.ic_sec_rotate, store.load().rotateMode == 0) {
-            store.save(store.load().copy(rotateMode = 0))
-            CoverRotateState.contentFallback = false
-            val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
-            CoverRotateHostManager.follow(ctx.applicationContext, display)
-            android.widget.Toast.makeText(
-                ctx,
-                if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
-                else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
-                android.widget.Toast.LENGTH_LONG).show()
-            hide()
-            if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                CoverAssistiveTouchManager.hide()
-                CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+        // vc31: Rotate is ONE tile cycling FOLLOW -> LOCK -> SYSTEM.
+        // Press 1 = FOLLOW (FULL_SENSOR host, follows flip direction),
+        // press 2 = LOCK (fixed host at current rotation),
+        // press 3 = SYSTEM (remove host, back to Samsung default),
+        // press 4 = FOLLOW again. Label shows the CURRENT mode; the
+        // tile is mint/active while a host exists, dark when SYSTEM.
+        run {
+            val currentMode = store.load().rotateMode
+            val rotateLabel = when (currentMode) {
+                0 -> "Theo lật"
+                1 -> "Khóa xoay"
+                else -> "Mặc định"
             }
-        }
-        tileRowActive("Khóa xoay", R.drawable.ic_sec_lock, store.load().rotateMode == 1) {
-            store.save(store.load().copy(rotateMode = 1))
-            CoverRotateState.contentFallback = false
-            CoverRotateHostManager.lock(ctx.applicationContext, display)
-            android.widget.Toast.makeText(
-                ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
-                android.widget.Toast.LENGTH_SHORT).show()
-            hide()
-            if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                CoverAssistiveTouchManager.hide()
-                CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+            tileRowActive(rotateLabel, R.drawable.ic_sec_rotate, currentMode != 2) {
+                val next = when (currentMode) { 0 -> 1; 1 -> 2; else -> 0 }
+                store.save(store.load().copy(rotateMode = next))
+                CoverRotateState.contentFallback = false
+                when (next) {
+                    0 -> {
+                        val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
+                        CoverRotateHostManager.follow(ctx.applicationContext, display)
+                        android.widget.Toast.makeText(
+                            ctx,
+                            if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
+                            else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
+                            android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    1 -> {
+                        CoverRotateHostManager.lock(ctx.applicationContext, display)
+                        android.widget.Toast.makeText(
+                            ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        CoverRotateHostManager.remove()
+                        android.widget.Toast.makeText(
+                            ctx, "Đã về xoay mặc định hệ thống — gỡ host xoay.",
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                hide()
+                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                    CoverAssistiveTouchManager.hide()
+                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+                }
             }
         }
         tileRow("Đèn", R.drawable.ic_sec_flashlight) { QuickControls.setTorch(ctx, !QuickControls.torchOn) }

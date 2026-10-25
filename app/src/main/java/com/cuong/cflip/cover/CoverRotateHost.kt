@@ -111,7 +111,11 @@ object CoverRotateHostManager {
 
     /** Legacy apply, kept for compatibility: FOLLOW -> follow(), LOCK -> lock(). */
     fun apply(appContext: Context, display: Display): Result<Unit> {
-        return if (SettingsStore(appContext).load().rotateMode == 0) follow(appContext, display) else lock(appContext, display)
+        return when (SettingsStore(appContext).load().rotateMode) {
+            0 -> follow(appContext, display)
+            1 -> lock(appContext, display)
+            else -> { remove(); Result.success(Unit) }
+        }
     }
 
     fun show(appContext: Context, display: Display, degrees: Int): Result<Unit> {

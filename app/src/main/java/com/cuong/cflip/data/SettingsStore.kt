@@ -33,6 +33,8 @@ data class CoverSettings(
     // two: 0 = FOLLOW (follow the flip direction, sensor pulse),
     // 1 = LOCK (lock at the current orientation). coverRotation
     // (0/90/180/270 cycle) is retired — it only rotated one View.
+    // vc31: 2 = SYSTEM (no rotate host, back to Samsung default).
+    // The panel tile cycles 0 -> 1 -> 2 -> 0.
     val rotateMode: Int = 1,
     // 3.2.0 panel brightness, per 9Flip decompile (p6/t6): 9Flip does
     // NOT write Settings.System for its panel. It keeps its own manual
