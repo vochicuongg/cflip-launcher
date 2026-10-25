@@ -188,3 +188,9 @@ check("Panel renders widgets only when user chose them",
       "coverWidgets" in cc2 and "Chưa thêm Widget" in cc2)
 check("Panel widget section offers to open CFlip to add a widget",
       "Mở CFlip để thêm Widget" in cc2)
+
+# --- 12. Build fix 3.1.1: initialTab must reach buildPanel ---
+check("Panel show() passes initialTab to buildPanel",
+      "buildPanel(displayContext, display, initialTab)" in cc2)
+check("Panel buildPanel() declares initialTab parameter",
+      "buildPanel(ctx: Context, display: Display, initialTab" in cc2)

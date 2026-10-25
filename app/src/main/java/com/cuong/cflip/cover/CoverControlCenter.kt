@@ -75,7 +75,7 @@ object CoverControlCenterManager {
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
-        val root = buildPanel(displayContext, display)
+        val root = buildPanel(displayContext, display, initialTab)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -121,7 +121,7 @@ object CoverControlCenterManager {
     // - Ứng dụng: full app grid on the cover display.
     // - CFlip: opens CFlip itself on the MAIN display for settings/custom,
     //   plus permission shortcuts. It never opens an external cover app.
-    private fun buildPanel(ctx: Context, display: Display): View {
+    private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0): View {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
@@ -235,7 +235,6 @@ object CoverControlCenterManager {
             setTextColor(0xFFFFFFFF.toInt())
         })
         outer.addView(tabBar); outer.addView(scroll)
-        // initialTab is set after selectTab(0) below, via the stored list.
         // Fallback rotation, in sync with the overlay (2.10.0).
         if (CoverRotateState.contentFallback) {
             val rotation = store.load().coverRotation

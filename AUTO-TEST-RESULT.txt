@@ -70,3 +70,5 @@ PASS - MainScreen pins widgets via requestPinAppWidget, not forced placement
 PASS - MainScreen has no leftover Presentation variable 
 PASS - Panel renders widgets only when user chose them 
 PASS - Panel widget section offers to open CFlip to add a widget 
+PASS - Panel show() passes initialTab to buildPanel 
+PASS - Panel buildPanel() declares initialTab parameter 
