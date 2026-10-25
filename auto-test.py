@@ -131,3 +131,14 @@ check("Panel Notifications tab lists all notifications", "NotificationState.acti
 check("Panel Apps tab launches on cover display", "AppLauncher.launch" in cc)
 check("Panel Rotate tile uses RotateHost, not overlay re-show",
       "CoverRotateHostManager.apply" in cc)
+
+# --- 8. Modern AssistiveTouch design (2.9.0) ---
+at2 = read("cover/CoverAssistiveTouch.kt")
+check("AssistiveTouch button uses gradient + elevation", "LINEAR_GRADIENT" in at2 and "elevation" in at2)
+check("AssistiveTouch button uses bold mint letter", "Typeface.BOLD" in at2)
+cc2 = read("cover/CoverControlCenter.kt")
+check("Panel uses rounded cards (GradientDrawable cornerRadius)", "cornerRadius" in cc2)
+check("Panel tiles are icon+label cards, not grey buttons", "tileWithLabel" in cc2 and "💡" in cc2)
+check("Panel has pill tab bar (rounded 24)", "rounded(cardColor, 24)" in cc2)
+check("Panel sliders use mint tint", "progressTintList" in cc2 and "thumbTintList" in cc2)
+check("Panel has modern primary button helper", "modernButton" in cc2)

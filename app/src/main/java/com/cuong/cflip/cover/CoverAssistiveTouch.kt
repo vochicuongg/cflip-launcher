@@ -93,15 +93,22 @@ object CoverAssistiveTouchManager {
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START; x = startX; y = startY }
 
+        // Modern button 2.9.0: soft gradient (deep mint -> near-black),
+        // thin mint ring, bold letter, drop shadow via elevation. No copied
+        // icon — the "C" is CFlip's own mark, kept from earlier versions.
         val btn = TextView(displayContext).apply {
             text = "C"
-            textSize = 22f * sizeFactor
+            textSize = 24f * sizeFactor
             setTextColor(0xFF7FE3C0.toInt())
+            setTypeface(null, android.graphics.Typeface.BOLD)
             gravity = Gravity.CENTER
+            elevation = dp(8).toFloat()
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFF0B1F1A.toInt())
-                setStroke(dp(2), 0xFF7FE3C0.toInt())
+                orientation = android.graphics.drawable.GradientDrawable.Orientation.TL_BR
+                colors = intArrayOf(0xFF14473A.toInt(), 0xFF0B1F1A.toInt(), 0xFF08090A.toInt())
+                gradientType = android.graphics.drawable.GradientDrawable.LINEAR_GRADIENT
+                setStroke(dp(1), 0xFF7FE3C0.toInt())
             }
         }
 

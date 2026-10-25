@@ -43,3 +43,10 @@ PASS - Panel CFlip tab opens MainActivity
 PASS - Panel Notifications tab lists all notifications 
 PASS - Panel Apps tab launches on cover display 
 PASS - Panel Rotate tile uses RotateHost, not overlay re-show 
+PASS - AssistiveTouch button uses gradient + elevation 
+PASS - AssistiveTouch button uses bold mint letter 
+PASS - Panel uses rounded cards (GradientDrawable cornerRadius) 
+PASS - Panel tiles are icon+label cards, not grey buttons 
+PASS - Panel has pill tab bar (rounded 24) 
+PASS - Panel sliders use mint tint 
+PASS - Panel has modern primary button helper 

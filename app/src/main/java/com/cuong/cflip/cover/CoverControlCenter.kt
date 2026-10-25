@@ -131,6 +131,44 @@ object CoverControlCenterManager {
         fun resetTimer() = scheduleDismiss()
         fun title(text: String): TextView = TextView(ctx).apply {
             this.text = text; textSize = 15f; setTextColor(0xFFFFFFFF.toInt())
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        }
+        // Modern design system 2.9.0 (CFlip's own palette, same as MainScreen):
+        // near-black background, dark cards, mint accent, rounded corners.
+        // No copied 9Flip layout, icon or text — only the tab/function list.
+        val mint = 0xFF7FE3C0.toInt()
+        val cardColor = 0xFF16181C.toInt()
+        val muted = 0xFF9AA0A6.toInt()
+        fun rounded(color: Int, radiusDp: Int = 16): android.graphics.drawable.GradientDrawable =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(radiusDp).toFloat()
+                setColor(color)
+            }
+        fun card(): LinearLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(cardColor, 16)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        }
+        fun modernButton(text: String, primary: Boolean = false): Button = Button(ctx).apply {
+            this.text = text; textSize = 13f; isAllCaps = false
+            background = rounded(if (primary) mint else 0xFF23262B.toInt(), 24)
+            setTextColor(if (primary) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(8))
+            }
+        }
+        fun mintSeekBar(): SeekBar = SeekBar(ctx).apply {
+            runCatching {
+                progressTintList = android.content.res.ColorStateList.valueOf(mint)
+                thumbTintList = android.content.res.ColorStateList.valueOf(mint)
+            }
         }
 
         val outer = LinearLayout(ctx).apply {
@@ -150,26 +188,39 @@ object CoverControlCenterManager {
         root.addView(appsContent); root.addView(cflipContent)
 
         // Tab bar at the top.
-        val tabBar = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tabBar = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = rounded(cardColor, 24)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dp(12), dp(12), dp(12), 0)
+            }
+        }
         val tabContents = listOf(controlContent, notifContent, appsContent, cflipContent)
         val tabButtons = mutableListOf<Button>()
         fun selectTab(i: Int) {
             tabContents.forEachIndexed { idx, v -> v.visibility = if (idx == i) View.VISIBLE else View.GONE }
             tabButtons.forEachIndexed { idx, b ->
-                if (idx == i) { b.setBackgroundColor(0xFF7FE3C0.toInt()); b.setTextColor(0xFF000000.toInt()) }
-                else { b.setBackgroundColor(0xFF222222.toInt()); b.setTextColor(0xFFFFFFFF.toInt()) }
+                if (idx == i) { b.background = rounded(mint, 24); b.setTextColor(0xFF000000.toInt()) }
+                else { b.background = null; b.setTextColor(0xFFFFFFFF.toInt()) }
             }
             resetTimer()
         }
         for ((i, label) in listOf("Điều khiển", "Thông báo", "Ứng dụng", "CFlip").withIndex()) {
             val b = Button(ctx).apply {
                 text = label; textSize = 11f; isAllCaps = false
+                setPadding(0, dp(8), 0, dp(8))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 setOnClickListener { selectTab(i) }
             }
             tabButtons.add(b); tabBar.addView(b)
         }
-        tabBar.addView(Button(ctx).apply { text = "✕"; setOnClickListener { hide() } })
+        tabBar.addView(Button(ctx).apply {
+            text = "✕"; setOnClickListener { hide() }
+            background = rounded(0xFF23262B.toInt(), 24)
+            setTextColor(0xFFFFFFFF.toInt())
+        })
         outer.addView(tabBar); outer.addView(scroll)
         selectTab(0)
 
@@ -177,17 +228,20 @@ object CoverControlCenterManager {
         val mediaRepo = MediaControllerRepository(ctx)
         runCatching { mediaRepo.refresh() }
         val mediaInfo = MediaState.current.value
-        controlContent.addView(title("Nhạc"))
-        controlContent.addView(TextView(ctx).apply {
+        val mediaCard = card()
+        mediaCard.addView(title("Nhạc"))
+        mediaCard.addView(TextView(ctx).apply {
             text = mediaInfo?.title ?: "Chưa có nhạc"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
         })
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        mediaRow.addView(Button(ctx).apply { text = "⏮"; setOnClickListener { resetTimer(); mediaRepo.previous() } })
-        mediaRow.addView(Button(ctx).apply { text = "⏯"; setOnClickListener { resetTimer(); mediaRepo.playPause() } })
-        mediaRow.addView(Button(ctx).apply { text = "⏭"; setOnClickListener { resetTimer(); mediaRepo.next() } })
-        controlContent.addView(mediaRow)
+        mediaRow.addView(modernButton("⏮").apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.previous() } })
+        mediaRow.addView(modernButton("⏯", true).apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.playPause() } })
+        mediaRow.addView(modernButton("⏭").apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f); setOnClickListener { resetTimer(); mediaRepo.next() } })
+        mediaCard.addView(mediaRow)
+        controlContent.addView(mediaCard)
 
-        controlContent.addView(title("Độ sáng"))
+        val sliderCard = card()
+        sliderCard.addView(title("Độ sáng"))
         val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
         fun refreshBrightLabel() {
             val pct = QuickControls.brightness(ctx) * 100 / 255
@@ -203,8 +257,8 @@ object CoverControlCenterManager {
                 ctx.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        controlContent.addView(brightLabel)
-        controlContent.addView(SeekBar(ctx).apply {
+        sliderCard.addView(brightLabel)
+        sliderCard.addView(mintSeekBar().apply {
             max = 255
             progress = QuickControls.brightness(ctx).coerceIn(13, 255)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -222,9 +276,9 @@ object CoverControlCenterManager {
             })
         })
 
-        controlContent.addView(title("Âm lượng"))
+        sliderCard.addView(title("Âm lượng"))
         val (vol, volMax) = QuickControls.volume(ctx)
-        controlContent.addView(SeekBar(ctx).apply {
+        sliderCard.addView(mintSeekBar().apply {
             max = volMax.coerceAtLeast(1)
             progress = vol.coerceIn(0, max)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -236,36 +290,55 @@ object CoverControlCenterManager {
             })
         })
 
-        controlContent.addView(title("Chức năng"))
+        controlContent.addView(sliderCard)
+        val tileCard = card()
+        tileCard.addView(title("Chức năng"))
         val grid = GridLayout(ctx).apply { columnCount = 5 }
-        fun tile(label: String, onClick: () -> Unit): Button = Button(ctx).apply {
-            text = label; textSize = 10f; isAllCaps = false
-            setOnClickListener { resetTimer(); onClick() }
+        // Modern tiles 2.9.0: rounded mini-cards with an icon on top and
+        // a label below, instead of the default grey Android buttons.
+        fun tileWithLabel(icon: String, label: String, onClick: () -> Unit): Pair<LinearLayout, TextView> {
+            val labelView = TextView(ctx).apply {
+                text = label; textSize = 10f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+            }
+            val cardView = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                background = rounded(0xFF23262B.toInt(), 12)
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                gravity = Gravity.CENTER
+                setOnClickListener { resetTimer(); onClick() }
+            }
+            cardView.addView(TextView(ctx).apply {
+                text = icon; textSize = 20f; gravity = Gravity.CENTER
+            })
+            cardView.addView(labelView)
+            return cardView to labelView
         }
-        fun tileRow(label: String, onClick: () -> Unit) {
-            grid.addView(tile(label, onClick),
-                GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
+        fun tile(label: String, icon: String, onClick: () -> Unit): LinearLayout =
+            tileWithLabel(icon, label, onClick).first
+        fun tileRow(label: String, icon: String, onClick: () -> Unit) {
+            grid.addView(tile(label, icon, onClick),
+                GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
         }
-        tileRow("Đèn") { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
-        tileRow("Wi-Fi") { runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth") { runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet") { runCatching { QuickControls.openInternetPanel(ctx) } }
-        tileRow("NFC") { runCatching { QuickControls.openNfcPanel(ctx) } }
-        tileRow("Khóa") { a11yAction("Khóa máy") { it.lockScreen() } }
-        tileRow("Gần đây") { a11yAction("Gần đây") { it.openRecents() } }
-        tileRow("TB") { a11yAction("Thông báo") { it.openNotifications() } }
-        tileRow("CĐ nhanh") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
-        tileRow("Cài đặt") { runCatching { QuickControls.openDeviceSettings(ctx) } }
+        tileRow("Đèn", "💡") { QuickControls.setTorch(ctx, !QuickControls.torchOn) }
+        tileRow("Wi-Fi", "📶") { runCatching { QuickControls.openWifiPanel(ctx) } }
+        tileRow("Bluetooth", "🔷") { runCatching { QuickControls.openBluetoothSettings(ctx) } }
+        tileRow("Internet", "🌐") { runCatching { QuickControls.openInternetPanel(ctx) } }
+        tileRow("NFC", "📲") { runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRow("Khóa", "🔒") { a11yAction("Khóa máy") { it.lockScreen() } }
+        tileRow("Gần đây", "▦") { a11yAction("Gần đây") { it.openRecents() } }
+        tileRow("TB", "🔔") { a11yAction("Thông báo") { it.openNotifications() } }
+        tileRow("CĐ nhanh", "⚡") { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
+        tileRow("Cài đặt", "⚙️") { runCatching { QuickControls.openDeviceSettings(ctx) } }
         // Rotate, 2.8.0: whole-display rotation via CoverRotateHostManager
         // (1x1 screenOrientation overlay), NOT a View rotation. After
         // applying, the panel closes and AssistiveTouch re-shows so its
         // position is re-clamped to the rotated display.
-        var rotateBtn: Button? = null
-        rotateBtn = tile("Xoay ${store.load().coverRotation}°") {
+        var rotateLabel: TextView? = null
+        val rotateTile = tileWithLabel("↻", "Xoay ${store.load().coverRotation}°") {
             val cur = store.load()
             val next = when (cur.coverRotation) { 0 -> 90; 90 -> 180; 180 -> 270; else -> 0 }
             store.save(cur.copy(coverRotation = next))
-            rotateBtn?.text = "Xoay ${next}°"
+            rotateLabel?.text = "Xoay ${next}°"
             CoverRotateHostManager.apply(ctx.applicationContext, display)
             android.widget.Toast.makeText(
                 ctx, "Đã xoay toàn màn phụ sang ${next}°",
@@ -278,30 +351,33 @@ object CoverControlCenterManager {
                 }
             }, 300)
         }
-        grid.addView(rotateBtn, GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
-        var sortBtn: Button? = null
-        sortBtn = tile("SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
+        rotateLabel = rotateTile.second
+        grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+        var sortLabel: TextView? = null
+        val sortTile = tileWithLabel("⇅", "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()
             val next = (cur.sortMode + 1) % 3
             store.save(cur.copy(sortMode = next))
-            sortBtn?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
+            sortLabel?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
         }
-        grid.addView(sortBtn, GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
-        var colBtn: Button? = null
-        colBtn = tile("Cột ${store.load().columns}") {
+        sortLabel = sortTile.second
+        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+        var colLabel: TextView? = null
+        val colTile = tileWithLabel("▤", "Cột ${store.load().columns}") {
             val cur = store.load()
             val next = when (cur.columns) { 0 -> 3; 3 -> 4; 4 -> 5; 5 -> 6; else -> 0 }
             store.save(cur.copy(columns = next))
-            colBtn?.text = "Cột $next"
+            colLabel?.text = "Cột $next"
         }
-        grid.addView(colBtn, GridLayout.LayoutParams().apply { width = dp(64); height = dp(56) })
-        tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt") {
+        colLabel = colTile.second
+        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(64); height = dp(72) })
+        tileRow(if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", "Aa") {
             val cur = store.load(); store.save(cur.copy(showLabels = !cur.showLabels))
         }
-        tileRow("Xóa ghim") {
+        tileRow("Xóa ghim", "✕") {
             ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
         }
-        tileRow("Mirror") {
+        tileRow("Mirror", "🪞") {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
@@ -311,7 +387,8 @@ object CoverControlCenterManager {
                     android.widget.Toast.LENGTH_SHORT).show()
             }
         }
-        controlContent.addView(grid)
+        tileCard.addView(grid)
+        controlContent.addView(tileCard)
 
         // ---- Tab 2: Thông báo ----
         notifContent.addView(title("Thông báo"))
@@ -323,13 +400,21 @@ object CoverControlCenterManager {
             })
         }
         for (n in notifs) {
-            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = rounded(cardColor, 12)
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, dp(8))
+                }
+            }
             row.addView(TextView(ctx).apply {
                 text = "${n.title}\n${n.text}"; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
-            row.addView(Button(ctx).apply { text = "Mở"; setOnClickListener { NotificationController.open(n.key); hide() } })
-            row.addView(Button(ctx).apply { text = "Xóa"; setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
+            row.addView(modernButton("Mở", true).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.open(n.key); hide() } })
+            row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
             notifContent.addView(row)
         }
 
@@ -351,6 +436,8 @@ object CoverControlCenterManager {
             for (app in ordered) {
                 appGrid.addView(Button(ctx).apply {
                     text = app.label; textSize = 10f; isAllCaps = false
+                    background = rounded(0xFF23262B.toInt(), 12)
+                    setTextColor(0xFFFFFFFF.toInt())
                     if (app.icon != null) {
                         val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
                         d.setBounds(0, 0, dp(40), dp(40))
@@ -377,22 +464,18 @@ object CoverControlCenterManager {
             ctx.applicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             hide()
         }
-        cflipContent.addView(Button(ctx).apply {
-            text = "Mở CFlip (màn hình chính)"
+        cflipContent.addView(modernButton("Mở CFlip (màn hình chính)", true).apply {
             setOnClickListener {
                 openOnMain(Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java))
             }
         })
-        cflipContent.addView(Button(ctx).apply {
-            text = "Quyền Accessibility"
+        cflipContent.addView(modernButton("Quyền Accessibility").apply {
             setOnClickListener { openOnMain(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
-        cflipContent.addView(Button(ctx).apply {
-            text = "Quyền Truy cập thông báo"
+        cflipContent.addView(modernButton("Quyền Truy cập thông báo").apply {
             setOnClickListener { openOnMain(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         })
-        cflipContent.addView(Button(ctx).apply {
-            text = "Quyền Hiện trên ứng dụng khác"
+        cflipContent.addView(modernButton("Quyền Hiện trên ứng dụng khác").apply {
             setOnClickListener {
                 openOnMain(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     android.net.Uri.parse("package:${ctx.packageName}")))
