@@ -20,7 +20,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuong.cflip.service.BubbleOverlayService
 
-/** Floating bubble menu controls: CFlip's own overlay surface, no Good Lock needed. */
+/** Deprecated 25/10/2026: main display never shows a bubble (Cường's rule:
+ *  main = custom/settings only). Cover AssistiveTouch replaced this; this
+ *  composable is kept only so old code still compiles and is no longer called
+ *  from any screen. */
+@Deprecated("Use CoverAssistiveTouchManager on the cover display instead")
 @Composable
 fun BubbleControls() {
     val context = LocalContext.current

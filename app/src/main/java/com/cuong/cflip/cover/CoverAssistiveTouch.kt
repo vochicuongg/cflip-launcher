@@ -1,0 +1,233 @@
+package com.cuong.cflip.cover
+
+import android.app.ActivityOptions
+import android.content.Context
+import android.content.Intent
+import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.Display
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.WindowManager
+import android.widget.TextView
+import com.cuong.cflip.MainActivity
+import com.cuong.cflip.service.MyAccessibilityService
+import kotlin.math.abs
+
+/**
+ * AssistiveTouch for the SECONDARY (cover) display only — 25/10/2026, per Cường's
+ * rule: the main display is custom/settings only and never shows a bubble;
+ * the cover is where one-handed use is optimised.
+ *
+ * Clean-room implementation of the interaction pattern, not a copy: a small
+ * draggable "C" button added through the secondary display's own WindowManager
+ * (createDisplayContext, like CoverOverlay), with the three gestures:
+ * - tap -> Home: a HOME intent routed to the cover display first, falling back
+ *   to the AccessibilityService global Home action.
+ * - long-press -> Recents via the AccessibilityService.
+ * - double-tap -> Menu: opens CFlip's own cover UI at the Quick (Control Center)
+ *   tab, on the cover display, via MainActivity intent extras.
+ * Dragging repositions the button; the position is saved with the display size
+ * at save time and clamped when the display changes, like the pattern in the
+ * 9Flip analysis. Auto-dim drops the button to 40% alpha after 2500ms idle and
+ * restores it on touch.
+ *
+ * This manager never touches the default display: show() returns failure if the
+ * display is the default display, so a bug cannot leak the button onto the
+ * main screen — the exact symptom Cường reported for the old bubble.
+ */
+object CoverAssistiveTouchManager {
+    private const val TAG = "CFlipAssistiveTouch"
+    private const val PREFS = "assistive_touch"
+    private const val DIM_DELAY_MS = 2500L
+    private const val DIM_ALPHA = 0.4f
+
+    private var wm: WindowManager? = null
+    private var button: View? = null
+    private var displayId: Int = -1
+    private val handler = Handler(Looper.getMainLooper())
+    private var dimRunnable: Runnable? = null
+
+    fun isShown(): Boolean = button != null
+
+    fun show(appContext: Context, display: Display): Result<Unit> = runCatching {
+        if (display.displayId == Display.DEFAULT_DISPLAY) {
+            throw IllegalArgumentException("AssistiveTouch is cover-only, refusing default display")
+        }
+        hide()
+        val displayContext = appContext.createDisplayContext(display)
+        val manager = displayContext.getSystemService(WindowManager::class.java)
+            ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
+        val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val density = displayContext.resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        val size = dp(56)
+
+        // Saved position, clamped to the current display size.
+        val dispW = displayContext.resources.displayMetrics.widthPixels
+        val dispH = displayContext.resources.displayMetrics.heightPixels
+        val savedW = prefs.getInt("display_w", 0)
+        val savedH = prefs.getInt("display_h", 0)
+        var startX = prefs.getInt("x", dispW - size - dp(12))
+        var startY = prefs.getInt("y", dispH / 2)
+        if (savedW > 0 && savedH > 0) {
+            startX = (startX.toFloat() * dispW / savedW).toInt()
+            startY = (startY.toFloat() * dispH / savedH).toInt()
+        }
+        startX = startX.coerceIn(0, maxOf(0, dispW - size))
+        startY = startY.coerceIn(0, maxOf(0, dispH - size))
+
+        val params = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = startX; y = startY }
+
+        val btn = TextView(displayContext).apply {
+            text = "C"
+            textSize = 22f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xFF0B3D5C.toInt())
+                setStroke(dp(2), 0xFFFFFFFF.toInt())
+            }
+        }
+
+        // Gesture state machine, using system timeouts (not hardcoded guesses):
+        // long-press timeout for hold, double-tap timeout for the tap delay.
+        val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
+        val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
+        var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
+        var moved = false; var longPressed = false; var pendingSingleTap = false
+        var longPressRunnable: Runnable? = null
+        var singleTapRunnable: Runnable? = null
+
+        fun scheduleDim() {
+            dimRunnable?.let { handler.removeCallbacks(it) }
+            val r = Runnable { btn.alpha = DIM_ALPHA }
+            dimRunnable = r
+            handler.postDelayed(r, DIM_DELAY_MS)
+        }
+        fun cancelTapRunnables() {
+            longPressRunnable?.let { handler.removeCallbacks(it) }
+            singleTapRunnable?.let { handler.removeCallbacks(it) }
+            longPressRunnable = null; singleTapRunnable = null
+        }
+
+        btn.setOnTouchListener { v, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    btn.alpha = 1f
+                    dimRunnable?.let { handler.removeCallbacks(it) }
+                    downX = e.rawX; downY = e.rawY
+                    paramsX = params.x; paramsY = params.y
+                    moved = false; longPressed = false
+                    val r = Runnable {
+                        longPressed = true
+                        doRecents(appContext)
+                    }
+                    longPressRunnable = r
+                    handler.postDelayed(r, longPressTimeout)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (e.rawX - downX).toInt(); val dy = (e.rawY - downY).toInt()
+                    if (abs(dx) + abs(dy) > touchSlop) {
+                        if (!moved) { cancelTapRunnables(); moved = true }
+                        params.x = (paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
+                        params.y = (paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
+                        runCatching { manager.updateViewLayout(v, params) }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    cancelTapRunnables()
+                    if (moved) {
+                        prefs.edit()
+                            .putInt("x", params.x).putInt("y", params.y)
+                            .putInt("display_w", dispW).putInt("display_h", dispH)
+                            .apply()
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
+                    if (longPressed) { scheduleDim(); return@setOnTouchListener true }
+                    if (pendingSingleTap) {
+                        // Second tap inside the double-tap window -> Menu.
+                        pendingSingleTap = false
+                        doMenu(appContext, display.displayId)
+                    } else {
+                        pendingSingleTap = true
+                        val r = Runnable {
+                            pendingSingleTap = false
+                            doHome(appContext, display.displayId)
+                        }
+                        singleTapRunnable = r
+                        handler.postDelayed(r, doubleTapTimeout)
+                    }
+                    scheduleDim()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    cancelTapRunnables(); pendingSingleTap = false; scheduleDim(); true
+                }
+                else -> false
+            }
+        }
+
+        manager.addView(btn, params)
+        wm = manager; button = btn; displayId = display.displayId
+        scheduleDim()
+        Log.i(TAG, "AssistiveTouch shown on cover display ${display.displayId} at ($startX,$startY)")
+        Unit
+    }.onFailure { Log.w(TAG, "AssistiveTouch addView failed on display ${display.displayId}", it) }
+
+    fun hide() {
+        dimRunnable?.let { handler.removeCallbacks(it) }
+        dimRunnable = null
+        val v = button
+        if (v != null) {
+            runCatching { wm?.removeView(v) }
+            button = null; wm = null; displayId = -1
+            Log.i(TAG, "AssistiveTouch hidden")
+        }
+    }
+
+    private fun doHome(context: Context, displayId: Int) {
+        // HOME intent on the cover display first, global action as fallback.
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val ok = runCatching {
+            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
+            context.startActivity(home, opts.toBundle())
+        }.isSuccess
+        if (!ok) {
+            val a11y = MyAccessibilityService.instance
+            if (a11y?.goHome() != true) Log.w(TAG, "Home failed: no AccessibilityService")
+        }
+    }
+
+    private fun doRecents(context: Context) {
+        val a11y = MyAccessibilityService.instance
+        if (a11y?.openRecents() != true) Log.w(TAG, "Recents failed: no AccessibilityService")
+    }
+
+    private fun doMenu(context: Context, displayId: Int) {
+        // Menu = CFlip's own Control Center: cover UI at the Quick tab,
+        // launched on the cover display (not on the main display).
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra("cflip_show_cover", true)
+            .putExtra("cflip_cover_tab", "QUICK")
+        val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
+        runCatching { context.startActivity(intent, opts.toBundle()) }
+            .onFailure { Log.w(TAG, "Menu (Quick tab) launch failed", it) }
+    }
+}

@@ -76,6 +76,8 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         when (intent?.action) {
             ACTION_HIDE_COVER -> {
                 presentation?.dismiss(); presentation = null; presentationDisplayId = -1
+                com.cuong.cflip.cover.CoverOverlayManager.hide()
+                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 Log.i(TAG, "Cover presentation hidden on request")
             }
             ACTION_ROTATION_CHANGED -> {
@@ -91,6 +93,8 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(this)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(this)
         presentation?.dismiss(); presentation = null
+        com.cuong.cflip.cover.CoverOverlayManager.hide()
+        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
         super.onDestroy()
     }
 
@@ -103,6 +107,8 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         Log.i(TAG, "Display removed: $displayId")
         if (displayId == presentationDisplayId) {
             presentation?.dismiss(); presentation = null; presentationDisplayId = -1
+            com.cuong.cflip.cover.CoverOverlayManager.hide()
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
         }
     }
 
@@ -135,6 +141,15 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             com.cuong.cflip.cover.CoverOverlayManager.show(this, secondary)
                 .onSuccess { presentationDisplayId = secondary.displayId }
                 .onFailure { Log.w(TAG, "Overlay also refused on cover display", it) }
+        }
+        // Cover-only AssistiveTouch, shown with the cover UI and never on the
+        // main display. If the cover UI itself was refused, the button is
+        // still attempted — it uses its own overlay path and may survive
+        // where a Presentation does not.
+        if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
+        } else {
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
         }
     }
 

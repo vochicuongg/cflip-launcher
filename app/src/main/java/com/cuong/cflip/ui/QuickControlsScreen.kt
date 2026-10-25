@@ -166,7 +166,14 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
 
         SectionHeader("MỞ RỘNG")
         MirrorControls()
-        BubbleControls()
+        // 25/10/2026: the old main-display bubble was removed per Cường's rule
+        // (main display = custom/settings only, no bubble). Its replacement is
+        // AssistiveTouch on the cover display, toggled from the main screen
+        // under "Cài đặt cover" — not from here, and never on the main display.
+        Text(
+            "AssistiveTouch chỉ hiện trên màn phụ, bật/tắt ở màn hình chính → Cài đặt cover.",
+            fontSize = 12.sp, color = CFlipColors.TextFaint,
+        )
         Spacer(Modifier.height(4.dp))
     }
 }

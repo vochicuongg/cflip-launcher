@@ -87,13 +87,16 @@ import com.cuong.cflip.service.NotificationState
  *   sort/toggle rows write to the same SettingsStore the cover reads.
  */
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    initialTab: CoverTab = CoverTab.HOME,
+    showCoverInitially: Boolean = false,
+) {
     val context = LocalContext.current
     val displayRepo = remember { DisplayRepository(context) }
     val settingsStore = remember { SettingsStore(context) }
     var settings by remember { mutableStateOf(settingsStore.load()) }
-    var showCover by remember { mutableStateOf(false) }
-    var coverTab by remember { mutableStateOf(CoverTab.HOME) }
+    var showCover by remember { mutableStateOf(showCoverInitially) }
+    var coverTab by remember { mutableStateOf(initialTab) }
     var presentation by remember { mutableStateOf<CoverPresentation?>(null) }
 
     DisposableEffect(presentation) {
@@ -226,6 +229,12 @@ fun MainScreen() {
                 HubSwitch("Hiện nhãn ứng dụng", settings.showLabels) {
                     settings = settings.copy(showLabels = it); settingsStore.save(settings)
                 }
+                // 25/10/2026: this toggle is cover-only. The main display
+                // itself never shows a bubble — it is custom/settings only.
+                HubSwitch("AssistiveTouch trên màn phụ", settings.assistiveTouchEnabled) {
+                    settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
+                    if (!it) com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                }
             }
         }
 
@@ -325,6 +334,11 @@ fun MainScreen() {
                                     ?: "không rõ"
                                 toast("Cả 2 đường đều bị chặn: $reason")
                             }
+                        }
+                        // Cover-only AssistiveTouch with the cover UI.
+                        if (settings.assistiveTouchEnabled) {
+                            com.cuong.cflip.cover.CoverAssistiveTouchManager
+                                .show(context.applicationContext, secondary)
                         }
                     }
                 }, modifier = Modifier.align(Alignment.CenterHorizontally)) {

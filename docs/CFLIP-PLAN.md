@@ -34,9 +34,11 @@ dịch vụ foreground giữ cover sống khi gập máy.
 
 ### P1 — tính năng cover cốt lõi
 
-4. AssistiveTouch thật trên màn phụ: chạm = Home, giữ = Recents, đúp = Menu (mở Control
-   Center), kéo-thả + lưu vị trí + clamp, tự mờ sau 2500ms, icon tùy chỉnh; setting
-   open_mode chọn giữa swipe_indicator và assistive_touch.
+4. AssistiveTouch thật trên màn phụ — ĐÃ LÀM ở 2.4.0: chạm = Home, giữ = Recents, đúp
+   = Menu (mở tab Điều khiển nhanh trên màn phụ), kéo-thả + lưu vị trí + clamp, tự mờ
+   sau 2500ms, chỉ hiện trên màn phụ (từ chối display mặc định). Màn hình chính không
+   bao giờ hiện bong bóng nữa; công tắc nằm ở Cài đặt cover. Còn thiếu so với bản đầy đủ:
+   icon tùy chỉnh và setting open_mode chọn giữa swipe_indicator và assistive_touch.
 5. Swipe indicator ở cạnh màn phụ, dùng cùng đường overlay.
 6. Control Center thành panel riêng: tự đóng sau 60s, đóng bằng vuốt ngang >112px / chạm
    vùng trống / Back; thêm tile Wi-Fi, Bluetooth, Không làm phiền, Xoay, Mirror.

@@ -14,6 +14,10 @@ data class CoverSettings(
     val coverRotation: Int = 0,         // 0 / 90 / 180 / 270 degrees for cover content
     val dualDisplay: Boolean = false,   // keep cover UI on while main screen is in use
     val sortMode: Int = 0,              // 0 = A-Z, 1 = recently opened, 2 = newly installed
+    // 25/10/2026: AssistiveTouch lives ONLY on the secondary (cover) display.
+    // The main display is custom/settings only, like 9Flip's MainActivity -
+    // it never shows a bubble. Default true so the cover gets its button.
+    val assistiveTouchEnabled: Boolean = true,
 )
 
 object BackgroundStyles {
@@ -36,6 +40,7 @@ class SettingsStore(context: Context) {
         coverRotation = prefs.getInt("coverRotation", 0),
         dualDisplay = prefs.getBoolean("dualDisplay", false),
         sortMode = prefs.getInt("sortMode", 0),
+        assistiveTouchEnabled = prefs.getBoolean("assistiveTouchEnabled", true),
     )
 
     fun save(s: CoverSettings) {
@@ -50,6 +55,7 @@ class SettingsStore(context: Context) {
             .putInt("coverRotation", s.coverRotation)
             .putBoolean("dualDisplay", s.dualDisplay)
             .putInt("sortMode", s.sortMode)
+            .putBoolean("assistiveTouchEnabled", s.assistiveTouchEnabled)
             .apply()
     }
 }
