@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Samsung cover-screen widget (3.3.0): without this meta-data, Samsung's
+     cover widget system never lists CFlip widgets, so the user could only
+     add widgets on the main home. With display="sub_screen", the widget
+     appears in Samsung's cover widget picker on the folded phone, so it
+     can be added from the cover without unfolding. -->
+<samsung-appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    display="sub_screen">
+    <appwidget-provider
+        android:minWidth="352dp"
+        android:minHeight="339dp"
+        android:initialLayout="@layout/widget_clock"
+        android:previewLayout="@layout/widget_clock"
+        android:updatePeriodMillis="0"
+        android:resizeMode="horizontal|vertical"
+        android:widgetCategory="keyguard" />
+</samsung-appwidget-provider>
