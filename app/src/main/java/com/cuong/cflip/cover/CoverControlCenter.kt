@@ -76,7 +76,13 @@ object CoverControlCenterManager {
     }
     private val handler = Handler(Looper.getMainLooper())
     private var mediaTickRunnable: Runnable? = null
+    private var waveTickRunnable: Runnable? = null
     private var dismissRunnable: Runnable? = null
+    // vc44 loading intro: shown instantly on double-tap while the
+    // heavy panel builds on the next main-loop turn, so the user
+    // sees "CFlip Loading" in ~1 frame instead of a frozen bubble.
+    private var loadingView: View? = null
+    private var loadingRunnable: Runnable? = null
     // 3.0.0: no cover overlay to restore — Presentation and the
     // full-screen overlay launcher are both gone. Closing the panel
     // leaves only the AssistiveTouch button on Samsung's own cover.
@@ -91,27 +97,84 @@ object CoverControlCenterManager {
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
-        val root = buildPanel(displayContext, display, initialTab)
-        val params = WindowManager.LayoutParams(
+        // vc44: show the CFlip Loading intro IMMEDIATELY (one cheap
+        // view), then build the heavy panel on the next main-loop
+        // turn. Previously buildPanel() ran synchronously inside
+        // show(), so between double-tap and first panel frame the
+        // user stared at a frozen bubble for the whole build cost
+        // (media session IPC + ~100 tile/widget views + notification
+        // rows). Now the intro draws first, then the panel replaces
+        // it. If build fails, the intro is removed and the failure
+        // is logged + toasted instead of leaving a stuck intro.
+        val density = displayContext.resources.displayMetrics.density
+        val dpL = { v: Int -> (v * density).toInt() }
+        val loading = LinearLayout(displayContext).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(0xFF0B0D0F.toInt())
+            addView(TextView(displayContext).apply {
+                text = "CFlip"; textSize = 28f
+                setTextColor(0xFF7FE3C0.toInt())
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+            })
+            addView(android.widget.ProgressBar(displayContext).apply {
+                isIndeterminate = true
+                layoutParams = LinearLayout.LayoutParams(dpL(32), dpL(32)).apply {
+                    setMargins(0, dpL(12), 0, dpL(8))
+                    gravity = Gravity.CENTER
+                }
+            })
+            addView(TextView(displayContext).apply {
+                text = "Loading..."; textSize = 14f
+                setTextColor(0xFF9AA0A6.toInt())
+                gravity = Gravity.CENTER
+            })
+            keepScreenOn = true
+        }
+        val loadingParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
-        // 3.3.0: panel open = screen stays on (panel auto-dismisses
-        // after 60s, so this cannot keep the cover on forever).
-        root.keepScreenOn = true
-        manager.addView(root, params)
-        wm = manager; view = root; panelParams = params
-        // Panel brightness from the saved manual value, or -1 (system).
-        runCatching {
-            val st = SettingsStore(appContext).load()
-            params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
-            manager.updateViewLayout(root, params)
+        manager.addView(loading, loadingParams)
+        wm = manager; loadingView = loading
+        val r = Runnable {
+            loadingRunnable = null
+            runCatching {
+                val root = buildPanel(displayContext, display, initialTab)
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT,
+                ).apply { gravity = Gravity.TOP or Gravity.START }
+                root.keepScreenOn = true
+                // Swap intro -> panel: remove intro first so the two
+                // full-screen overlays never stack.
+                runCatching { manager.removeView(loading) }
+                loadingView = null
+                manager.addView(root, params)
+                view = root; panelParams = params
+                runCatching {
+                    val st = SettingsStore(appContext).load()
+                    params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+                    manager.updateViewLayout(root, params)
+                }
+                scheduleDismiss()
+                Log.i(TAG, "Control Center shown on display ${display.displayId}")
+            }.onFailure { e ->
+                runCatching { manager.removeView(loading) }
+                loadingView = null
+                Log.w(TAG, "Control Center build failed", e)
+                android.widget.Toast.makeText(displayContext, "Mở CFlip thất bại, thử chạm lại", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
-        scheduleDismiss()
-        Log.i(TAG, "Control Center shown on display ${display.displayId}")
+        loadingRunnable = r
+        handler.post(r)
         Unit
     }.onFailure { Log.w(TAG, "Control Center addView failed", it) }
 
@@ -124,6 +187,15 @@ object CoverControlCenterManager {
         dismissRunnable = null
         mediaTickRunnable?.let { handler.removeCallbacks(it) }
         mediaTickRunnable = null
+        waveTickRunnable?.let { handler.removeCallbacks(it) }
+        waveTickRunnable = null
+        loadingRunnable?.let { handler.removeCallbacks(it) }
+        loadingRunnable = null
+        val lv = loadingView
+        if (lv != null) {
+            runCatching { wm?.removeView(lv) }
+            loadingView = null
+        }
         val v = view
         if (v != null) {
             v.keepScreenOn = false
@@ -307,7 +379,9 @@ object CoverControlCenterManager {
         // only sees the Control tab first. That was the main panel-open
         // cost. Now the apps grid builds only on first switch to tab 2.
         var buildAppsTab: (() -> Unit)? = null
+        var buildNotifTab: (() -> Unit)? = null
         fun selectTab(i: Int) {
+            if (i == 1) buildNotifTab?.invoke()
             if (i == 2) buildAppsTab?.invoke()
             tabContents.forEachIndexed { idx, v -> v.visibility = if (idx == i) View.VISIBLE else View.GONE }
             tabButtons.forEachIndexed { idx, b ->
@@ -633,7 +707,36 @@ object CoverControlCenterManager {
             }
         }
         mediaCard.setOnClickListener { openMediaDestination() }
-        mediaContent.addView(title("Âm thanh"))
+        // vc44 One UI 8.5-style music wave: 4 mint bars next to
+        // the Âm thanh title, animated while playing, flat when
+        // paused. Clean-room code drawing (no Samsung asset): bar
+        // heights follow a sine wave, updated by waveTick below.
+        val waveBars = mutableListOf<View>()
+        val waveView = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(16))
+        }
+        for (i in 0 until 4) {
+            val bar = View(ctx).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dp(2).toFloat()
+                    setColor(0xFF7FE3C0.toInt())
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(3), dp(5)).apply {
+                    setMargins(dp(1), 0, dp(1), 0)
+                    gravity = Gravity.BOTTOM
+                }
+            }
+            waveBars.add(bar); waveView.addView(bar)
+        }
+        mediaContent.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(title("Âm thanh"), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(waveView)
+        })
         val mediaTitleView = TextView(ctx).apply {
             text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
@@ -752,6 +855,36 @@ object CoverControlCenterManager {
         }
         mediaTickRunnable = mediaTick
         handler.postDelayed(mediaTick, 1000)
+        // vc44 wave animation: 120ms tick, sine heights while
+        // playing, flat 5dp bars when paused. Cancelled on hide
+        // via waveTickRunnable in hidePanelOnly, like mediaTick.
+        val waveTick = object : Runnable {
+            override fun run() {
+                if (view == null) {
+                    handler.postDelayed(this, 120)
+                    return
+                }
+                if (mediaCard.visibility == View.VISIBLE) {
+                    val playing = MediaState.current.value?.isPlaying == true
+                    if (playing) {
+                        val t = System.currentTimeMillis() / 130.0
+                        for ((idx, bar) in waveBars.withIndex()) {
+                            val h = (5 + 11 * (0.5 + 0.5 * kotlin.math.sin(t + idx * 1.1))).toInt()
+                            bar.layoutParams.height = dp(h)
+                            bar.requestLayout()
+                        }
+                    } else {
+                        for (bar in waveBars) {
+                            bar.layoutParams.height = dp(5)
+                            bar.requestLayout()
+                        }
+                    }
+                }
+                handler.postDelayed(this, 120)
+            }
+        }
+        waveTickRunnable = waveTick
+        handler.postDelayed(waveTick, 200)
         mediaContent.addView(mediaRow)
         mediaCard.addView(mediaContent, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
@@ -779,12 +912,12 @@ object CoverControlCenterManager {
             layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
         })
         playLastPill.addView(TextView(ctx).apply {
-            text = "Play last song"; textSize = 14f; setTextColor(0xFFFFFFFF.toInt())
+            text = "Phát bài hát cuối cùng"; textSize = 14f; setTextColor(0xFFFFFFFF.toInt())
             setPadding(dp(8), 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         playLastPill.addView(Button(ctx).apply {
-            text = "Media output"; textSize = 12f; isAllCaps = false
+            text = "Đầu ra Media"; textSize = 12f; isAllCaps = false
             background = rounded(0xFF23262B.toInt(), 24)
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -992,7 +1125,7 @@ object CoverControlCenterManager {
         // vc42 right-edge fix: card() pads 12dp each side; the tile
         // card gets 8dp horizontally so the grid has room to fit.
         tileCard.setPadding(dp(8), dp(12), dp(8), dp(12))
-        tileCard.addView(title("Đảo chức năng"))
+        tileCard.addView(title("Chức năng"))
         tileCard.addView(View(ctx).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
         val grid = GridLayout(ctx).apply { columnCount = 5 }
         // vc30 LOCAL-ONLY Samsung QS style tiles:
@@ -1200,7 +1333,7 @@ object CoverControlCenterManager {
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
-        tileRow("CĐ nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
+        tileRow("Cài đặt nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", R.drawable.ic_sec_settings) { hide(); runCatching { QuickControls.openDeviceSettings(ctx) } }
         // vc41: Chụp màn hình works directly - Accessibility
         // GLOBAL_ACTION_TAKE_SCREENSHOT (MyAccessibilityService).
@@ -1219,6 +1352,14 @@ object CoverControlCenterManager {
         // display itself via the service's takeScreenshot(displayId)
         // and save it to Gallery. If that API fails, fall back to
         // the global action (which may capture the main display).
+        // vc44 screenshot: vc42's takeScreenshot(cover) failed
+        // in practice because canTakeScreenshot was never declared
+        // (see service comment), so it fell back to the global
+        // action which captures the MAIN display - exactly the bug
+        // reported. vc44 declares the capability, waits 500ms for
+        // the panel to be fully gone, and REMOVES the silent main
+        // fallback: a failed cover shot now reports its real error
+        // code instead of saving a wrong-display photo.
         tileRow("Chụp màn hình", R.drawable.ic_cflip_screenshot) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
@@ -1228,13 +1369,12 @@ object CoverControlCenterManager {
                 handler.postDelayed({
                     svc.takeScreenshotForDisplay(display.displayId) { ok, msg ->
                         if (ok) {
-                            android.widget.Toast.makeText(ctx, "Đã chụp màn hình, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(ctx, "Đã chụp màn phụ, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
                         } else {
-                            val fallbackOk = svc.takeScreenshot()
-                            android.widget.Toast.makeText(ctx, if (fallbackOk) "Đã chụp màn hình bằng hệ thống (kiểm tra Gallery)" else "Chụp màn hình thất bại ($msg) - thử mở máy ra rồi chụp lại", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(ctx, "Chụp màn phụ thất bại ($msg). CFlip không chụp màn chính thay thế để khỏi nhầm ảnh - bấm lại sau 1 giây nếu mã là chụp quá nhanh.", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
-                }, 300)
+                }, 500)
             }
         }
         // vc42 record: no public intent starts Samsung's recorder.
@@ -1242,6 +1382,16 @@ object CoverControlCenterManager {
         // it on the cover); otherwise open Quick Settings like before,
         // but with a delay and a toast that says where to look if QS
         // opened on the main display (folded, invisible from cover).
+        // vc44 record: vc42 used AppLauncher.launch, whose
+        // fallback opens on the MAIN display when the cover launch
+        // fails - again the reported "màn chính" bug. vc44 tries a
+        // cover-only launch for each Samsung recorder package and
+        // never falls back to main. Samsung's recorder has no
+        // public start intent (its tile lives in Samsung's own QS),
+        // and GLOBAL_ACTION_QUICK_SETTINGS always opens QS on the
+        // main display, so if no recorder activity opens, the tile
+        // no longer opens the wrong display - it tells the exact
+        // cover-native steps instead.
         tileRow("Quay màn hình", R.drawable.ic_cflip_record) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
@@ -1252,25 +1402,28 @@ object CoverControlCenterManager {
                 for (pkg in listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")) {
                     val intent = runCatching { ctx.packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
                     if (intent != null) {
-                        com.cuong.cflip.display.AppLauncher.launch(ctx, pkg, display.displayId)
-                        openedRecorder = true
-                        break
+                        val ok = runCatching {
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                            ctx.startActivity(intent, opts)
+                            true
+                        }.getOrDefault(false)
+                        if (ok) { openedRecorder = true; break }
                     }
                 }
-                if (!openedRecorder) {
-                    handler.postDelayed({
-                        val ok = svc.openQuickSettings()
-                        android.widget.Toast.makeText(ctx, if (ok) "Đã mở Cài đặt nhanh - bấm tile Quay màn hình của Samsung (nếu không thấy trên màn phụ, mở máy ra, Cài đặt nhanh đã mở trên màn chính)" else "Không mở được Cài đặt nhanh", android.widget.Toast.LENGTH_LONG).show()
-                    }, 300)
+                if (openedRecorder) {
+                    android.widget.Toast.makeText(ctx, "Đã mở app quay của Samsung trên màn phụ", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Vuốt xuống trên màn phụ để mở Cài đặt nhanh của màn phụ, rồi bấm tile Quay màn hình của Samsung ở đó.", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }
         var sortLabel: TextView? = null
-        val sortTile = tileWithLabel(R.drawable.ic_cflip_sort, "SX ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
+        val sortTile = tileWithLabel(R.drawable.ic_cflip_sort, "Sắp xếp ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
             val cur = store.load()
             val next = (cur.sortMode + 1) % 3
             store.save(cur.copy(sortMode = next))
-            sortLabel?.text = "SX ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
+            sortLabel?.text = "Sắp xếp ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
         }
         sortLabel = sortTile.second
         grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
@@ -1405,7 +1558,14 @@ object CoverControlCenterManager {
             dndTileRef = dndTile
             grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
-        tileCard.addView(grid)
+        // vc44 balance: the grid (5 x 62dp = 310dp) used to sit
+        // left-aligned in a ~328dp card, leaving all slack on the
+        // right, so the island looked shifted left. Centring the
+        // grid gives equal ~9dp margins on both sides.
+        tileCard.addView(grid, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
         controlContent.addView(tileCard)
         // 3.6.0 order: Media first, Brightness second, Function island
         // third, Widget last. Widget was built first but is added here.
@@ -1417,6 +1577,14 @@ object CoverControlCenterManager {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
         })
 
+        // ---- Tab 2: Thông báo ---- (vc44 lazy, like apps:
+        // notification rows used to build on EVERY panel open even
+        // though the user only sees Điều khiển first. Now they build
+        // only on first switch to tab 1, cutting panel-open cost.)
+        var notifTabBuilt = false
+        buildNotifTab = {
+            if (!notifTabBuilt) {
+                notifTabBuilt = true
         // ---- Tab 2: Thông báo ----
         notifContent.addView(title("Thông báo"))
         val notifs = NotificationState.active.value
@@ -1443,6 +1611,9 @@ object CoverControlCenterManager {
             row.addView(modernButton("Mở", true).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.open(n.key); hide() } })
             row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
             notifContent.addView(row)
+        }
+
+            }
         }
 
         // ---- Tab 3: Ứng dụng ---- (lazy, see selectTab above)
@@ -1519,6 +1690,7 @@ object CoverControlCenterManager {
         })
 
         if (initialTab == 2) buildAppsTab?.invoke()
+        if (initialTab == 1) buildNotifTab?.invoke()
         return outer
     }
 }
