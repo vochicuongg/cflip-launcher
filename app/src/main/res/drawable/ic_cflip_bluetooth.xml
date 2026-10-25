@@ -4,27 +4,11 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Clean-room Bluetooth rune, 24x24 like the other CFlip icons.
-         Vertical bar + two triangles pointing right, stroke 2dp. -->
+    <!-- vc35: previous stroke triangles looked like ">>", not Bluetooth.
+         This is a filled rune shape (free Material-style geometry, not
+         Samsung), with the two right peaks and the middle valley that
+         make the Bluetooth rune recognisable. -->
     <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,3 V21" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,3 L18,9 L12,12" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M12,12 L18,18 L12,21" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17.71,7.71 L12,2 H11 V9.59 L6.41,5 L5,6.41 L10.59,12 L5,17.59 L6.41,19 L11,14.41 V22 H12 L17.71,16.29 L13.41,12 Z M13,5.83 L15.88,8.71 L13,11.59 Z M13,18.17 V15.41 L15.88,15.29 Z" />
 </vector>

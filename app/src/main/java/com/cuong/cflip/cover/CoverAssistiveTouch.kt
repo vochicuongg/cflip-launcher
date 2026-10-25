@@ -220,11 +220,38 @@ object CoverAssistiveTouchManager {
                     cancelTapRunnables()
                     v.elevation = dp(8).toFloat()
                     if (moved) {
-                        prefs.edit()
-                            .putInt("x", params.x).putInt("y", params.y)
-                            .putInt("display_w", dispW).putInt("display_h", dispH)
-                            .apply()
-                        scheduleDim()
+                        // vc35 snap to nearest side edge, like a floating
+                        // bubble should: centre left of mid -> left edge,
+                        // centre right of mid -> right edge, animated
+                        // 150ms Decelerate, then save the snapped position.
+                        val targetX = if (params.x + size / 2 < dispW / 2) 0 else maxOf(0, dispW - size)
+                        if (targetX != params.x) {
+                            val startX = params.x
+                            val anim = android.animation.ValueAnimator.ofInt(startX, targetX).apply {
+                                duration = 150L
+                                interpolator = android.view.animation.DecelerateInterpolator()
+                                addUpdateListener { a ->
+                                    params.x = a.animatedValue as Int
+                                    runCatching { manager.updateViewLayout(v, params) }
+                                }
+                                addListener(object : android.animation.AnimatorListenerAdapter() {
+                                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                                        prefs.edit()
+                                            .putInt("x", params.x).putInt("y", params.y)
+                                            .putInt("display_w", dispW).putInt("display_h", dispH)
+                                            .apply()
+                                        scheduleDim()
+                                    }
+                                })
+                            }
+                            anim.start()
+                        } else {
+                            prefs.edit()
+                                .putInt("x", params.x).putInt("y", params.y)
+                                .putInt("display_w", dispW).putInt("display_h", dispH)
+                                .apply()
+                            scheduleDim()
+                        }
                         return@setOnTouchListener true
                     }
                     if (longPressed) { scheduleDim(); return@setOnTouchListener true }

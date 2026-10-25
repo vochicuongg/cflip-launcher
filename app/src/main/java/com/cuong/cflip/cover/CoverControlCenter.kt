@@ -525,103 +525,116 @@ object CoverControlCenterManager {
         // when manual is off (slider alpha 0.42 when off, 1.0 when on).
         // The old system-brightness slider never moved the cover
         // because Samsung's cover brightness is not Settings.System.
+        // vc35 9Flip slider (p6/e): custom bar, not a SeekBar.
+        // Left icon dark on the white fill, translucent pill track,
+        // fill = thumb + (width-thumb)*value, alpha 1.0 manual / 0.42 auto.
+        // Dragging once switches to manual, like 9Flip p6.d().
         val sliderCard = card()
-        sliderCard.addView(title("Độ sáng cover"))
+        sliderCard.addView(title("Độ sáng"))
         val brightLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
+        var brightSlider: NineFlipSlider? = null
         fun refreshBrightLabel() {
             val st = store.load()
             brightLabel.text = if (st.panelBrightnessManual) {
-                "Độ sáng cover: ${(st.panelBrightness * 100).toInt()}% (thủ công — giữ nguyên khi đóng panel, chỉ khi bong bóng còn trên cover)"
+                "Độ sáng cover: ${(st.panelBrightness * 100).toInt()}% (thủ công)"
             } else {
-                "Độ sáng cover: Theo hệ thống — bấm nút dưới để chỉnh thủ công cho cover"
+                "Độ sáng cover: Theo hệ thống"
             }
+        }
+        fun refreshBrightSlider() {
+            val st = store.load()
+            brightSlider?.setManual(st.panelBrightnessManual)
+            brightSlider?.minValue = 0.05f
+            brightSlider?.setValue(st.panelBrightness, animate = false)
         }
         refreshBrightLabel()
         sliderCard.addView(brightLabel)
-        var brightBar: SeekBar? = null
-        fun refreshBrightBar() {
-            val st = store.load()
-            brightBar?.isEnabled = st.panelBrightnessManual
-            brightBar?.alpha = if (st.panelBrightnessManual) 1.0f else 0.42f
-            brightBar?.progress = (st.panelBrightness * 255).toInt().coerceIn(13, 255)
-        }
-        sliderCard.addView(modernButton("Chuyển sang Thủ công / Về Theo hệ thống").apply {
-            setOnClickListener {
+        brightSlider = NineFlipSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+            setIcon(R.drawable.ic_sec_brightness)
+            setRightIcon(R.drawable.ic_cflip_lock)
+            minValue = 0.05f
+            setValue(store.load().panelBrightness, animate = false)
+            setManual(store.load().panelBrightnessManual)
+            onValueChanged = { v ->
+                var cur = store.load()
+                if (!cur.panelBrightnessManual) {
+                    cur = cur.copy(panelBrightnessManual = true)
+                    store.save(cur)
+                    setManual(true)
+                }
+                store.save(cur.copy(panelBrightness = v))
+                applyPanelBrightness(ctx.applicationContext)
+                CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                brightLabel.text = "Độ sáng cover: ${(v * 100).toInt()}% (thủ công)"
+            }
+            onDragEnd = { resetTimer() }
+            onRightClick = {
                 val cur = store.load()
                 val nextManual = !cur.panelBrightnessManual
                 store.save(cur.copy(panelBrightnessManual = nextManual))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                refreshBrightLabel(); refreshBrightBar(); resetTimer()
+                refreshBrightLabel(); refreshBrightSlider(); resetTimer()
             }
-        })
-        brightBar = mintSeekBar().apply {
-            max = 255
-            progress = (store.load().panelBrightness * 255).toInt().coerceIn(13, 255)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    if (!fromUser) return
-                    val cur = store.load()
-                    if (!cur.panelBrightnessManual) return
-                    val v = (p / 255f).coerceIn(0.05f, 1.0f)
-                    store.save(cur.copy(panelBrightness = v))
-                    applyPanelBrightness(ctx.applicationContext)
-                    CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                    brightLabel.text = "Độ sáng cover: ${(v * 100).toInt()}% (thủ công)"
-                }
-                override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
-            })
         }
-        // vc33 Samsung row: sun icon + slider, like One UI QS.
         sliderCard.addView(LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(ImageView(ctx).apply {
-                setImageResource(R.drawable.ic_sec_brightness)
-                setColorFilter(0xFFFFFFFF.toInt())
-                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER_VERTICAL }
+            addView(brightSlider, LinearLayout.LayoutParams(0, dp(48), 1f))
+            addView(Button(ctx).apply {
+                text = if (store.load().panelBrightnessManual) "Thủ công" else "Tự động"
+                textSize = 11f; isAllCaps = false
+                background = rounded(if (store.load().panelBrightnessManual) mint else 0xFF23262B.toInt(), 24)
+                setTextColor(if (store.load().panelBrightnessManual) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(dp(8), 0, 0, 0)
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                setOnClickListener {
+                    val cur = store.load()
+                    val nextManual = !cur.panelBrightnessManual
+                    store.save(cur.copy(panelBrightnessManual = nextManual))
+                    applyPanelBrightness(ctx.applicationContext)
+                    CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                    refreshBrightLabel(); refreshBrightSlider(); resetTimer()
+                    text = if (nextManual) "Thủ công" else "Tự động"
+                    background = rounded(if (nextManual) mint else 0xFF23262B.toInt(), 24)
+                    setTextColor(if (nextManual) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                }
             })
-            brightBar?.let { bar ->
-                bar.layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f)
-                addView(bar)
-            }
         })
-        refreshBrightBar()
+        refreshBrightSlider()
 
-        // 3.2.0 volume: CFlip's own bar, flag 0 (no Samsung popup).
+        // vc35 9Flip slider for media volume (STREAM_MUSIC, flag 0).
         // Mute restores to saved volume, else ~45% of max (9Flip formula).
-        sliderCard.addView(title("Âm lượng"))
+        sliderCard.addView(title("Âm lượng nhạc"))
         val volLabel = TextView(ctx).apply { textSize = 12f; setTextColor(0xFFFFFFFF.toInt()) }
+        var volSlider: NineFlipSlider? = null
         fun refreshVolLabel() {
             val (v, m) = QuickControls.volume(ctx)
             volLabel.text = "Âm lượng nhạc: $v / $m" + if (v == 0) " (đang tắt tiếng)" else ""
         }
         refreshVolLabel()
         sliderCard.addView(volLabel)
-        val volBar = mintSeekBar().apply {
+        volSlider = NineFlipSlider(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+            setIcon(R.drawable.ic_sec_volume)
+            setRightIcon(R.drawable.ic_sec_mute)
+            minValue = 0f
             val (vol, volMax) = QuickControls.volume(ctx)
-            max = volMax.coerceAtLeast(1)
-            progress = vol.coerceIn(0, max)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    if (fromUser) { QuickControls.setVolume(ctx, p); refreshVolLabel() }
-                }
-                override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) { resetTimer() }
-            })
-        }
-        sliderCard.addView(LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(ImageView(ctx).apply {
-                setImageResource(R.drawable.ic_sec_volume)
-                setColorFilter(0xFFFFFFFF.toInt())
-                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER_VERTICAL }
-            })
-            volBar.layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f)
-            addView(volBar)
-        })
-        sliderCard.addView(modernButton("Tắt tiếng / Khôi phục").apply {
-            setOnClickListener {
+            setValue(if (volMax > 0) vol.toFloat() / volMax else 0f, animate = false)
+            setManual(true)
+            onValueChanged = { v ->
+                val (_, volMax2) = QuickControls.volume(ctx)
+                QuickControls.setVolume(ctx, (v * volMax2).toInt())
+                refreshVolLabel()
+            }
+            onDragEnd = { resetTimer() }
+            onRightClick = {
                 val (v, m) = QuickControls.volume(ctx)
                 val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
                 if (v > 0) {
@@ -629,11 +642,45 @@ object CoverControlCenterManager {
                     QuickControls.setVolume(ctx, 0)
                 } else {
                     val saved = prefs.getInt("saved_volume", -1)
-                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt() + 0).coerceIn(1, m)
+                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
                     QuickControls.setVolume(ctx, restore)
                 }
+                val (v2, m2) = QuickControls.volume(ctx)
+                volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = true)
                 refreshVolLabel(); resetTimer()
             }
+        }
+        sliderCard.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(volSlider, LinearLayout.LayoutParams(0, dp(48), 1f))
+            addView(ImageButton(ctx).apply {
+                setImageResource(R.drawable.ic_sec_mute)
+                setColorFilter(0xFFFFFFFF.toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(0xFF23262B.toInt())
+                }
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+                    setMargins(dp(8), 0, 0, 0)
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                setOnClickListener {
+                    val (v, m) = QuickControls.volume(ctx)
+                    val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                    if (v > 0) {
+                        prefs.edit().putInt("saved_volume", v).apply()
+                        QuickControls.setVolume(ctx, 0)
+                    } else {
+                        val saved = prefs.getInt("saved_volume", -1)
+                        val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
+                        QuickControls.setVolume(ctx, restore)
+                    }
+                    val (v2, m2) = QuickControls.volume(ctx)
+                    volSlider?.setValue(if (m2 > 0) v2.toFloat() / m2 else 0f, animate = true)
+                    refreshVolLabel(); resetTimer()
+                }
+            })
         })
 
         controlContent.addView(sliderCard)
@@ -838,6 +885,67 @@ object CoverControlCenterManager {
                 ctx.applicationContext.startActivity(
                     Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY))
+            }
+        }
+        // vc35 missing system tiles from 9Flip (f0/u list).
+        // Android does not let a third-party app toggle mobile data,
+        // hotspot, airplane, location or battery saver directly, so
+        // those tiles open the system settings page for that feature
+        // (the supported route, like 9Flip's Settings-opening tiles),
+        // with an honest toast. DND CAN toggle when CFlip has
+        // Notification Policy Access, otherwise it opens that grant page.
+        tileRow("Dữ liệu", R.drawable.ic_cflip_mobiledata) {
+            hide()
+            android.widget.Toast.makeText(ctx, "Mở Cài đặt Dữ liệu di động để bật/tắt (Android không cho app thường bật/tắt trực tiếp)", android.widget.Toast.LENGTH_LONG).show()
+            runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+        tileRow("Chia sẻ", R.drawable.ic_cflip_hotspot) {
+            hide()
+            android.widget.Toast.makeText(ctx, "Mở Cài đặt Chia sẻ kết nối để bật/tắt điểm phát sóng", android.widget.Toast.LENGTH_LONG).show()
+            runCatching {
+                val appCtx = ctx.applicationContext
+                val intent = Intent(Settings.ACTION_TETHER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
+                else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        tileRow("Máy bay", R.drawable.ic_cflip_airplane) {
+            hide()
+            runCatching {
+                val appCtx = ctx.applicationContext
+                val intent = Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
+                else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        tileRow("Vị trí", R.drawable.ic_cflip_location) {
+            hide()
+            runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+        tileRow("Tiết kiệm pin", R.drawable.ic_cflip_battery) {
+            hide()
+            runCatching {
+                val appCtx = ctx.applicationContext
+                val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
+                else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }
+        run {
+            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+            val dndOn = nm?.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+            tileRowActive("Không làm phiền", R.drawable.ic_cflip_dnd, dndOn) {
+                if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                    val next = if (nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+                        android.app.NotificationManager.INTERRUPTION_FILTER_NONE
+                    else android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                    nm.setInterruptionFilter(next)
+                    android.widget.Toast.makeText(ctx, if (next == android.app.NotificationManager.INTERRUPTION_FILTER_NONE) "Đã bật Không làm phiền" else "Đã tắt Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    hide()
+                    android.widget.Toast.makeText(ctx, "Cần cấp quyền Không làm phiền cho CFlip", android.widget.Toast.LENGTH_LONG).show()
+                    runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
             }
         }
         tileCard.addView(grid)
