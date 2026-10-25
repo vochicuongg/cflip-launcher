@@ -93,6 +93,9 @@ object CoverControlCenterManager {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
+        // 3.3.0: panel open = screen stays on (panel auto-dismisses
+        // after 60s, so this cannot keep the cover on forever).
+        root.keepScreenOn = true
         manager.addView(root, params)
         wm = manager; view = root; panelParams = params
         // Panel brightness from the saved manual value, or -1 (system).
@@ -115,6 +118,7 @@ object CoverControlCenterManager {
         dismissRunnable = null
         val v = view
         if (v != null) {
+            v.keepScreenOn = false
             runCatching { wm?.removeView(v) }
             view = null; wm = null; panelParams = null
             Log.i(TAG, "Control Center hidden")
@@ -268,6 +272,17 @@ object CoverControlCenterManager {
             val chosen = store.load().coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             val widgetCard = card()
             widgetCard.addView(title("Widget đã thêm"))
+            // 3.3.0 Samsung cover widgets: after the Samsung sub_screen
+            // registration, CFlip widgets appear in Samsung's own cover
+            // widget picker. That picker lives on the folded cover, so
+            // adding from the cover needs no unfolding: fold the phone,
+            // swipe the cover widgets to the end, tap +, pick a CFlip
+            // widget. This text states that flow; the picker itself is
+            // Samsung's UI, not CFlip's.
+            widgetCard.addView(TextView(ctx).apply {
+                text = "Thêm từ màn phụ (không cần mở máy): gập máy lại, vuốt Widget màn phụ tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung."
+                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+            })
             if (chosen.isEmpty()) {
                 widgetCard.addView(TextView(ctx).apply {
                     text = "Chưa thêm Widget nào. Bấm một nút dưới đây để thêm ngay trên màn phụ — không nhảy sang màn hình chính."
@@ -573,32 +588,32 @@ object CoverControlCenterManager {
             setOnClickListener {
                 store.save(store.load().copy(rotateMode = 0))
                 CoverRotateState.contentFallback = false
-                val rotationBefore = display.rotation
-                CoverRotateHostManager.pulse(ctx.applicationContext, display)
+                // 3.3.0: FOLLOW keeps a FULL_SENSOR host alive, it does
+                // NOT pulse-and-remove. The old 600ms check was wrong:
+                // if the user is holding the phone still, rotation
+                // correctly does NOT change at button-press time — it
+                // changes when the phone is flipped afterwards.
+                val svcOn = com.cuong.cflip.service.MyAccessibilityService.instance != null
+                CoverRotateHostManager.follow(ctx.applicationContext, display)
+                android.widget.Toast.makeText(
+                    ctx,
+                    if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
+                    else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
+                    android.widget.Toast.LENGTH_LONG).show()
                 hide()
-                Handler(Looper.getMainLooper()).postDelayed({
-                    if (display.rotation == rotationBefore) {
-                        android.widget.Toast.makeText(
-                            ctx.applicationContext,
-                            "Đã gửi lệnh xoay theo hướng lật, nhưng Samsung không đổi hướng màn phụ — giữ nguyên hướng hiện tại.",
-                            android.widget.Toast.LENGTH_LONG).show()
-                    } else {
-                        android.widget.Toast.makeText(
-                            ctx.applicationContext, "Màn phụ đã xoay theo hướng lật.",
-                            android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                    if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
-                        CoverAssistiveTouchManager.hide()
-                        CoverAssistiveTouchManager.show(ctx.applicationContext, display)
-                    }
-                }, 600)
+                if (SettingsStore(ctx.applicationContext).load().assistiveTouchEnabled) {
+                    CoverAssistiveTouchManager.hide()
+                    CoverAssistiveTouchManager.show(ctx.applicationContext, display)
+                }
             }
         })
         tileCard.addView(modernButton("Khóa xoay ở hướng hiện tại", store.load().rotateMode == 1).apply {
             setOnClickListener {
                 store.save(store.load().copy(rotateMode = 1))
                 CoverRotateState.contentFallback = false
-                CoverRotateHostManager.remove()
+                // 3.3.0: LOCK is an explicit fixed-orientation host at
+                // the current display rotation, not just "remove".
+                CoverRotateHostManager.lock(ctx.applicationContext, display)
                 android.widget.Toast.makeText(
                     ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
                     android.widget.Toast.LENGTH_SHORT).show()

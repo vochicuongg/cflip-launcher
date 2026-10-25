@@ -97,6 +97,13 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/cover_widget_info" />
+            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+                 without this, Samsung's cover widget picker never lists
+                 this provider. With it, the widget can be added from the
+                 folded cover, without opening the main screen. -->
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_cover_widget_info" />
         </receiver>
 
         <!-- Standard widgets: App Grid, Music, Clock & Battery. Each is a
@@ -104,7 +111,7 @@
              want, via the system picker / pin dialog only. -->
         <receiver
             android:name=".widget.AppGridWidgetProvider"
-            android:exported="false"
+            android:exported="true"
             android:label="CFlip — Lưới ứng dụng">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -112,6 +119,13 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appgrid_widget_info" />
+            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+                 without this, Samsung's cover widget picker never lists
+                 this provider. With it, the widget can be added from the
+                 folded cover, without opening the main screen. -->
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_appgrid_widget_info" />
         </receiver>
 
         <service
@@ -129,6 +143,13 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/music_widget_info" />
+            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+                 without this, Samsung's cover widget picker never lists
+                 this provider. With it, the widget can be added from the
+                 folded cover, without opening the main screen. -->
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_music_widget_info" />
         </receiver>
 
         <receiver
@@ -141,6 +162,13 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/clock_widget_info" />
+            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+                 without this, Samsung's cover widget picker never lists
+                 this provider. With it, the widget can be added from the
+                 folded cover, without opening the main screen. -->
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_clock_widget_info" />
         </receiver>
 
     </application>

@@ -126,13 +126,13 @@ check("RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 check("RotateHost has FULL_SENSOR pulse 220ms", "FULL_SENSOR" in rh and "220" in rh)
 check("RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE", "FLAG_NOT_TOUCHABLE" in rh and "FLAG_NOT_FOCUSABLE" in rh)
 check("RotateHost removed when service destroyed", "CoverRotateHostManager.remove()" in read("service/CoverForegroundService.kt"))
-check("Service applies rotate mode (pulse for FOLLOW, remove for LOCK)", "CoverRotateHostManager.pulse" in svc and "CoverRotateHostManager.remove()" in svc)
+check("Service applies rotate mode (follow for FOLLOW, lock for LOCK)", "CoverRotateHostManager.follow" in svc and "CoverRotateHostManager.lock" in svc)
 check("Panel has 4 tabs", all(x in cc for x in ['"Điều khiển"', '"Thông báo"', '"Ứng dụng"', '"CFlip"']))
 check("Panel CFlip tab opens MainActivity", "MainActivity::class.java" in cc)
 check("Panel Notifications tab lists all notifications", "NotificationState.active.value" in cc)
 check("Panel Apps tab launches on cover display", "AppLauncher.launch" in cc)
-check("Panel Rotate uses host pulse, not overlay re-show",
-      "CoverRotateHostManager.pulse" in cc)
+check("Panel Rotate uses host follow, not overlay re-show",
+      "CoverRotateHostManager.follow" in cc)
 
 # --- 8. Modern AssistiveTouch design (2.9.0) ---
 at2 = read("cover/CoverAssistiveTouch.kt")
@@ -154,8 +154,8 @@ check("SeekBar drag is not stolen by ScrollView",
       "requestDisallowInterceptTouchEvent" in cc2)
 check("Panel no longer restores Overlay (3.0.0: no overlay to restore)",
       "CoverOverlayManager" not in cc2)
-check("Rotate verifies display.rotation after 600ms and falls back",
-      "rotationBefore" in cc2 and "contentFallback" in cc2 and "600" in cc2)
+check("Rotate FOLLOW does NOT do a 600ms rotationBefore check (3.3.0)",
+      "rotationBefore" not in cc2)
 check("Panel does NOT rotate its own content alone (3.2.0)",
       "outer.rotation" not in cc2)
 check("RotateState flag exists in RotateHost",
@@ -204,8 +204,8 @@ check("Samsung cover widget settings ComponentName from 9Flip decompile",
       "com.samsung.android.app.aodservice" in cc2 and "SubLauncherMultiWidgetSettingsActivity" in cc2)
 check("Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel",
       "Xoay theo hướng lật" in cc2 and "Khóa xoay" in cc2 and "coverRotation" not in cc2)
-check("Rotate FOLLOW uses FULL_SENSOR pulse", "CoverRotateHostManager.pulse" in cc2)
-check("Rotate LOCK removes host", "CoverRotateHostManager.remove()" in cc2)
+check("Rotate FOLLOW uses follow(), not pulse()", "CoverRotateHostManager.follow" in cc2)
+check("Rotate LOCK uses lock()", "CoverRotateHostManager.lock" in cc2)
 check("SettingsStore has rotateMode", "rotateMode" in ss)
 check("Panel brightness uses panel window, not system Settings",
       "panelBrightnessManual" in cc2 and "applyPanelBrightness" in cc2 and "QuickControls.setBrightness" not in cc2)
@@ -215,3 +215,25 @@ check("Panel brightness slider alpha 0.42 when not manual, like 9Flip p6",
 check("Volume uses flag 0, no Samsung popup",
       "setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)" in read("control/QuickControls.kt"))
 check("Volume mute/restore button exists in panel", "Tắt tiếng / Khôi phục" in cc2)
+
+# --- 14. Rotate persistent follow + Samsung sub_screen + keep-awake (3.3.0) ---
+check("Rotate FOLLOW keeps FULL_SENSOR host alive, not pulse-remove",
+      "fun follow" in rh and "FULL_SENSOR" in rh)
+check("Rotate LOCK is explicit fixed-orientation host, not remove-only",
+      "fun lock" in rh and "display.rotation" in rh)
+check("Rotate host tries AccessibilityService display context first (9Flip l())",
+      "MyAccessibilityService.instance" in rh)
+check("Panel FOLLOW button uses follow(), not pulse()",
+      "CoverRotateHostManager.follow" in cc2)
+check("Samsung sub_screen meta-data present for all widget providers",
+      "com.samsung.android.appwidget.provider" in (ROOT / "app/src/main/AndroidManifest.xml").read_text())
+check("Samsung widget files use display=sub_screen and keyguard",
+      "sub_screen" in read("res/xml/samsung_appgrid_widget_info.xml") and "keyguard" in read("res/xml/samsung_appgrid_widget_info.xml"))
+check("Samsung widget file size matches Samsung Flex Window (352x339)",
+      "352dp" in read("res/xml/samsung_appgrid_widget_info.xml") and "339dp" in read("res/xml/samsung_appgrid_widget_info.xml"))
+check("Panel widget card explains cover-only add via Samsung picker",
+      "gập máy lại" in cc2)
+check("AssistiveTouch pokes keepScreenOn on touch, releases after 30s",
+      "pokeKeepAwake" in at and "30_000" in at)
+check("Panel root keepScreenOn while open, off on hide",
+      "root.keepScreenOn = true" in cc2)

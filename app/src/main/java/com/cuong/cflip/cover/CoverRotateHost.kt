@@ -56,35 +56,39 @@ object CoverRotateState {
 
 object CoverRotateHostManager {
     private const val TAG = "CFlipRotateHost"
-    private const val PULSE_MS = 220L
 
     private var wm: WindowManager? = null
     private var view: View? = null
+    private var currentOrientation: Int? = null
     private val handler = Handler(Looper.getMainLooper())
 
     fun isShown(): Boolean = view != null
+    fun currentOrientation(): Int? = currentOrientation
 
-    /** Apply the saved coverRotation to this display. */
-    fun apply(appContext: Context, display: Display): Result<Unit> {
-        val degrees = SettingsStore(appContext).load().coverRotation
-        return when (degrees) {
-            -1 -> pulse(appContext, display)
-            0, 90, 180, 270 -> show(appContext, display, degrees)
-            else -> { remove(); Result.success(Unit) }
+    // 3.3.0, decompile correction: 9Flip's rotate host l() does NOT use
+    // appContext.createDisplayContext(). It uses the AccessibilityService
+    // singleton's createDisplayContext(display 1). If that service is
+    // dead, l() returns null and rotation stops — it does not silently
+    // fall back to appContext. CFlip now tries the service context
+    // first (MyAccessibilityService.instance), and only falls back to
+    // appContext if the service is not running, logging which one was
+    // used so a failed rotate can be diagnosed instead of guessed.
+    private fun displayContextFor(appContext: Context, display: Display): Context {
+        val svc = com.cuong.cflip.service.MyAccessibilityService.instance
+        return if (svc != null) {
+            Log.i(TAG, "Rotate host: using AccessibilityService display context")
+            svc.createDisplayContext(display)
+        } else {
+            Log.w(TAG, "Rotate host: AccessibilityService not running, using appContext (9Flip would stop here)")
+            appContext.createDisplayContext(display)
         }
     }
 
-    fun show(appContext: Context, display: Display, degrees: Int): Result<Unit> = runCatching {
+    private fun addHost(appContext: Context, display: Display, orientation: Int): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Rotate host is cover-only, refusing default display")
         }
-        val orientation = when (degrees) {
-            90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-            270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
-        val displayContext = appContext.createDisplayContext(display)
+        val displayContext = displayContextFor(appContext, display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
         remove()
@@ -100,40 +104,64 @@ object CoverRotateHostManager {
             screenOrientation = orientation
         }
         manager.addView(v, params)
-        wm = manager; view = v
-        Log.i(TAG, "Rotate host on display ${display.displayId}: $degrees° (orientation=$orientation)")
+        wm = manager; view = v; currentOrientation = orientation
+        Log.i(TAG, "Rotate host on display ${display.displayId}: orientation=$orientation")
         Unit
     }.onFailure { Log.w(TAG, "Rotate host addView failed", it) }
 
+    /** Legacy apply, kept for compatibility: FOLLOW -> follow(), LOCK -> lock(). */
+    fun apply(appContext: Context, display: Display): Result<Unit> {
+        return if (SettingsStore(appContext).load().rotateMode == 0) follow(appContext, display) else lock(appContext, display)
+    }
+
+    fun show(appContext: Context, display: Display, degrees: Int): Result<Unit> {
+        val orientation = when (degrees) {
+            90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+            270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        return addHost(appContext, display, orientation)
+    }
+
+    // 3.3.0 FOLLOW fix: the old pulse() added FULL_SENSOR for 220ms
+    // then REMOVED it. Samsung Flex Window does not latch a pulsed
+    // orientation — once the host is gone, the display stays where it
+    // was, so flipping the phone later did nothing. That is exactly
+    // why "xoay vẫn chưa hoạt động" after 3.2.0. FOLLOW now keeps a
+    // FULL_SENSOR host alive for as long as the mode is FOLLOW, so
+    // the cover continuously follows the direction the phone is
+    // flipped, and only stops when the user switches to LOCK or the
+    // service stops. pulse() is kept only for a one-time snap.
+    fun follow(appContext: Context, display: Display): Result<Unit> {
+        return addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR)
+    }
+
     /** Sensor pulse: FULL_SENSOR for 220ms, then remove (9Flip's h()). */
     fun pulse(appContext: Context, display: Display): Result<Unit> = runCatching {
-        val displayContext = appContext.createDisplayContext(display)
-        val manager = displayContext.getSystemService(WindowManager::class.java)
-            ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
-        remove()
-        val v = View(displayContext)
-        val params = WindowManager.LayoutParams(
-            1, 1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            screenOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-        }
-        manager.addView(v, params)
-        wm = manager; view = v
-        handler.postDelayed({ remove() }, PULSE_MS)
-        Log.i(TAG, "Rotate sensor pulse on display ${display.displayId}")
-        Unit
+        val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR)
+        handler.postDelayed({ remove() }, 220L)
+        r.getOrThrow(); Unit
     }.onFailure { Log.w(TAG, "Rotate pulse failed", it) }
+
+    // 3.3.0 LOCK fix: LOCK is not "remove the host and hope the system
+    // stays". It is an explicit host with the CURRENT display rotation
+    // as a fixed orientation, so sensor flips cannot move it.
+    fun lock(appContext: Context, display: Display): Result<Unit> {
+        val orientation = when (display.rotation) {
+            android.view.Surface.ROTATION_90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            android.view.Surface.ROTATION_180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+            android.view.Surface.ROTATION_270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        return addHost(appContext, display, orientation)
+    }
 
     fun remove() {
         val v = view
         if (v != null) {
             runCatching { wm?.removeView(v) }
-            view = null; wm = null
+            view = null; wm = null; currentOrientation = null
         }
     }
 }

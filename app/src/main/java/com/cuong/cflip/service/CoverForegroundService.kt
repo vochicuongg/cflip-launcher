@@ -131,11 +131,12 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // 3.0.0: NO Presentation, NO full-screen overlay launcher.
         // Only the rotate host + the AssistiveTouch button. The panel
         // (Widget) opens from the button's double-tap.
-        // 3.2.0 rotate modes: FOLLOW = sensor pulse, LOCK = remove host.
+        // 3.3.0 rotate modes: FOLLOW = persistent FULL_SENSOR host,
+        // LOCK = fixed-orientation host at current rotation.
         if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
-            com.cuong.cflip.cover.CoverRotateHostManager.pulse(this, secondary)
+            com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
         } else {
-            com.cuong.cflip.cover.CoverRotateHostManager.remove()
+            com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
         }
         if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)

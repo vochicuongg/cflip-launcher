@@ -36,12 +36,12 @@ PASS - RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 PASS - RotateHost has FULL_SENSOR pulse 220ms 
 PASS - RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE 
 PASS - RotateHost removed when service destroyed 
-PASS - Service applies rotate mode (pulse for FOLLOW, remove for LOCK) 
+PASS - Service applies rotate mode (follow for FOLLOW, lock for LOCK) 
 PASS - Panel has 4 tabs 
 PASS - Panel CFlip tab opens MainActivity 
 PASS - Panel Notifications tab lists all notifications 
 PASS - Panel Apps tab launches on cover display 
-PASS - Panel Rotate uses host pulse, not overlay re-show 
+PASS - Panel Rotate uses host follow, not overlay re-show 
 PASS - AssistiveTouch button uses gradient + elevation 
 PASS - AssistiveTouch button uses bold mint letter 
 PASS - Panel uses rounded cards (GradientDrawable cornerRadius) 
@@ -53,7 +53,7 @@ PASS - Panel brightness no longer needs system grant (panel window brightness, 3
 PASS - Panel brightness applies live on drag via panel window 
 PASS - SeekBar drag is not stolen by ScrollView 
 PASS - Panel no longer restores Overlay (3.0.0: no overlay to restore) 
-PASS - Rotate verifies display.rotation after 600ms and falls back 
+PASS - Rotate FOLLOW does NOT do a 600ms rotationBefore check (3.3.0) 
 PASS - Panel does NOT rotate its own content alone (3.2.0) 
 PASS - RotateState flag exists in RotateHost 
 PASS - CoverPresentation.kt deleted locally 
@@ -76,11 +76,30 @@ PASS - Widget add buttons exist on cover panel, not only on main
 PASS - Widget add on cover refreshes panel in place, no main jump 
 PASS - Samsung cover widget settings ComponentName from 9Flip decompile 
 PASS - Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel 
-PASS - Rotate FOLLOW uses FULL_SENSOR pulse 
-PASS - Rotate LOCK removes host 
+PASS - Rotate FOLLOW uses follow(), not pulse() 
+PASS - Rotate LOCK uses lock() 
 PASS - SettingsStore has rotateMode 
 PASS - Panel brightness uses panel window, not system Settings 
 PASS - Panel brightness clamp 0.05-1.0 like 9Flip 
 PASS - Panel brightness slider alpha 0.42 when not manual, like 9Flip p6 
 PASS - Volume uses flag 0, no Samsung popup 
 PASS - Volume mute/restore button exists in panel 
+PASS - Rotate FOLLOW keeps FULL_SENSOR host alive, not pulse-remove 
+PASS - Rotate LOCK is explicit fixed-orientation host, not remove-only 
+PASS - Rotate host tries AccessibilityService display context first (9Flip l()) 
+PASS - Panel FOLLOW button uses follow(), not pulse() 
+PASS - Samsung sub_screen meta-data present for all widget providers 
+Traceback (most recent call last):
+  File "/home/hatch/workspace/cflip-launcher/auto-test.py", line 231, in <module>
+    "sub_screen" in read("res/xml/samsung_appgrid_widget_info.xml") and "keyguard" in read("res/xml/samsung_appgrid_widget_info.xml"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hatch/workspace/cflip-launcher/auto-test.py", line 20, in read
+    return (SRC / rel).read_text()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/pathlib.py", line 1029, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/pathlib.py", line 1015, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/hatch/workspace/cflip-launcher/app/src/main/java/com/cuong/cflip/res/xml/samsung_appgrid_widget_info.xml'

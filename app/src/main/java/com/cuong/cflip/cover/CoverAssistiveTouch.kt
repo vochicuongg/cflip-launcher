@@ -51,6 +51,24 @@ object CoverAssistiveTouchManager {
     private var displayId: Int = -1
     private val handler = Handler(Looper.getMainLooper())
     private var dimRunnable: Runnable? = null
+    // 3.3.0 keep-awake: Samsung's cover idle timer does not count
+    // touches on a NOT_FOCUSABLE overlay as cover activity, so the
+    // cover slept while the user was still tapping/dragging the button.
+    // 9Flip's button also has no KEEP_SCREEN_ON flag — its cover UI is
+    // an Activity, which does count. CFlip's button is an overlay, so
+    // it must do it explicitly with the public View.keepScreenOn API:
+    // every touch re-arms keepScreenOn=true, and 30s after the last
+    // touch it turns back off, so the cover can sleep normally when
+    // the user really stops. No WAKE_LOCK permission, no forever-on.
+    private var keepAwakeRunnable: Runnable? = null
+    private fun pokeKeepAwake() {
+        val b = button ?: return
+        b.keepScreenOn = true
+        keepAwakeRunnable?.let { handler.removeCallbacks(it) }
+        val r = Runnable { button?.keepScreenOn = false }
+        keepAwakeRunnable = r
+        handler.postDelayed(r, 30_000L)
+    }
 
     fun isShown(): Boolean = button != null
 
@@ -136,6 +154,9 @@ object CoverAssistiveTouchManager {
         }
 
         btn.setOnTouchListener { v, e ->
+            // 3.3.0: every touch on the cover button resets the cover
+            // idle timer via keepScreenOn (see pokeKeepAwake above).
+            if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) pokeKeepAwake()
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     btn.alpha = 1f
@@ -203,6 +224,9 @@ object CoverAssistiveTouchManager {
     }.onFailure { Log.w(TAG, "AssistiveTouch addView failed on display ${display.displayId}", it) }
 
     fun hide() {
+        keepAwakeRunnable?.let { handler.removeCallbacks(it) }
+        keepAwakeRunnable = null
+        button?.keepScreenOn = false
         dimRunnable?.let { handler.removeCallbacks(it) }
         dimRunnable = null
         val v = button
