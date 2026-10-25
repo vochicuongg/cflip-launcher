@@ -14,22 +14,21 @@ import android.view.Display
 import androidx.core.app.NotificationCompat
 import com.cuong.cflip.CFlipApp
 import com.cuong.cflip.R
-import com.cuong.cflip.cover.CoverPresentation
 import com.cuong.cflip.display.DisplayRepository
 
 /**
- * Keeps CFlip alive while folded and automatically shows the cover
- * Presentation when a secondary display appears, dismissing it when the
- * display goes away. On Samsung firmware the system may refuse the
- * Presentation - that is logged (tag CFlipFG) instead of crashing, and the
- * fallback is CFlip's own WindowManager overlay on the same display. There
- * is no external-widget fallback in this app.
+ * 3.0.0: Presentation DELETED at the user's request (it was buggy and
+ * annoying on the Flip5, and it hid all the widgets because it was tried
+ * first). When a secondary display appears, this service now shows ONLY
+ * the cover AssistiveTouch button (+ the rotate host). The Widget
+ * interface is the AssistiveTouch 4-tab panel (Control / Notifications /
+ * Apps / CFlip), opened by double-tapping the button. No full-screen
+ * cover launcher is shown at all — Samsung's own cover stays underneath.
  */
 class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     android.hardware.SensorEventListener {
 
-    private var presentation: CoverPresentation? = null
-    private var presentationDisplayId: Int = -1
+    private var assistiveTouchDisplayId: Int = -1
     private var lastHingeBucket = -1 // 0 = folded, 1 = in-between, 2 = flat/open
 
     override fun onCreate() {
@@ -76,14 +75,13 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         Log.i(TAG, "Displays now: ${DisplayRepository(this).listDisplays()}")
         when (intent?.action) {
             ACTION_HIDE_COVER -> {
-                presentation?.dismiss(); presentation = null; presentationDisplayId = -1
-                com.cuong.cflip.cover.CoverOverlayManager.hide()
+                assistiveTouchDisplayId = -1
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                com.cuong.cflip.cover.CoverControlCenterManager.hide()
                 com.cuong.cflip.cover.CoverRotateHostManager.remove()
-                Log.i(TAG, "Cover presentation hidden on request")
+                Log.i(TAG, "Cover AssistiveTouch hidden on request")
             }
             ACTION_ROTATION_CHANGED -> {
-                presentation?.dismiss(); presentation = null; presentationDisplayId = -1
                 tryShowOnSecondary()
             }
             else -> tryShowOnSecondary()
@@ -94,9 +92,8 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     override fun onDestroy() {
         getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(this)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(this)
-        presentation?.dismiss(); presentation = null
-        com.cuong.cflip.cover.CoverOverlayManager.hide()
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+        com.cuong.cflip.cover.CoverControlCenterManager.hide()
         com.cuong.cflip.cover.CoverRotateHostManager.remove()
         super.onDestroy()
     }
@@ -108,10 +105,10 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
 
     override fun onDisplayRemoved(displayId: Int) {
         Log.i(TAG, "Display removed: $displayId")
-        if (displayId == presentationDisplayId) {
-            presentation?.dismiss(); presentation = null; presentationDisplayId = -1
-            com.cuong.cflip.cover.CoverOverlayManager.hide()
+        if (displayId == assistiveTouchDisplayId) {
+            assistiveTouchDisplayId = -1
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverControlCenterManager.hide()
         }
     }
 
@@ -129,29 +126,16 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             return
         }
         val secondary = DisplayRepository(this).secondaryDisplay() ?: return
-        if (presentation != null && presentationDisplayId == secondary.displayId) return
-        if (com.cuong.cflip.cover.CoverOverlayManager.isShown() &&
-            presentationDisplayId == secondary.displayId) return
-        presentation?.dismiss()
-        com.cuong.cflip.cover.CoverOverlayManager.hide()
-        runCatching {
-            presentation = CoverPresentation(this, secondary).also { it.show() }
-            com.cuong.cflip.cover.CoverRotateHostManager.apply(this, secondary)
-            presentationDisplayId = secondary.displayId
-            Log.i(TAG, "Presentation shown on display ${secondary.displayId}")
-        }.onFailure { presError ->
-            Log.w(TAG, "System refused Presentation on cover display, trying overlay", presError)
-            presentation = null
-            com.cuong.cflip.cover.CoverOverlayManager.show(this, secondary)
-                .onSuccess { presentationDisplayId = secondary.displayId }
-                .onFailure { Log.w(TAG, "Overlay also refused on cover display", it) }
-        }
-        // Cover-only AssistiveTouch, shown with the cover UI and never on the
-        // main display. If the cover UI itself was refused, the button is
-        // still attempted — it uses its own overlay path and may survive
-        // where a Presentation does not.
+        if (assistiveTouchDisplayId == secondary.displayId &&
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
+        // 3.0.0: NO Presentation, NO full-screen overlay launcher.
+        // Only the rotate host + the AssistiveTouch button. The panel
+        // (Widget) opens from the button's double-tap.
+        com.cuong.cflip.cover.CoverRotateHostManager.apply(this, secondary)
         if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
+                .onSuccess { assistiveTouchDisplayId = secondary.displayId }
+                .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }
         } else {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
         }

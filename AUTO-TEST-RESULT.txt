@@ -13,12 +13,11 @@ PASS - Panel Rotate re-applies cover after saving (old 2.7.0 check, superseded b
 PASS - Panel auto-dismiss 60s present 
 PASS - Panel has 5-column tile grid 
 PASS - Panel banner removed in tabbed panel (notifications live in their own tab) 
-PASS - Overlay has full app-list widget 
-PASS - Overlay app list follows sortMode 
-PASS - Overlay app list follows columns setting 
-PASS - Overlay rotates content only under fallback flag, never unconditionally 
-PASS - Overlay has Music card 
-PASS - Overlay shows battery percent 
+PASS - Panel Apps tab is the full app-list widget 
+PASS - Panel app list follows sortMode 
+PASS - Panel app list follows columns setting 
+PASS - Panel rotates content only under fallback flag 
+PASS - Panel Control tab has Music card 
 PASS - SettingsStore persists assistiveTouchSize 
 PASS - SettingsStore persists assistiveTouchAutoDim 
 PASS - MainScreen has size selector 
@@ -37,7 +36,7 @@ PASS - RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 PASS - RotateHost has FULL_SENSOR pulse 220ms 
 PASS - RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE 
 PASS - RotateHost removed when service destroyed 
-PASS - Overlay show applies RotateHost 
+PASS - Service applies RotateHost on cover show 
 PASS - Panel has 4 tabs 
 PASS - Panel CFlip tab opens MainActivity 
 PASS - Panel Notifications tab lists all notifications 
@@ -53,7 +52,14 @@ PASS - Panel has modern primary button helper
 PASS - Brightness grant uses main-display package Uri, not cover displayContext 
 PASS - Brightness applies live on drag, not only on release 
 PASS - SeekBar drag is not stolen by ScrollView 
-PASS - Panel replaces cover interface and restores it on close 
+PASS - Panel no longer restores Overlay (3.0.0: no overlay to restore) 
 PASS - Rotate verifies display.rotation after 600ms and falls back 
-PASS - Overlay rotates content only when fallback is on 
+PASS - Panel rotates content only when fallback is on 
 PASS - RotateState flag exists in RotateHost 
+PASS - CoverPresentation.kt deleted locally 
+PASS - CoverOverlay.kt deleted locally (only AssistiveTouch remains) 
+PASS - Service never uses CoverPresentation class 
+PASS - Service shows only AssistiveTouch + RotateHost 
+PASS - Service never shows Overlay 
+PASS - MainScreen never uses CoverPresentation class 
+PASS - Panel never restores Overlay 

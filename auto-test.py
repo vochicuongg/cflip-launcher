@@ -57,14 +57,15 @@ check("Panel has 5-column tile grid", "columnCount = 5" in cc)
 check("Panel banner removed in tabbed panel (notifications live in their own tab)",
       "banner.visibility = View.GONE" not in cc and "NotificationState.active.value" in cc)
 
-# --- 3. Cover Overlay widgets ---
-ov = read("cover/CoverOverlay.kt")
-check("Overlay has full app-list widget", "Tất cả ứng dụng" in ov)
-check("Overlay app list follows sortMode", "sortMode" in ov)
-check("Overlay app list follows columns setting", "gridColumns" in ov)
-check("Overlay rotates content only under fallback flag, never unconditionally", "CoverRotateState.contentFallback" in ov and "scroll.rotation" in ov)
-check("Overlay has Music card", "MediaControllerRepository" in ov)
-check("Overlay shows battery percent", "Pin $" in ov or "Pin " in ov)
+# --- 3. Widget lives in the AssistiveTouch panel (3.0.0, Overlay deleted) ---
+# Previously these checks read CoverOverlay.kt; in 3.0.0 the full-screen
+# overlay launcher is gone, so the widget checks move to the panel.
+ov = cc  # panel source, for the widget checks below
+check("Panel Apps tab is the full app-list widget", "Ứng dụng" in ov and "AppLauncher.launch" in ov)
+check("Panel app list follows sortMode", "sortMode" in ov)
+check("Panel app list follows columns setting", "settings.columns" in ov)
+check("Panel rotates content only under fallback flag", "CoverRotateState.contentFallback" in ov and "outer.rotation" in ov)
+check("Panel Control tab has Music card", "MediaControllerRepository" in ov)
 
 # --- 4. Settings + MainScreen controls ---
 ss = read("data/SettingsStore.kt")
@@ -117,6 +118,7 @@ if failures:
 print("ALL CHECKS PASSED")
 
 # --- 7. Whole-display rotation + tabbed panel (2.8.0) ---
+svc = read("service/CoverForegroundService.kt")
 rh = read("cover/CoverRotateHost.kt")
 check("RotateHost uses 1x1 screenOrientation overlay", "screenOrientation" in rh and "1, 1" in rh)
 check("RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAPE",
@@ -124,7 +126,7 @@ check("RotateHost maps 90/180/270 to LANDSCAPE/REVERSE_PORTRAIT/REVERSE_LANDSCAP
 check("RotateHost has FULL_SENSOR pulse 220ms", "FULL_SENSOR" in rh and "220" in rh)
 check("RotateHost is NOT_TOUCHABLE and NOT_FOCUSABLE", "FLAG_NOT_TOUCHABLE" in rh and "FLAG_NOT_FOCUSABLE" in rh)
 check("RotateHost removed when service destroyed", "CoverRotateHostManager.remove()" in read("service/CoverForegroundService.kt"))
-check("Overlay show applies RotateHost", "CoverRotateHostManager.apply" in ov)
+check("Service applies RotateHost on cover show", "CoverRotateHostManager.apply" in svc)
 check("Panel has 4 tabs", all(x in cc for x in ['"Điều khiển"', '"Thông báo"', '"Ứng dụng"', '"CFlip"']))
 check("Panel CFlip tab opens MainActivity", "MainActivity::class.java" in cc)
 check("Panel Notifications tab lists all notifications", "NotificationState.active.value" in cc)
@@ -150,11 +152,24 @@ check("Brightness applies live on drag, not only on release",
       "onProgressChanged" in cc2 and "setBrightness(ctx, v)" in cc2)
 check("SeekBar drag is not stolen by ScrollView",
       "requestDisallowInterceptTouchEvent" in cc2)
-check("Panel replaces cover interface and restores it on close",
-      "restoreDisplay" in cc2 and "CoverOverlayManager.hide()" in cc2 and "CoverOverlayManager.show(ac, d)" in cc2)
+check("Panel no longer restores Overlay (3.0.0: no overlay to restore)",
+      "CoverOverlayManager" not in cc2)
 check("Rotate verifies display.rotation after 600ms and falls back",
       "rotationBefore" in cc2 and "contentFallback" in cc2 and "600" in cc2)
-check("Overlay rotates content only when fallback is on",
+check("Panel rotates content only when fallback is on",
       "CoverRotateState.contentFallback" in ov)
 check("RotateState flag exists in RotateHost",
       "CoverRotateState" in rh)
+
+# --- 10. Presentation deleted, AssistiveTouch only (3.0.0) ---
+import os
+check("CoverPresentation.kt deleted locally",
+      not os.path.exists(str(SRC / "cover/CoverPresentation.kt")))
+check("CoverOverlay.kt deleted locally (only AssistiveTouch remains)",
+      not os.path.exists(str(SRC / "cover/CoverOverlay.kt")))
+svc = read("service/CoverForegroundService.kt")
+check("Service never uses CoverPresentation class", "CoverPresentation" not in svc)
+check("Service shows only AssistiveTouch + RotateHost", "CoverAssistiveTouchManager.show" in svc and "CoverRotateHostManager.apply" in svc)
+check("Service never shows Overlay", "CoverOverlayManager" not in svc)
+check("MainScreen never uses CoverPresentation class", "CoverPresentation" not in read("ui/MainScreen.kt"))
+check("Panel never restores Overlay", "CoverOverlayManager" not in cc2)

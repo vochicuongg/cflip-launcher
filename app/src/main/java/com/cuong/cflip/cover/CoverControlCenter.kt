@@ -61,12 +61,9 @@ object CoverControlCenterManager {
     private var view: View? = null
     private val handler = Handler(Looper.getMainLooper())
     private var dismissRunnable: Runnable? = null
-    // Replacement-interface state (2.10.0): when the panel opens, it
-    // REPLACES the cover interface, it does not stack on top of it.
-    // The cover overlay is hidden first and restored when the panel
-    // closes (close button, auto-dismiss, app launch, …).
-    private var restoreDisplay: Display? = null
-    private var restoreAppContext: Context? = null
+    // 3.0.0: no cover overlay to restore — Presentation and the
+    // full-screen overlay launcher are both gone. Closing the panel
+    // leaves only the AssistiveTouch button on Samsung's own cover.
 
     fun isShown(): Boolean = view != null
 
@@ -75,11 +72,6 @@ object CoverControlCenterManager {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
         hidePanelOnly()
-        // Replace, don't stack: hide the cover overlay first.
-        if (CoverOverlayManager.isShown()) {
-            restoreDisplay = display; restoreAppContext = appContext
-            CoverOverlayManager.hide()
-        }
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
@@ -100,12 +92,6 @@ object CoverControlCenterManager {
 
     fun hide() {
         hidePanelOnly()
-        // Restore the cover interface that this panel replaced.
-        val d = restoreDisplay; val ac = restoreAppContext
-        restoreDisplay = null; restoreAppContext = null
-        if (d != null && ac != null) {
-            CoverOverlayManager.show(ac, d)
-        }
     }
 
     private fun hidePanelOnly() {
@@ -402,7 +388,6 @@ object CoverControlCenterManager {
                         ctx.applicationContext,
                         "Samsung không nhận ép hướng hệ thống, CFlip đã xoay giao diện của mình sang ${next}° thay thế",
                         android.widget.Toast.LENGTH_LONG).show()
-                    CoverOverlayManager.show(ctx.applicationContext, display)
                 } else {
                     CoverRotateState.contentFallback = false
                     android.widget.Toast.makeText(

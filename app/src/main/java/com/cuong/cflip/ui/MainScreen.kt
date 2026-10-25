@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.cuong.cflip.control.QuickControls
-import com.cuong.cflip.cover.CoverPresentation
 import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.DisplayRepository
@@ -97,7 +96,6 @@ fun MainScreen(
     var settings by remember { mutableStateOf(settingsStore.load()) }
     var showCover by remember { mutableStateOf(showCoverInitially) }
     var coverTab by remember { mutableStateOf(initialTab) }
-    var presentation by remember { mutableStateOf<CoverPresentation?>(null) }
 
     DisposableEffect(presentation) {
         onDispose { presentation?.dismiss() }
@@ -354,10 +352,10 @@ fun MainScreen(
                         color = if (statuses.serviceRunning) CFlipColors.TextPrimary else CFlipColors.AccentDark)
                 }
                 TextButton(onClick = {
-                    // Fix 25/10/2026: use the application context (not the
-                    // activity context, whose token dies on fold) and check
-                    // the overlay permission first, so a failure shows its
-                    // real reason instead of a truncated window dump.
+                    // 3.0.0: Presentation deleted. This test button now
+                    // shows ONLY the AssistiveTouch button on the cover
+                    // display, then opens its 4-tab Widget panel there.
+                    // No Presentation, no full-screen overlay launcher.
                     if (!Settings.canDrawOverlays(context)) {
                         toast("Chưa cấp quyền Hiển thị trên app khác — cấp ở mục Quyền rồi thử lại.")
                         return@TextButton
@@ -366,44 +364,20 @@ fun MainScreen(
                     if (secondary == null) {
                         toast("Chưa thấy màn hình phụ. Gập máy lại để thấy.")
                     } else {
-                        // 2.3.2: Presentation first, overlay fallback. If
-                        // Presentation is refused on the Flex Window, the
-                        // overlay route (CoverOverlayManager) is tried in
-                        // the same tap, so one tap tells us which path
-                        // actually works on this phone instead of failing
-                        // outright with a truncated window error.
-                        presentation?.dismiss()
-                        com.cuong.cflip.cover.CoverOverlayManager.hide()
-                        val presResult = runCatching {
-                            CoverPresentation(context.applicationContext, secondary).also {
-                                presentation = it; it.show()
-                            }
-                        }
-                        if (presResult.isSuccess) {
-                            toast("Presentation đã hiện lên màn phụ.")
+                        val atResult = com.cuong.cflip.cover.CoverAssistiveTouchManager
+                            .show(context.applicationContext, secondary)
+                        if (atResult.isSuccess) {
+                            com.cuong.cflip.cover.CoverControlCenterManager
+                                .show(context.applicationContext, secondary)
+                            toast("Đã mở Widget AssistiveTouch (4 tab) lên màn phụ.")
                         } else {
-                            presentation = null
-                            val overlayResult = com.cuong.cflip.cover.CoverOverlayManager
-                                .show(context.applicationContext, secondary)
-                            if (overlayResult.isSuccess) {
-                                toast("Presentation bị chặn, đã hiện bằng Overlay thay thế.")
-                            } else {
-                                val reason = presResult.exceptionOrNull()?.message
-                                    ?.substringAfter("--")?.trim()
-                                    ?: "không rõ"
-                                toast("Cả 2 đường đều bị chặn: $reason")
-                            }
-                        }
-                        // Cover-only AssistiveTouch with the cover UI.
-                        if (settings.assistiveTouchEnabled) {
-                            com.cuong.cflip.cover.CoverAssistiveTouchManager
-                                .show(context.applicationContext, secondary)
+                            toast("AssistiveTouch bị chặn: ${atResult.exceptionOrNull()?.message ?: "không rõ"}")
                         }
                     }
                 }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Hiện Presentation lên màn phụ →", color = CFlipColors.Accent, fontSize = 13.sp)
+                    Text("Mở Widget AssistiveTouch lên màn phụ →", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
-                Text("Widget màn phụ: nằm trong chính giao diện cover của CFlip, bật dịch vụ rồi gập máy là thấy.",
+                Text("Widget màn phụ: chính là panel 4 tab của AssistiveTouch (Điều khiển / Thông báo / Ứng dụng / CFlip) — đúp nút C trên màn phụ để mở, không còn giao diện cover toàn màn hình nữa.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
             }
         }
