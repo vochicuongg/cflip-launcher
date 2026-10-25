@@ -4,13 +4,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Import after the plugins block: in a Gradle Kotlin script, writing
+// java.util.Properties() inline fails with "Unresolved reference: util"
+// because `java` collides with Gradle's own java extension. An explicit
+// import avoids that collision.
+import java.util.Properties
+
 // Release signing (added 25/10/2026): reads the developer's own keystore
 // from keystore.properties at the project root, which is NEVER committed
 // (see .gitignore and keystore.properties.example). If that file is absent
 // - e.g. on GitHub Actions or a fresh checkout - the release build simply
 // has no signing config, exactly as before, and nothing fails at sync time.
 val keystorePropertiesFile = rootProject.file("keystore.properties")
-val keystoreProperties = java.util.Properties()
+val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
