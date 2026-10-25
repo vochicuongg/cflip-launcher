@@ -6,6 +6,8 @@ mở sẵn, **không paywall, không premium**: tính năng nào làm được l
 
 > v1.0.0 — hoàn thiện toàn bộ tính năng theo roadmap. Project tiền thân: MyFlip Launcher v0.1 (scaffold).
 > **v2.0.0 (22/10/2026)** — thiết kế lại toàn bộ giao diện: design system riêng (thẻ kính, accent mint `#7FE3C0`, thanh điều hướng pill nổi), Home hero có chỉ báo pin; kèm Hidden Apps (v1.3). Lộ trình: `FEATURES-V2.md`.
+> **v2.1.1 (25/10/2026)** — rà lỗi 12 lỗi (mở app, đèn flash, độ sáng, seek nhạc, số cột, hình nền, đồng hồ cover, xoay khi phản chiếu, widget, bong bóng, nút Back). Chi tiết: `BUGFIX-2.1.1.md`.
+> **v2.2.0 (25/10/2026)** — giao diện app chính mới trên màn hình lớn: thẻ trạng thái quyền/dịch vụ, lưới tính năng mở đúng tab cover, chỉnh nhanh sắp xếp A-Z / Mới mở / Mới cài. Chi tiết: `UI-2.2.md`.
 
 ## Đối chiếu tính năng với cover launcher mẫu
 
