@@ -52,6 +52,32 @@ gradlew.bat assembleDebug
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
+## Build APK release (cài được qua adb)
+
+Project chưa kèm keystore thật và không bao giờ commit keystore/mật khẩu.
+Làm 1 lần trên máy của cậu, rồi build release như bình thường:
+
+```bat
+cd /d D:\cflip-launcher
+"C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot\bin\keytool.exe" -genkeypair -v -keystore cflip-release.keystore -alias cflip -keyalg RSA -keysize 2048 -validity 10000
+copy keystore.properties.example keystore.properties
+```
+
+Sửa `keystore.properties` bằng mật khẩu của cậu (file này đã nằm trong
+`.gitignore`, không commit). Sau đó:
+
+```bat
+gradlew.bat assembleRelease
+adb connect 192.168.150.102:43239
+adb -s 192.168.150.102:43239 install -r app\build\outputs\apk\release\app-release.apk
+adb -s 192.168.150.102:43239 shell am start -n com.cuong.cflip/.MainActivity
+```
+
+Nếu chưa có `keystore.properties`, bản release vẫn build được nhưng không
+ký nên `adb install` sẽ báo lỗi chứng chỉ — lúc đó dùng bản debug ở trên
+để test nhanh (debug tự ký sẵn, tính năng giống hệt vì release cũng tắt
+minify).
+
 ## Giới hạn đã biết (nói thẳng)
 
 - Samsung/One UI **có thể chặn** app bên thứ ba tự hiển thị Presentation lên Flex Window.

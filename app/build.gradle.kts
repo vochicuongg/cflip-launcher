@@ -4,6 +4,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Release signing (added 25/10/2026): reads the developer's own keystore
+// from keystore.properties at the project root, which is NEVER committed
+// (see .gitignore and keystore.properties.example). If that file is absent
+// - e.g. on GitHub Actions or a fresh checkout - the release build simply
+// has no signing config, exactly as before, and nothing fails at sync time.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = java.util.Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+val hasReleaseKey = keystorePropertiesFile.exists() &&
+    keystoreProperties.getProperty("storePassword") != null
+
 android {
     namespace = "com.cuong.cflip"
     compileSdk = 35
@@ -18,8 +31,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseKey) {
+                storeFile = file(keystoreProperties.getProperty("storeFile", "../cflip-release.keystore"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias", "cflip")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

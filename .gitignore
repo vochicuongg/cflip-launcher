@@ -7,3 +7,7 @@
 captures
 .externalNativeBuild
 .cxx
+# Release signing secrets - never commit these.
+keystore.properties
+*.keystore
+*.jks
