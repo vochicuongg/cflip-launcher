@@ -256,9 +256,20 @@ object CoverControlCenterManager {
         }
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(12), dp(12), dp(12), dp(24))
         }
-        val scroll = ScrollView(ctx); scroll.addView(root)
+        // vc40 ScrollView fix: previously ScrollView had WRAP_CONTENT
+        // height, so it tried to be as tall as its content and the
+        // panel (full-screen) simply CLIPPED the bottom - the Function
+        // island looked hidden/obscured and could not be scrolled to.
+        // Now ScrollView fills the remaining height after the tab bar
+        // (weight 1) and scrolls internally, and root gets extra bottom
+        // padding so the last card is never cut by the bottom edge.
+        val scroll = ScrollView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        scroll.addView(root)
         val controlContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         val notifContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         val appsContent = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
@@ -505,6 +516,12 @@ object CoverControlCenterManager {
         // + argb(116,0,0,0) overlay). Content lives in mediaContent.
         val mediaCard = FrameLayout(ctx).apply {
             background = rounded(cardColor, 16)
+            // vc40 rounded media: previously the album-art ImageView
+            // was a square rectangle on top of the rounded card, so
+            // the media island had square corners in the screenshot
+            // while the slider island had round ones. clipToOutline
+            // clips children (the art) to the rounded background.
+            clipToOutline = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, dp(12))
@@ -514,16 +531,19 @@ object CoverControlCenterManager {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        if (mediaInfo?.albumArt != null) {
-            mediaCard.addView(ImageView(ctx).apply {
-                setImageBitmap(mediaInfo.albumArt)
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                alpha = 0.96f
-            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            mediaCard.addView(View(ctx).apply {
-                setBackgroundColor(android.graphics.Color.argb(116, 0, 0, 0))
-            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        // vc40 art view is ALWAYS present (not only when the first
+        // track had art), so updateMediaViews() can swap it when the
+        // track changes. Previously art was set once at panel build
+        // and never updated, so a new song kept the old song's image.
+        val mediaArtView = ImageView(ctx).apply {
+            if (mediaInfo?.albumArt != null) setImageBitmap(mediaInfo.albumArt)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            alpha = 0.96f
         }
+        mediaCard.addView(mediaArtView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        mediaCard.addView(View(ctx).apply {
+            setBackgroundColor(android.graphics.Color.argb(116, 0, 0, 0))
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         if (mediaInfo == null) {
             mediaCard.visibility = View.GONE
         } else {
@@ -621,6 +641,7 @@ object CoverControlCenterManager {
         // panel was reopened. updateMediaViews() re-reads the session
         // and rewrites title/artist/progress/elapsed/play icon.
         var mediaPlayButtonRef: ImageButton? = null
+        var lastMediaArt: android.graphics.Bitmap? = mediaInfo?.albumArt
         fun updateMediaViews() {
             runCatching { mediaRepo.refresh() }
             val cur = MediaState.current.value ?: return
@@ -630,6 +651,12 @@ object CoverControlCenterManager {
             mediaTotal.text = fmtTime(cur.durationMs)
             mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
             mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
+            // vc40: swap album art when the track changes (reference
+            // comparison avoids re-setting the same bitmap every second).
+            if (cur.albumArt !== lastMediaArt) {
+                lastMediaArt = cur.albumArt
+                mediaArtView.setImageBitmap(cur.albumArt)
+            }
         }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } })
@@ -718,28 +745,30 @@ object CoverControlCenterManager {
         // logic), with the same value logic as before: brightness
         // manual clamp 0.05-1.0, alpha 1.0 manual / 0.42 auto, volume
         // mute restores saved volume else ~45% of max.
+        // vc40 balanced islands: same background, same 16dp corner,
+        // same 12dp padding as the media island, clipToOutline so
+        // sliders cannot stick out of the rounded corners, and
+        // centred vertically so the two sliders sit balanced against
+        // the taller media island instead of hugging its top.
         val sliderColumn = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(cardColor, 16)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            clipToOutline = true
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        val brightLabel2 = TextView(ctx).apply { text = "Độ sáng"; textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
-        val volLabel2 = TextView(ctx).apply { text = "Âm lượng"; textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         var brightSlider2: NineFlipSlider? = null
         var volSlider2: NineFlipSlider? = null
         fun refreshBright2() {
             val st = store.load()
-            brightLabel2.text = if (st.panelBrightnessManual) "Độ sáng ${(st.panelBrightness * 100).toInt()}%" else "Độ sáng: Tự động"
             brightSlider2?.setManual(st.panelBrightnessManual)
             brightSlider2?.minValue = 0.05f
             brightSlider2?.setValue(st.panelBrightness, animate = false)
         }
         fun refreshVol2() {
             val (v, m) = QuickControls.volume(ctx)
-            volLabel2.text = "Âm lượng $v / $m" + if (v == 0) " (tắt tiếng)" else ""
             volSlider2?.setValue(if (m > 0) v.toFloat() / m else 0f, animate = false)
         }
-        sliderColumn.addView(brightLabel2)
         brightSlider2 = NineFlipSlider(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_brightness)
@@ -757,7 +786,6 @@ object CoverControlCenterManager {
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                brightLabel2.text = "Độ sáng ${(v * 100).toInt()}%"
             }
             onDragEnd = { resetTimer() }
             onRightClick = {
@@ -770,7 +798,7 @@ object CoverControlCenterManager {
             }
         }
         sliderColumn.addView(brightSlider2)
-        sliderColumn.addView(volLabel2)
+        sliderColumn.addView(View(ctx).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
         volSlider2 = NineFlipSlider(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_volume)
@@ -807,14 +835,18 @@ object CoverControlCenterManager {
         // (added earlier) stays visible.
         val combinedRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.TOP
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, dp(12))
             }
         }
         combinedRow.addView(mediaCard, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 3f))
-        combinedRow.addView(sliderColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
+        // vc40: slider column stretches to the media island's height
+        // (MATCH_PARENT in the row) instead of wrapping to its own
+        // shorter height, so the two islands are the same height and
+        // look balanced side by side.
+        combinedRow.addView(sliderColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2f).apply {
             setMargins(dp(8), 0, 0, 0)
         })
         controlContent.addView(combinedRow)
@@ -833,10 +865,12 @@ object CoverControlCenterManager {
         fun tileWithLabel(icon: String, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
             val labelView = TextView(ctx).apply {
                 text = label; textSize = 10f
-                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 2
                 setPadding(0, dp(4), 0, 0)
                 setLineSpacing(dp(2).toFloat(), 1f)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(32))
             }
             val circle = TextView(ctx).apply {
                 text = icon; textSize = 18f; gravity = Gravity.CENTER
@@ -850,7 +884,13 @@ object CoverControlCenterManager {
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(4), dp(4), dp(4), dp(4))
-                gravity = Gravity.CENTER
+                // vc40 alignment: previously CENTER (both axes) centred
+                // each tile's content in its 96dp cell, so a 1-line tile
+                // sat lower than a 2-line tile in the same row and the
+                // circles did not line up. Now content starts at the
+                // top, circles all at the same height, labels first
+                // line at the same baseline, second line below it.
+                gravity = Gravity.CENTER_HORIZONTAL
                 setOnClickListener { resetTimer(); onClick() }
             }
             cardView.addView(circle)
@@ -872,10 +912,12 @@ object CoverControlCenterManager {
         fun tileWithLabel(iconRes: Int, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
             val labelView = TextView(ctx).apply {
                 text = label; textSize = 10f
-                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
+                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 2
                 setPadding(0, dp(4), 0, 0)
                 setLineSpacing(dp(2).toFloat(), 1f)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(32))
             }
             val circle = ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -891,7 +933,13 @@ object CoverControlCenterManager {
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(4), dp(4), dp(4), dp(4))
-                gravity = Gravity.CENTER
+                // vc40 alignment: previously CENTER (both axes) centred
+                // each tile's content in its 96dp cell, so a 1-line tile
+                // sat lower than a 2-line tile in the same row and the
+                // circles did not line up. Now content starts at the
+                // top, circles all at the same height, labels first
+                // line at the same baseline, second line below it.
+                gravity = Gravity.CENTER_HORIZONTAL
                 setOnClickListener { resetTimer(); onClick() }
             }
             cardView.addView(circle)
