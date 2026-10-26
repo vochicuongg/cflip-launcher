@@ -1475,22 +1475,43 @@ object CoverControlCenterManager {
                 // happened. Panel stays open during permission;
                 // on success the full-screen mirror overlay will
                 // cover it anyway, on decline it stays for retry.
-                android.widget.Toast.makeText(ctx, "Dual display ON - opening permission dialog", android.widget.Toast.LENGTH_SHORT).show()
-                val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY)
-                val coverPermOk = runCatching {
-                    val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                    ctx.startActivity(permIntent, opts)
-                    true
-                }.getOrDefault(false)
-                if (coverPermOk) {
-                    android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
-                } else {
-                    android.widget.Toast.makeText(
-                        ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
-                        android.widget.Toast.LENGTH_LONG).show()
-                    runCatching { ctx.applicationContext.startActivity(permIntent) }
-                }
+                // vc55 9FLIP ALIGNMENT (two fixes in one):
+                // (a) NO_HISTORY REMOVED: vc32-vc54 launched the
+                // permission activity with FLAG_ACTIVITY_NO_HISTORY.
+                // 9Flip does NOT use it (it uses NEW_TASK |
+                // SINGLE_TOP | CLEAR_TOP, manifest singleTop).
+                // NO_HISTORY finishes an activity as soon as it
+                // leaves the foreground - when the system capture
+                // dialog covers it, the permission activity can be
+                // finished before the user approves, its result
+                // callback is lost, the service never starts, and
+                // the tap looks dead AFTER the dialog. That matches
+                // the vc54 report exactly. Flags now match 9Flip.
+                // (b) DUAL SETTLE DELAY: 9Flip toggles dual in its
+                // own host activity and only launches permission
+                // after the dual state settles (its toggle stamps
+                // now+1000ms). CFlip launched permission in the
+                // same instant as the transact, racing a cover
+                // display that was not yet ready as display 1.
+                // Wait 1200ms after dual ON before launching.
+                android.widget.Toast.makeText(ctx, "Dual display ON - waiting 1.2s for displays to settle", android.widget.Toast.LENGTH_SHORT).show()
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    val coverPermOk = runCatching {
+                        val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                        ctx.startActivity(permIntent, opts)
+                        true
+                    }.getOrDefault(false)
+                    if (coverPermOk) {
+                        android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        android.widget.Toast.makeText(
+                            ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
+                            android.widget.Toast.LENGTH_LONG).show()
+                        runCatching { ctx.applicationContext.startActivity(permIntent) }
+                    }
+                }, 1200)
             }
         }
         // vc35 missing system tiles from 9Flip (f0/u list).
