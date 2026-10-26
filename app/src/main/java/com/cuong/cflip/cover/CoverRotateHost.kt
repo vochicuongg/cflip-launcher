@@ -108,11 +108,15 @@ object CoverRotateHostManager {
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
         remove()
         val v = View(displayContext)
+        // vc91 LOCK FIX: same as bubble - without
+        // SHOW_WHEN_LOCKED the keyguard drops this host, so
+        // rotation stops working on the lock screen.
         val params = WindowManager.LayoutParams(
             1, 1,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START

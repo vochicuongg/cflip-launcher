@@ -520,7 +520,25 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 }
                 setPadding(20, 20, 20, 20)
                 isClickable = true
-                setOnClickListener { onControl?.invoke(action) }
+                // vc91 SLOW FIX: onClick fires on finger-UP, and
+                // the old stop button (direct startService) felt
+                // instant while these went through onControl.
+                // Fire on DOWN instead, with alpha feedback, so
+                // the response is visible on the tap itself.
+                setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            v.alpha = 0.6f
+                            onControl?.invoke(action)
+                            true
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            v.alpha = 1.0f
+                            true
+                        }
+                        else -> false
+                    }
+                }
             }
         }
         val column = android.widget.LinearLayout(context).apply {
@@ -542,12 +560,23 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 }
                 setPadding(20, 20, 20, 20)
                 isClickable = true
-                setOnClickListener {
-                    runCatching {
-                        context.applicationContext.startService(android.content.Intent(
-                            context.applicationContext,
-                            com.cuong.cflip.service.ScreenMirrorService::class.java)
-                            .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                setOnTouchListener { v, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            v.alpha = 0.6f
+                            runCatching {
+                                context.applicationContext.startService(android.content.Intent(
+                                    context.applicationContext,
+                                    com.cuong.cflip.service.ScreenMirrorService::class.java)
+                                    .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                            }
+                            true
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            v.alpha = 1.0f
+                            true
+                        }
+                        else -> false
                     }
                 }
             }
@@ -569,21 +598,27 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     /** Width/height the projection should render at for the current rotation. */
     fun bufferSize(): Pair<Int, Int> {
-        // vc58: source (main) size if service set it, else cover size.
+        // vc91 ROTATE LAYOUT FIX (vc90 test: rotate broke layout):
+        // the virtual display renders at SOURCE size (1080x2640)
+        // into this buffer, and rotation is a TextureView
+        // TRANSFORM on top of that buffer. Swapping the buffer
+        // to 2640x1080 on a 90/270 rotation made the buffer no
+        // longer match the virtual display, so frames came out
+        // stretched/cropped and the surface had to resize (the
+        // "delay" + broken layout). Buffer stays source size
+        // always; rotation lives only in the transform.
         val w = if (sourceW > 0) sourceW else display.mode.physicalWidth
         val h = if (sourceH > 0) sourceH else display.mode.physicalHeight
-        return if (rotationDeg % 180 != 0) h to w else w to h
+        return w to h
     }
 
     fun applyRotation(deg: Int) {
         rotationDeg = ((deg % 360) + 360) % 360
         if (::textureView.isInitialized) {
-            // Keep the surface buffer in step with the new orientation, or
-            // the recreated virtual display renders into a stale-size buffer.
-            textureView.surfaceTexture?.let { st ->
-                val (bw, bh) = bufferSize()
-                st.setDefaultBufferSize(bw, bh)
-            }
+            // vc91: transform ONLY. No buffer resize (see
+            // bufferSize above) - that resize was the vc90
+            // rotate delay + layout break. setTransform is a
+            // GPU matrix change and returns immediately.
             applyTransform()
         }
     }

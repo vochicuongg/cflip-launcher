@@ -119,10 +119,15 @@ object CoverAssistiveTouchManager {
         startX = startX.coerceIn(0, maxOf(0, dispW - size))
         startY = startY.coerceIn(0, maxOf(0, dispH - size))
 
+        // vc91 LOCK FIX (user: bubble must appear on lock screen
+        // and in Settings, otherwise rotate controls are lost
+        // exactly when the phone is locked): without
+        // SHOW_WHEN_LOCKED the keyguard hides this overlay.
         val params = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START; x = startX; y = startY }
 
