@@ -38,6 +38,14 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // vc45: the mirror used to be a bare TextureView with no
+        // control at all - combined with HIDE_COVER, that was the
+        // "mất luôn AssistiveTouch" trap. Now the presentation is
+        // a FrameLayout: TextureView fills it, and a "Dừng phản
+        // chiếu" button sits top-right as the always-visible exit.
+        // Tapping it stops ScreenMirrorService, which restores the
+        // AssistiveTouch bubble (see its cleanup()).
+        val root = android.widget.FrameLayout(context)
         textureView = TextureView(context).apply {
             setBackgroundColor(0xFF000000.toInt())
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -54,7 +62,36 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) { /* no-op */ }
             }
         }
-        setContentView(textureView)
+        root.addView(textureView, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+        val stopBtn = android.widget.Button(context).apply {
+            text = "Dừng phản chiếu"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(0xFFFFFFFF.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = 24f
+                setColor(android.graphics.Color.argb(180, 20, 20, 20))
+            }
+            setPadding(24, 12, 24, 12)
+            setOnClickListener {
+                runCatching {
+                    context.applicationContext.startService(android.content.Intent(
+                        context.applicationContext,
+                        com.cuong.cflip.service.ScreenMirrorService::class.java)
+                        .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                }
+            }
+        }
+        root.addView(stopBtn, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.END
+            setMargins(0, 24, 24, 0)
+        })
+        setContentView(root)
     }
 
     /** Width/height the projection should render at for the current rotation. */

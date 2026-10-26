@@ -138,12 +138,26 @@ class ScreenMirrorService : Service() {
     }
 
     private fun cleanup() {
+        // vc45 restore: previously cleanup only set active=false
+        // and dismissed the presentation, but never told
+        // CoverForegroundService to show the bubble again. After
+        // a mirror session ended (stop button, system stop, or
+        // service death), the bubble stayed gone until the next
+        // display/hinge event - the second half of "mất luôn
+        // AssistiveTouch". Now cleanup always asks the foreground
+        // service to re-show the cover UI (its tryShowOnSecondary
+        // checks active==false first, so this cannot re-hide).
         mirrorSurface = null
         virtualDisplay?.release(); virtualDisplay = null
         runCatching { projection?.stop() }
         projection = null
         presentation?.dismiss(); presentation = null
         MirrorState.active = false
+        runCatching {
+            startService(Intent(this, CoverForegroundService::class.java).apply {
+                action = CoverForegroundService.ACTION_ROTATION_CHANGED
+            })
+        }
     }
 
     override fun onDestroy() { cleanup(); super.onDestroy() }

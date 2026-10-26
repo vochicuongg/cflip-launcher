@@ -8,7 +8,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.ScreenMirrorService
 
 /**
@@ -25,11 +24,18 @@ class MirrorPermissionActivity : ComponentActivity() {
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            // Normal cover UI steps aside, then the mirror takes over.
-            val hide = Intent(this, CoverForegroundService::class.java).apply {
-                action = CoverForegroundService.ACTION_HIDE_COVER
-            }
-            ContextCompat.startForegroundService(this, hide)
+            // vc45: DO NOT hide the cover UI any more. vc44 (and
+            // earlier) sent ACTION_HIDE_COVER here, which removed
+            // the AssistiveTouch bubble - the only control that
+            // could open the panel to stop the mirror again. The
+            // user then saw "mất luôn AssistiveTouch": mirror on,
+            // no bubble, no way back from the cover. Now the bubble
+            // stays, and MirrorPresentation itself carries a
+            // "Dừng phản chiếu" button as the primary exit, with
+            // ScreenMirrorService restoring the bubble on stop as
+            // a second path. The panel itself was already hidden
+            // by the tile before this activity launched.
+            // No hide intent is sent any more.
             val start = Intent(this, ScreenMirrorService::class.java).apply {
                 action = ScreenMirrorService.ACTION_START
                 putExtra(ScreenMirrorService.EXTRA_RESULT_CODE, result.resultCode)

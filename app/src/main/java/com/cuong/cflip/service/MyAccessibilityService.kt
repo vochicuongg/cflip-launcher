@@ -82,6 +82,19 @@ class MyAccessibilityService : AccessibilityService() {
                         contentResolver.openOutputStream(uri)?.use { out ->
                             copy.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
                         } ?: throw IllegalStateException("Cannot open output stream")
+                        // vc45 screenshot sound: saving via the API
+                        // bypasses SystemUI, so Samsung's shutter
+                        // sound never plays and the shot feels
+                        // silent. Play the system shutter click via
+                        // MediaActionSound (public API, best effort:
+                        // on silent/vibrate it may stay silent, and
+                        // a failure here must never break the save).
+                        runCatching {
+                            val snd = android.media.MediaActionSound()
+                            snd.play(android.media.MediaActionSound.SHUTTER_CLICK)
+                            android.os.Handler(android.os.Looper.getMainLooper())
+                                .postDelayed({ runCatching { snd.release() } }, 500)
+                        }
                         onDone(true, name)
                     }.onFailure { e ->
                         Log.w(TAG, "Save cover screenshot failed", e)
