@@ -157,8 +157,8 @@ class ScreenMirrorService : Service() {
         val secMode = secondary.mode
         val secW = secMode.physicalWidth; val secH = secMode.physicalHeight
         val isCoverSized = (secW in 700..760 && secH in 700..760)
-        if (mainGate == null || mainGate.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
-            Log.w(TAG, "Mirror gate refused: mainState=${mainGate?.state} cover=${secW}x$secH name=${secondary.name}")
+        if (mainGate == null || mainGate.state != Display.STATE_ON || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
+            Log.w(TAG, "Mirror gate refused: mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             android.widget.Toast.makeText(applicationContext, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt, kh\u00f4ng ph\u1ea3n chi\u1ebfu khi g\u1eadp m\u00e1y.", android.widget.Toast.LENGTH_LONG).show()
             stopSelf(); return
         }
