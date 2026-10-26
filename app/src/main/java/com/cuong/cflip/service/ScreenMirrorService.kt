@@ -92,6 +92,10 @@ class ScreenMirrorService : Service() {
     private var mainWidth: Int = 0
     private var mainHeight: Int = 0
     private var mainDpi: Int = 0
+    // vc72: cover window orientation to carry into mirror windows
+    // (Presentation + overlay). Set in startMirroring before any
+    // mirror window is created; UNSPECIFIED means "not set yet".
+    private var mirrorWinOrient: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private val handler = Handler(Looper.getMainLooper())
 
     private val projectionCallback = object : MediaProjection.Callback() {
@@ -296,11 +300,30 @@ class ScreenMirrorService : Service() {
         // fall through to the vc57 overlay path below - no
         // regression, overlay remains the fallback.
         val coverCtx = createDisplayContext(secondary)
+        // vc72 ORIENTATION PRESERVE: RotateHost forces cover
+        // orientation in normal mode via a 1x1 overlay with
+        // screenOrientation, but dual can drop that overlay,
+        // snapping cover back to 0° (the vc71 180° snap). Mirror
+        // windows had no screenOrientation, so they showed at
+        // default 0° and the snap destroyed/recreated the surface,
+        // dropping the feed after a couple seconds. Capture the
+        // orientation here and carry it into BOTH mirror windows
+        // below, so cover stays where the user had it. Prefer
+        // RotateHost's live orientation (it survives dual in
+        // memory even if its view is dropped); fall back to the
+        // current cover rotation mapped like lock().
+        mirrorWinOrient = com.cuong.cflip.cover.CoverRotateHostManager.currentOrientation() ?: when (secondary.rotation) {
+            android.view.Surface.ROTATION_90 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            android.view.Surface.ROTATION_180 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+            android.view.Surface.ROTATION_270 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
         val presTried = runCatching {
             val acc = MyAccessibilityService.instance
             val presCtx = if (acc != null) acc.createDisplayContext(secondary) else coverCtx
             val pres = com.cuong.cflip.mirror.MirrorPresentation(presCtx, secondary).apply {
                 sourceW = mainWidth; sourceH = mainHeight
+                windowOrientation = mirrorWinOrient
                 onSurfaceReady = { surface ->
                     mirrorSurface = surface
                     setStatus("Mirror: Presentation surface ready, virtual display starting...")
@@ -447,7 +470,14 @@ class ScreenMirrorService : Service() {
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
+            PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // vc72: same orientation preserve as Presentation,
+            // so the fallback overlay does not snap cover either.
+            if (mirrorWinOrient != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                screenOrientation = mirrorWinOrient
+            }
+        }
         runCatching { wm.addView(root, params) }
             .onSuccess {
                 overlayView = root; overlayWm = wm; mirrorTexture = tv

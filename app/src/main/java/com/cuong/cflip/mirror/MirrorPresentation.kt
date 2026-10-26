@@ -39,6 +39,13 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // bufferSize() falls back to cover size (old behavior).
     var sourceW: Int = 0
     var sourceH: Int = 0
+    // vc72: window orientation set by the service before show()
+    // (same value as RotateHost / current cover rotation).
+    // Applied to this window in onCreate so the cover does not
+    // snap to 0° when dual drops the RotateHost overlay.
+    // Content transform stays scale+translate only (like 9Flip
+    // i4), no content rotation added, so no double-rotate.
+    var windowOrientation: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var statusView: android.widget.TextView? = null
     fun setStatus(text: String) {
         val v = statusView ?: return
@@ -106,6 +113,13 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // vc72: carry the captured orientation into this window.
+        if (windowOrientation != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            window?.attributes?.let { attrs ->
+                attrs.screenOrientation = windowOrientation
+                window?.attributes = attrs
+            }
+        }
         // vc45: the mirror used to be a bare TextureView with no
         // control at all - combined with HIDE_COVER, that was the
         // "mất luôn AssistiveTouch" trap. Now the presentation is
