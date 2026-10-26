@@ -730,8 +730,17 @@ object CoverControlCenterManager {
         mediaCard.addView(View(ctx).apply {
             setBackgroundColor(android.graphics.Color.argb(116, 0, 0, 0))
         }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        // vc106: do NOT GONE the card when there is
+        // no session. vc105 moved it below Function
+        // in hierarchy, but GONE made that move
+        // invisible, so the test correctly said it
+        // had not moved. Now the card stays VISIBLE
+        // (empty state, see mediaTitleView below)
+        // and, when not playing, sits below Function
+        // via the vc105 order block. Playing case
+        // keeps the 190ms appear animation.
         if (mediaInfo == null) {
-            mediaCard.visibility = View.GONE
+            mediaCard.visibility = View.VISIBLE
         } else {
             mediaCard.alpha = 0f
             mediaCard.translationY = -dp(10).toFloat()
@@ -831,7 +840,7 @@ object CoverControlCenterManager {
             addView(waveView)
         })
         val mediaTitleView = TextView(ctx).apply {
-            text = mediaInfo?.title ?: ""; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+            text = mediaInfo?.title ?: "Chưa có media đang phát"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
             setHorizontallyScrolling(true)
             ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
@@ -938,7 +947,7 @@ object CoverControlCenterManager {
         }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_prev).apply { setOnClickListener { resetTimer(); mediaRepo.previous(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } })
-        val mediaPlayButton = mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play, true).also { mediaPlayButtonRef = it }.apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } }
+        val mediaPlayButton = mediaIconButton(if (mediaInfo?.isPlaying == true) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play, true).also { mediaPlayButtonRef = it }.apply { setOnClickListener { resetTimer(); mediaRepo.playPause(); handler.postDelayed({ val cur = MediaState.current.value; if (cur == null) android.widget.Toast.makeText(ctx, "Chưa có nhạc để phát lại", android.widget.Toast.LENGTH_SHORT).show() else updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } }
         mediaRow.addView(mediaPlayButton)
         mediaRow.addView(mediaIconButton(R.drawable.ic_cflip_media_next).apply { setOnClickListener { resetTimer(); mediaRepo.next(); handler.postDelayed({ updateMediaViews() }, 500); handler.postDelayed({ updateMediaViews() }, 1200) } })
         // vc38 real-time tick: runs updateMediaViews() every 1s while

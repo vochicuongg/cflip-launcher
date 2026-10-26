@@ -229,7 +229,25 @@ class NineFlipSlider @JvmOverloads constructor(
                 downX = event.x
                 downY = event.y
                 dragging = false
-                parent?.requestDisallowInterceptTouchEvent(false)
+                // vc106 FIX (vc105 test: dragging a
+                // vertical slider scrolled the panel):
+                // a vertical drag is the SAME direction
+                // as the panel ScrollView, so the
+                // ScrollView intercepts the MOVE before
+                // the slider's slop threshold is reached
+                // and the whole panel follows the finger
+                // instead of the value changing.
+                // Horizontal sliders do not need this
+                // (ScrollView never intercepts a
+                // horizontal move), so they keep
+                // disallow=false on DOWN and only
+                // disallow once horizontal dragging
+                // actually starts. Vertical sliders
+                // must disallow on DOWN, immediately,
+                // so the ScrollView never gets a chance
+                // to steal the gesture. UP/CANCEL
+                // already reset disallow to false.
+                parent?.requestDisallowInterceptTouchEvent(vertical)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
