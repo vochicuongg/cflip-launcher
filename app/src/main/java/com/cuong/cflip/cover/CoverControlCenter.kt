@@ -1455,11 +1455,22 @@ object CoverControlCenterManager {
                 }, 500)
             }
         }
+        // vc61 PENDING FLAG: tracks whether this panel instance
+        // already told the user about a stuck dual-ON pending
+        // attempt, so a second tap cancels it instead of
+        // launching a duplicate permission activity.
+        var mirrorDualAlreadyNotified = false
         tileRow("Phản chiếu", R.drawable.ic_sec_cast) {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
                 runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
+                // vc61: clear active here too, not only in service
+                // cleanup, so a missed cleanup cannot leave the
+                // tile stuck in "stop" mode (tap then looks dead
+                // because it only stops an already-dead mirror).
+                com.cuong.cflip.mirror.MirrorState.active = false
+                showCoverMessage(ctx, display, "Đã dừng phản chiếu")
                 // vc45: service cleanup now restores AssistiveTouch,
                 // so stopping from here is no longer a one-way door.
                 android.widget.Toast.makeText(ctx, "Đã dừng phản chiếu, AssistiveTouch sẽ hiện lại", android.widget.Toast.LENGTH_SHORT).show()
@@ -1484,6 +1495,17 @@ object CoverControlCenterManager {
                 // folded/open, then let the service gates decide
                 // after permission. Only a missing main display
                 // (impossible in practice) refuses here.
+                // vc61 TAP PROOF: vc60 report was "tap does
+                // nothing at all" - no Toast, no dialog, no pill.
+                // Toasts are rate-limited by Android after many
+                // taps (vc46 symptom), so a Toast-only flow can
+                // look dead even when it ran. Show a WindowManager
+                // pill on the cover FIRST, in normal mode before
+                // dual is ON (overlays still show here), so every
+                // tap is visibly registered even if later Toasts
+                // are suppressed or the permission dialog ends up
+                // on main.
+                showCoverMessage(ctx, display, "Đã bấm Phản chiếu - đang bật màn hình kép...")
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
                 if (mainDisplay == null) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
@@ -1500,6 +1522,30 @@ object CoverControlCenterManager {
                 val dualRes = com.cuong.cflip.service.DualDisplayHelper.enable()
                 if (dualRes.isFailure) {
                     android.widget.Toast.makeText(ctx, "Dual display failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"), android.widget.Toast.LENGTH_LONG).show()
+                    showCoverMessage(ctx, display, "Dual failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"))
+                    return@tileRow
+                }
+                // vc61 STUCK PENDING: enable() returns "dual already
+                // on" when a previous tap already enabled dual but
+                // mirror never started (permission dialog still
+                // pending on main, user folded and saw nothing).
+                // Launching another permission activity on top of
+                // that looks like "nothing happens" again. First
+                // tap in this panel instance: tell the user to
+                // unfold and approve the pending dialog. Second
+                // tap: cancel the pending attempt (disable dual)
+                // so the next tap is a fresh attempt.
+                if (dualRes.getOrNull() == "dual already on") {
+                    if (!mirrorDualAlreadyNotified) {
+                        mirrorDualAlreadyNotified = true
+                        showCoverMessage(ctx, display, "Dual đã bật từ lần bấm trước - mở máy ra để đồng ý phản chiếu nếu hộp thoại đang chờ trên màn chính")
+                        android.widget.Toast.makeText(ctx, "Dual đã bật từ lần bấm trước - mở máy ra để đồng ý phản chiếu", android.widget.Toast.LENGTH_LONG).show()
+                    } else {
+                        mirrorDualAlreadyNotified = false
+                        runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
+                        showCoverMessage(ctx, display, "Đã hủy chờ phản chiếu - bấm lại để thử mới")
+                        android.widget.Toast.makeText(ctx, "Đã hủy chờ phản chiếu", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                     return@tileRow
                 }
                 // vc53: do NOT hide() before permission. vc51/vc52
@@ -1529,6 +1575,7 @@ object CoverControlCenterManager {
                 // display that was not yet ready as display 1.
                 // Wait 1200ms after dual ON before launching.
                 android.widget.Toast.makeText(ctx, "Dual display ON - waiting 2s for displays to settle", android.widget.Toast.LENGTH_SHORT).show()
+                showCoverMessage(ctx, display, "Dual ON - chờ 2s rồi mở xin quyền...")
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -1539,10 +1586,12 @@ object CoverControlCenterManager {
                     }.getOrDefault(false)
                     if (coverPermOk) {
                         android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
+                        showCoverMessage(ctx, display, "Đã mở xin quyền trên màn phụ - bấm Cho phép")
                     } else {
                         android.widget.Toast.makeText(
                             ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
                             android.widget.Toast.LENGTH_LONG).show()
+                        showCoverMessage(ctx, display, "Mở máy ra để đồng ý phản chiếu màn hình")
                         runCatching { ctx.applicationContext.startActivity(permIntent) }
                     }
                 }, 2000)
