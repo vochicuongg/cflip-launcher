@@ -62,7 +62,26 @@ class MirrorPermissionActivity : ComponentActivity() {
                 if (!isFinishing) {
                     serviceStarted = true
                     ContextCompat.startForegroundService(this, start)
-                    finishAndRemoveTask()
+                    // vc70 BRIDGE (decompile round 4): 9Flip has no
+                    // such gap because its Presentation (floating
+                    // menu) is already on the cover before mirror
+                    // starts, and mirror only swaps content inside
+                    // it. CFlip creates Presentation/overlay after
+                    // grant, and the service waits up to 3s for the
+                    // surface (vc59 fallback). If this activity
+                    // finishes now, the cover has no window in dual
+                    // mode, the system turns it off after 1-2s, and
+                    // projection onStop kills the mirror - the vc69
+                    // disconnect. Stay alive 4s more with
+                    // KEEP_SCREEN_ON, then finish; Presentation/
+                    // overlay keeps the cover on from there. If the
+                    // service failed, onDestroy/service cleanup
+                    // still disable dual and restore the bubble.
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (!isFinishing) {
+                            finishAndRemoveTask()
+                        }
+                    }, 4000)
                 }
             }, 2000)
         } else {
@@ -171,6 +190,11 @@ class MirrorPermissionActivity : ComponentActivity() {
         window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        // vc70: 1x1 window alone does not keep the cover on.
+        // Add KEEP_SCREEN_ON so this bridging window holds the
+        // cover on until the service's Presentation/overlay
+        // (both already have KEEP) is actually showing.
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
         enableDualThenCapture()
