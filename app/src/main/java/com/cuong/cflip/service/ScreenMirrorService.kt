@@ -356,6 +356,8 @@ class ScreenMirrorService : Service() {
         tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                 st.setDefaultBufferSize(mainWidth, mainHeight)
+                applyFitTransform(tv, tv.width, tv.height)
+                tv.post { applyFitTransform(tv, tv.width, tv.height) }
                 val surface = Surface(st)
                 mirrorSurface = surface
                 handler.post { statusView.text = "Mirror: surface ready, virtual display starting..." }
@@ -363,7 +365,7 @@ class ScreenMirrorService : Service() {
                 handler.post { statusView.text = "Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show" }
                 Log.i(TAG, "Mirror overlay surface ready, virtual display started")
             }
-            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { applyFitTransform(tv, w, h) }
             override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
                 mirrorSurface = null
                 virtualDisplay?.release(); virtualDisplay = null
@@ -386,6 +388,21 @@ class ScreenMirrorService : Service() {
             .onFailure { Log.w(TAG, "System refused mirror overlay on cover", it); stopSelf() }
     }
 
+    // vc62 DISPLAY LAYER (9Flip i4.a fit mode, same math as
+    // MirrorPresentation.applyTransform, for the overlay path):
+    // Old overlay had NO transform, so it stretched like the
+    // old Presentation. Fit preserves aspect with black bars.
+    private fun applyFitTransform(tv: TextureView, viewW: Int, viewH: Int) {
+        if (viewW <= 0 || viewH <= 0 || mainWidth <= 0 || mainHeight <= 0) return
+        val scale = kotlin.math.min(viewW.toFloat() / mainWidth, viewH.toFloat() / mainHeight)
+        val dx = (viewW - mainWidth * scale) / 2f
+        val dy = (viewH - mainHeight * scale) / 2f
+        val m = android.graphics.Matrix()
+        m.setScale(scale, scale)
+        m.postTranslate(dx, dy)
+        tv.setTransform(m)
+    }
+
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         virtualDisplay = proj.createVirtualDisplay(
             "CFlipMirror", mainWidth, mainHeight, mainDpi,
@@ -396,6 +413,13 @@ class ScreenMirrorService : Service() {
     }
 
     private fun cleanupSession() {
+        // vc62 SECOND-START FIX: cancel any pending handler
+        // callbacks from the previous session (notably the vc59
+        // 3s Presentation->overlay fallback timer). Without this,
+        // a timer posted by session 1 can fire during session 2
+        // and dismiss session 2's Presentation while its surface
+        // is still attaching, making the second mirror look dead.
+        handler.removeCallbacksAndMessages(null)
         // vc45 restore: previously cleanup only set active=false
         // and dismissed the presentation, but never told
         // CoverForegroundService to show the bubble again. After

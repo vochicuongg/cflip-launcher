@@ -67,6 +67,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                     val (bw, bh) = bufferSize()
                     st.setDefaultBufferSize(bw, bh)
                     applyTransform()
+                    // vc62: at surface-available time the view may
+                    // not be laid out yet (width/height 0, so
+                    // applyTransform above returns early). Re-apply
+                    // after layout, and onSizeChanged also calls it.
+                    textureView.post { applyTransform() }
                     setStatus("Mirror: Presentation surface ready")
                     onSurfaceReady?.invoke(Surface(st))
                 }
@@ -144,17 +149,38 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         }
     }
 
+    // vc62 DISPLAY LAYER (9Flip i4.a fit mode, own code):
+    // Old vc45-vc61 Presentation only rotated (identity at
+    // 0 deg), so TextureView stretched the tall main buffer
+    // (1080x2640) into the near-square cover (720x748) -
+    // feed looked vertically squished, the "display layer
+    // error" in the vc61 report. 9Flip i4.a fit mode does:
+    // scale = min(viewW/sourceW, viewH/sourceH), then center
+    // with (viewW-scaledW)/2, (viewH-scaledH)/2, black bars
+    // from the black TextureView background. Same math here,
+    // plus the old rotation on top only if rotationDeg != 0
+    // (service never sets it today, so it is identity).
     private fun applyTransform() {
         val tv = textureView
         if (tv.width == 0 || tv.height == 0) return
-        val cx = tv.width / 2f
-        val cy = tv.height / 2f
+        val sw = sourceW; val sh = sourceH
+        if (sw <= 0 || sh <= 0) {
+            // No source size set: fall back to old rotation-only
+            // transform so the view still shows something.
+            val cx = tv.width / 2f; val cy = tv.height / 2f
+            val m0 = Matrix()
+            m0.postRotate(rotationDeg.toFloat(), cx, cy)
+            tv.setTransform(m0)
+            return
+        }
+        val scale = min(tv.width.toFloat() / sw, tv.height.toFloat() / sh)
+        val dx = (tv.width - sw * scale) / 2f
+        val dy = (tv.height - sh * scale) / 2f
         val m = Matrix()
-        m.postRotate(rotationDeg.toFloat(), cx, cy)
-        if (rotationDeg % 180 != 0) {
-            // A rotated rect overflows the near-square cover slightly; shrink to fit.
-            val s = min(tv.width, tv.height).toFloat() / max(tv.width, tv.height).toFloat()
-            m.postScale(s, s, cx, cy)
+        m.setScale(scale, scale)
+        m.postTranslate(dx, dy)
+        if (rotationDeg != 0) {
+            m.postRotate(rotationDeg.toFloat(), tv.width / 2f, tv.height / 2f)
         }
         tv.setTransform(m)
     }

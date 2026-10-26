@@ -71,8 +71,22 @@ class MirrorPermissionActivity : ComponentActivity() {
         }
     }
 
+    // vc62 SECOND-START DEFENSE: if the system still reuses
+    // this activity via onNewIntent (singleTop residue), re-launch
+    // the capture intent instead of showing a blank reused activity
+    // with no dialog. Normal path still goes through onCreate.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launchCapture()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        launchCapture()
+    }
+
+    private fun launchCapture() {
         val mpm = getSystemService(MediaProjectionManager::class.java)
         if (mpm == null) {
             Toast.makeText(this, "Thiết bị không hỗ trợ phản chiếu", Toast.LENGTH_SHORT).show()
