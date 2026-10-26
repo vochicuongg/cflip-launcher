@@ -1605,33 +1605,33 @@ object CoverControlCenterManager {
             val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
             val saverOn = pm?.isPowerSaveMode == true
             tileRowActive("Tiết kiệm pin", R.drawable.ic_cflip_battery, saverOn) {
+                // vc47 CLOSURE, not a cover fix: vc45/vc46 both
+                // tried a cover-first Settings launch and the
+                // user confirmed it never produced Settings on
+                // the cover in practice. Reasons, all verified:
+                // (1) PowerManager.setPowerSaveMode is system-only
+                // - a normal app cannot toggle saver directly;
+                // (2) Samsung's Battery Saver Settings is a main-
+                // display Settings activity and the system
+                // redirects it to main even when asked for cover;
+                // (3) Samsung's cover Quick Settings has no
+                // battery-saver tile to use instead; (4) 9Flip's
+                // battery element is display-only, not a toggle,
+                // so there is no mechanism to copy. The tile is
+                // therefore kept as an honest status tile + a
+                // main-settings shortcut: tapping it opens
+                // Battery Saver Settings on the MAIN display, so
+                // when the user unfolds, the setting is already
+                // there to toggle. The tile circle still shows
+                // the real saver state on every panel open.
                 hide()
-                val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                val coverOk = runCatching {
-                    val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                    ctx.startActivity(intent, opts)
-                    true
-                }.getOrDefault(false)
-                if (!coverOk) {
-                    runCatching {
-                        val appCtx = ctx.applicationContext
-                        val fallback = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        if (fallback.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(fallback)
-                        else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
-                    android.widget.Toast.makeText(ctx, "Cài đặt Tiết kiệm pin không mở được trên màn phụ, đã mở trên màn chính - mở máy ra để bật/tắt", android.widget.Toast.LENGTH_LONG).show()
-                } else {
-                    // vc46 honesty fix: startActivity succeeding
-                    // does NOT prove Settings actually appeared on
-                    // the cover - the system may silently redirect
-                    // Settings to the main display. vc45's toast
-                    // claimed cover success and misled when that
-                    // redirect happened. Now the toast says what is
-                    // verifiable: the request was sent, and what to
-                    // do if nothing appears on the cover.
-                    android.widget.Toast.makeText(ctx, "Đã gửi yêu cầu mở Cài đặt Tiết kiệm pin. Nếu vài giây nữa không thấy trên màn phụ thì hệ thống đã chuyển sang màn chính - mở máy ra để bật/tắt, mở lại panel để thấy trạng thái mới.", android.widget.Toast.LENGTH_LONG).show()
+                runCatching {
+                    val appCtx = ctx.applicationContext
+                    val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
+                    else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
+                android.widget.Toast.makeText(ctx, "Tiết kiệm pin không mở được trên màn phụ (Android chỉ cho app hệ thống bật/tắt, và Cài đặt Pin chỉ hiện trên màn chính). Đã mở Cài đặt Tiết kiệm pin trên màn chính - mở máy ra để bật/tắt, mở lại panel để thấy trạng thái mới.", android.widget.Toast.LENGTH_LONG).show()
             }
         }
         // vc36 DND toggle in place, like rotate: press once -> on,
@@ -1685,7 +1685,7 @@ object CoverControlCenterManager {
             help.visibility = View.GONE
             help.addView(title("Quay màn hình"))
             help.addView(TextView(ctx).apply {
-                text = "App quay của Samsung không mở được trực tiếp từ app thứ ba. Dùng trên màn phụ theo các bước:\n1) Bấm nút bên dưới để ẩn panel.\n2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ.\n3) Bấm tile Quay màn hình.\n4) Chọn âm thanh rồi bấm Bắt đầu.\nVideo lưu vào Gallery."
+                text = "App quay của Samsung không mở được trực tiếp từ app thứ ba, và 9Flip cũng KHÔNG có tính năng quay - không có cơ chế nào để copy. Chỉ có đường của Samsung: dùng trên màn phụ theo các bước:\n1) Bấm nút bên dưới để ẩn panel.\n2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ.\n3) Nếu trong Cài đặt nhanh màn phụ KHÔNG thấy tile Quay màn hình, bấm nút Sửa (biểu tượng bút chì) trong Cài đặt nhanh màn phụ để thêm tile Quay màn hình vào trước, rồi mới bấm nó.\n4) Bấm tile Quay màn hình, chọn âm thanh rồi bấm Bắt đầu.\nVideo lưu vào Gallery."
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
             help.addView(modernButton("Ẩn panel để vuốt Cài đặt nhanh màn phụ", true).apply {

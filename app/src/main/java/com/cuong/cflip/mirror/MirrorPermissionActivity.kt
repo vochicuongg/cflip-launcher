@@ -58,6 +58,19 @@ class MirrorPermissionActivity : ComponentActivity() {
             Toast.makeText(this, "Thiết bị không hỗ trợ phản chiếu", Toast.LENGTH_SHORT).show()
             finishAndRemoveTask(); return
         }
-        captureLauncher.launch(mpm.createScreenCaptureIntent())
+        // vc47 config intent (9Flip approach): on Android 14+
+        // the capture intent should be built from
+        // MediaProjectionConfig.createConfigForDefaultDisplay(),
+        // which explicitly says "capture the DEFAULT (main)
+        // display". The old no-config intent is kept as fallback
+        // for API < 34. This is the modern path Samsung's One UI
+        // 9 (Android 16+) expects for a mirror capture.
+        val captureIntent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val config = android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()
+            mpm.createScreenCaptureIntent(config)
+        } else {
+            mpm.createScreenCaptureIntent()
+        }
+        captureLauncher.launch(captureIntent)
     }
 }
