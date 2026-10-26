@@ -68,7 +68,7 @@ class MyAccessibilityService : AccessibilityService() {
     // 3 too soon after previous shot (1s interval), 4 invalid
     // display, 5 invalid window, 6 secure window.
     // vc47: soft system-style click, generated in code.
-    // 80ms sine burst at 2000Hz, decaying envelope, amplitude
+    // 150ms sine burst at 2000Hz, decaying envelope, amplitude
     // capped at 20% and scaled to current STREAM_SYSTEM volume.
     // This is deliberately NOT MediaActionSound (vc45 shutter,
     // fixed-volume and too loud) and NOT FX_KEY_CLICK (vc46,
@@ -83,11 +83,11 @@ class MyAccessibilityService : AccessibilityService() {
             val frac = (cur.toFloat() / max).coerceIn(0f, 1f)
             if (frac <= 0f) return@runCatching
             val sampleRate = 44100
-            val numSamples = sampleRate * 80 / 1000
-            val amplitude = (frac * 0.20f * Short.MAX_VALUE).toInt()
+            val numSamples = sampleRate * 150 / 1000
+            val amplitude = ((0.25f + 0.25f * frac) * Short.MAX_VALUE).toInt()
             val samples = ShortArray(numSamples) { i ->
                 val env = 1f - i.toFloat() / numSamples
-                (amplitude * env * kotlin.math.sin(2 * Math.PI * 2000 * i / sampleRate)).toInt().toShort()
+                (amplitude * env * kotlin.math.sin(2 * Math.PI * 1500 * i / sampleRate)).toInt().toShort()
             }
             val track = AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder()
@@ -102,7 +102,7 @@ class MyAccessibilityService : AccessibilityService() {
             track.write(samples, 0, samples.size)
             track.play()
             android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed({ runCatching { track.stop(); track.release() } }, 150)
+                .postDelayed({ runCatching { track.stop(); track.release() } }, 220)
         }
     }
 

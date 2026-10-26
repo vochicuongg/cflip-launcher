@@ -139,6 +139,29 @@ class ScreenMirrorService : Service() {
             Log.w(TAG, "No secondary display - nothing to mirror onto")
             stopSelf(); return
         }
+        // vc48 GATE (tunnel diagnosis): 9Flip refuses mirror when
+        // dual display is off, and CFlip must do the same. The
+        // vc47 photo (748x720, cover size) shows the cover
+        // mirroring ITSELF: when folded, the main display is OFF,
+        // so there is no main UI to mirror, and the capture ends
+        // up capturing the cover's own feed - each frame captures
+        // the previous frame and squishes it again, forming the
+        // stacked tunnel of stop buttons. Two guards, either one
+        // aborts before any overlay or virtual display is created:
+        // (1) main display must be STATE_ON; (2) the target display
+        // must be cover-sized (720x748 in either orientation) and
+        // must not be our own virtual display (name CFlipMirror).
+        // If either fails, stop without creating a loop.
+        val dmGate = getSystemService(DisplayManager::class.java)
+        val mainGate = dmGate?.getDisplay(Display.DEFAULT_DISPLAY)
+        val secMode = secondary.mode
+        val secW = secMode.physicalWidth; val secH = secMode.physicalHeight
+        val isCoverSized = (secW in 700..760 && secH in 700..760)
+        if (mainGate == null || mainGate.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
+            Log.w(TAG, "Mirror gate refused: mainState=${mainGate?.state} cover=${secW}x$secH name=${secondary.name}")
+            android.widget.Toast.makeText(applicationContext, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt, kh\u00f4ng ph\u1ea3n chi\u1ebfu khi g\u1eadp m\u00e1y.", android.widget.Toast.LENGTH_LONG).show()
+            stopSelf(); return
+        }
 
         cleanup() // in case of a restart, drop any previous session first
 
