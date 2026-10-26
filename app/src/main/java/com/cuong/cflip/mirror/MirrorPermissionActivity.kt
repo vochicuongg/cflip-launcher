@@ -275,11 +275,10 @@ class MirrorPermissionActivity : ComponentActivity() {
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
         // vc75 MAIN HOST: host-only instance on main skips dual +
-        // dialog entirely; it just stays resumed (1x1, KEEP) and
-        // polls MirrorState until mirror stops, then finishes.
-        // Its onDestroy (serviceStarted=false) will disable dual +
-        // restore bubble, which is the correct cleanup when mirror
-        // has stopped (service cleanup already did it, idempotent).
+        // dialog entirely; it just stays resumed (full-screen, KEEP)
+        // and polls dual until mirror stops, then finishes.
+        // Its onDestroy only resets mainHostLaunched (vc82: host never
+        // disables dual, service cleanup owns dual + bubble restore).
         if (intent?.getBooleanExtra("cflip_host_only", false) == true) {
             hostOnly = true
             // vc77 FULL-SCREEN HOST: vc76 early 1x1 host kept the
@@ -316,10 +315,21 @@ class MirrorPermissionActivity : ComponentActivity() {
     // recreation is safe: the new instance re-enables dual
     // ("dual already on" -> brief settle -> dialog).
     override fun onDestroy() {
-        // vc76: host finishing frees the next mirror attempt to
-        // launch a fresh host (otherwise flag would stay true and
-        // the second mirror would run without a host, like vc74).
-        if (hostOnly) mainHostLaunched = false
+        // vc82 HOST NEVER OWNS DUAL: before vc82, host onDestroy fell
+        // through to the !serviceStarted branch below (host never sets
+        // serviceStarted, never sets relaunchingOnCover), so ANY host
+        // death while dual was ON disabled dual — killing mirror
+        // before the service gate (vc81 pill dualOn=false, main OFF,
+        // cover ON, cover-sized: only dual failed). Host is a
+        // keep-alive, not the dual owner; only the cover instance
+        // (service not started, not relaunching) and service cleanup
+        // may disable dual. Host death only frees the next attempt
+        // to launch a fresh host.
+        if (hostOnly) {
+            mainHostLaunched = false
+            super.onDestroy()
+            return
+        }
         // vc69: relaunching on cover must NOT disable dual (the
         // new instance needs it) and must NOT restore the bubble
         // yet (mirror setup is still in progress).

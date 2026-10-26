@@ -219,7 +219,33 @@ class ScreenMirrorService : Service() {
         // vc62 feed success was open/flex posture (main ON), not
         // folded, which is why the old gate passed there.
         val dualOn = DualDisplayHelper.isDualOn()
-        if (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
+        // vc82 DUAL-ONLY RETRY: vc81 pill proved gate can fail on dual
+        // alone (dualOn=false, main OFF diagnostic only, cover ON,
+        // cover-sized, not self-capture) because dual was turned off
+        // between permission grant and service start (host death,
+        // posture change, or a failed disable/enable cycle). Giving up
+        // immediately wastes a granted permission. If ONLY dual fails,
+        // try enabling dual once more right here (synchronous transact,
+        // token set on success, no settle wait needed for the gate —
+        // gate checks token + cover state/size/name, not main ON).
+        // If re-enable restores dual, proceed; otherwise fall through
+        // to the original refusal (toast + disable + pill + stop).
+        // dualOn val stays false here, but on retry success the failure
+        // path below is skipped, and proceed code never uses dualOn.
+        var gateFailed = (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
+        if (gateFailed) {
+            val dualOnly = !dualOn && mainGate != null && secondary.state == Display.STATE_ON && isCoverSized && secondary.name != "CFlipMirror"
+            if (dualOnly) {
+                val reEnable = DualDisplayHelper.enable()
+                if (reEnable.isSuccess && DualDisplayHelper.isDualOn()) {
+                    Log.i(TAG, "Mirror gate dual retry succeeded, proceeding (vc82)")
+                    gateFailed = false
+                } else {
+                    Log.w(TAG, "Mirror gate dual retry failed: " + (reEnable.exceptionOrNull()?.message ?: "dual still off"))
+                }
+            }
+        }
+        if (gateFailed) {
             Log.w(TAG, "Mirror gate refused: dualOn=$dualOn mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             // vc54 MINIMAL SUCCESS FIX: vc51-vc53 toasted the refusal
             // only via applicationContext, which shows on the MAIN
