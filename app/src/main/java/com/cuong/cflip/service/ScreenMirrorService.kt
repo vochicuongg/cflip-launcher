@@ -565,7 +565,11 @@ class ScreenMirrorService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            // vc85 LOCK FIX: same show-over-lock + turn-on flags as
+            // MirrorPresentation, so the overlay fallback cannot be
+            // hidden behind the cover lock screen either.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
             // vc72: same orientation preserve as Presentation,

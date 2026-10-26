@@ -131,7 +131,23 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // vc85 LOCK FIX (PowerFlip lesson, own code): vc84 test showed
+        // the dialog fine, then the screen LOCKED immediately after
+        // agree — the feed window never got to stay visible. A
+        // Presentation on the cover must be allowed to show over the
+        // keyguard and to turn the cover on, exactly like PowerFlip's
+        // mirror Activity (setShowWhenLocked + setTurnScreenOn +
+        // KEEP_SCREEN_ON). Without these flags the cover falls back
+        // to its lock screen the moment the system dialog dismisses,
+        // and the feed sits behind lock. FLAG_SHOW_WHEN_LOCKED /
+        // FLAG_TURN_SCREEN_ON are deprecated for Activities (use the
+        // Activity setters there) but remain the only route for a
+        // Presentation window, which has no such setters.
+        window?.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         // vc72: carry the captured orientation into this window.
         if (windowOrientation != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
             window?.attributes?.let { attrs ->
