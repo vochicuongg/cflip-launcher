@@ -13,7 +13,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
@@ -203,7 +202,7 @@ class ScreenMirrorService : Service() {
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         val stopBtn = Button(coverCtx).apply {
             text = "Dừng phản chiếu"
-            setOnClickListener { cleanup(); stopSelf() }
+            setOnClickListener { cleanupAndDisableDual(); stopSelf() }
         }
         root.addView(stopBtn, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
