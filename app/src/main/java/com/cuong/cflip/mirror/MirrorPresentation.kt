@@ -163,8 +163,14 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // Tapping it stops ScreenMirrorService, which restores the
         // AssistiveTouch bubble (see its cleanup()).
         val root = android.widget.FrameLayout(context).apply { setBackgroundColor(0xFF000000.toInt()) }
+        // vc87 CRASH FIX (logcat 03:29, proven): TextureView does NOT
+        // support a background drawable — setBackgroundColor() throws
+        // UnsupportedOperationException on this device, which is why
+        // pres.show() always failed ("Presentation not shown") and
+        // the service then crashed in the overlay fallback too.
+        // The root FrameLayout above is already black, so the
+        // TextureView needs no background of its own.
         textureView = TextureView(context).apply {
-            setBackgroundColor(0xFF000000.toInt())
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                     val (bw, bh) = bufferSize()
