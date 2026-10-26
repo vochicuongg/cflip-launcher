@@ -78,7 +78,6 @@ object CoverControlCenterManager {
     }
     private val handler = Handler(Looper.getMainLooper())
     private var mediaTickRunnable: Runnable? = null
-    private var waveTickRunnable: Runnable? = null
     private var dismissRunnable: Runnable? = null
     // vc44 loading intro: shown instantly on double-tap while the
     // heavy panel builds on the next main-loop turn, so the user
@@ -229,8 +228,6 @@ object CoverControlCenterManager {
         dismissRunnable = null
         mediaTickRunnable?.let { handler.removeCallbacks(it) }
         mediaTickRunnable = null
-        waveTickRunnable?.let { handler.removeCallbacks(it) }
-        waveTickRunnable = null
         loadingRunnable?.let { handler.removeCallbacks(it) }
         loadingRunnable = null
         val lv = loadingView
@@ -809,36 +806,12 @@ object CoverControlCenterManager {
             }
         }
         mediaCard.setOnClickListener { openMediaDestination() }
-        // vc44 One UI 8.5-style music wave: 4 mint bars next to
-        // the Âm thanh title, animated while playing, flat when
-        // paused. Clean-room code drawing (no Samsung asset): bar
-        // heights follow a sine wave, updated by waveTick below.
-        val waveBars = mutableListOf<View>()
-        val waveView = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.BOTTOM
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(16))
-        }
-        for (i in 0 until 4) {
-            val bar = View(ctx).apply {
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                    cornerRadius = dp(2).toFloat()
-                    setColor(0xFF7FE3C0.toInt())
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(3), dp(5)).apply {
-                    setMargins(dp(1), 0, dp(1), 0)
-                    gravity = Gravity.BOTTOM
-                }
-            }
-            waveBars.add(bar); waveView.addView(bar)
-        }
-        mediaContent.addView(LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(title("Âm thanh"), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(waveView)
-        })
+        // vc107: small 4-bar wave next to the
+        // Âm thanh title (vc44) DELETED at Cường's
+        // request 27/10 - the timeline wave below
+        // (MediaProgressBar, 9Flip e4/i) is now the
+        // only wave in the media card.
+        mediaContent.addView(title("Âm thanh"))
         val mediaTitleView = TextView(ctx).apply {
             text = mediaInfo?.title ?: "Chưa có media đang phát"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
@@ -860,12 +833,16 @@ object CoverControlCenterManager {
         val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaProgress = MediaProgressBar(ctx).apply {
+            // vc107: 28dp, like 9Flip e4/i onMeasure
+            // (was 16dp in vc105, too short for a
+            // smooth wave with room above/below).
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(16))
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(28))
             // vc105: wave pattern seed = song title
             // hash, so the same song keeps the same
             // wave (decorative, not real audio data).
             waveformSeed = mediaInfo?.title?.hashCode() ?: 0
+            wavePlaying = mediaInfo?.isPlaying == true
             if (mediaInfo != null && mediaInfo.durationMs > 0) {
                 progress = mediaInfo.positionMs.toFloat() / mediaInfo.durationMs
             }
@@ -937,6 +914,7 @@ object CoverControlCenterManager {
             mediaTotal.text = fmtTime(cur.durationMs)
             mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
             mediaProgress.waveformSeed = cur.title.hashCode()
+            mediaProgress.wavePlaying = cur.isPlaying
             mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
             // vc40: swap album art when the track changes (reference
             // comparison avoids re-setting the same bitmap every second).
@@ -962,36 +940,6 @@ object CoverControlCenterManager {
         }
         mediaTickRunnable = mediaTick
         handler.postDelayed(mediaTick, 1000)
-        // vc44 wave animation: 120ms tick, sine heights while
-        // playing, flat 5dp bars when paused. Cancelled on hide
-        // via waveTickRunnable in hidePanelOnly, like mediaTick.
-        val waveTick = object : Runnable {
-            override fun run() {
-                if (view == null) {
-                    handler.postDelayed(this, 120)
-                    return
-                }
-                if (mediaCard.visibility == View.VISIBLE) {
-                    val playing = MediaState.current.value?.isPlaying == true
-                    if (playing) {
-                        val t = System.currentTimeMillis() / 130.0
-                        for ((idx, bar) in waveBars.withIndex()) {
-                            val h = (5 + 11 * (0.5 + 0.5 * kotlin.math.sin(t + idx * 1.1))).toInt()
-                            bar.layoutParams.height = dp(h)
-                            bar.requestLayout()
-                        }
-                    } else {
-                        for (bar in waveBars) {
-                            bar.layoutParams.height = dp(5)
-                            bar.requestLayout()
-                        }
-                    }
-                }
-                handler.postDelayed(this, 120)
-            }
-        }
-        waveTickRunnable = waveTick
-        handler.postDelayed(waveTick, 200)
         mediaContent.addView(mediaRow)
         mediaCard.addView(mediaContent, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
