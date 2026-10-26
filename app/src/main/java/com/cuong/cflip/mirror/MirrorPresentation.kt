@@ -70,20 +70,27 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // toggle (i4.d: crop flag + pan 0.5, fit = min scale centred),
     // rotate follow/lock = whether cover-rotation changes re-apply
     // content rotation (service listener) or freeze it.
-    var rotateFollow: Boolean = true
+    // vc90: follow/lock buttons are GONE (user: rotate did not
+    // work, replace with one tap = +90 degrees). The service
+    // keeps mirrorContentDeg; this Presentation only renders it.
     var onControl: ((String) -> Unit)? = null
-    private var followBtn: android.widget.Button? = null
-    private var lockBtn: android.widget.Button? = null
-    private var zoomCrop: Boolean = false
+    // vc90 ZOOM LEVELS (user: zoom in/out was "delay rat nang"):
+    // vc89 zoom was a toggle, so a second tap on Phogn to did
+    // NOTHING (already cropped) and looked like a hang. Now
+    // every tap steps: 0 = fit, 1 = crop-to-fill (9Flip i4.d),
+    // 2 = crop x1.3, 3 = crop x1.6, clamped. Each tap changes
+    // the transform immediately (no virtual-display recreate),
+    // so the response is visible on that tap.
+    private var zoomLevel: Int = 0
     private var panFraction: Float = 0.5f
-    fun setZoom(crop: Boolean) {
-        zoomCrop = crop
-        if (!crop) panFraction = 0.5f
-        applyTransform()
+    fun zoomIn() {
+        if (zoomLevel < 3) { zoomLevel++; applyTransform() }
     }
-    fun refreshControlButtons() {
-        followBtn?.alpha = if (rotateFollow) 1.0f else 0.55f
-        lockBtn?.alpha = if (rotateFollow) 0.55f else 1.0f
+    fun zoomOut() {
+        if (zoomLevel > 0) { zoomLevel--; applyTransform() }
+    }
+    fun hideStatus() {
+        statusView?.post { statusView?.visibility = android.view.View.GONE }
     }
     private data class FitParams(val fMin: Float, val sx: Float, val sy: Float, val dx: Float, val dy: Float, val scaledW: Float, val scaledH: Float)
     private fun fitParams(vw: Float, vh: Float): FitParams? {
@@ -92,7 +99,14 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         val f10 = vw / sw
         val f12 = vh / sh
         // 9Flip i4.a: fit = min, crop = f10 if source portrait else f12.
-        val fMin = if (zoomCrop) { if (sw <= sh) f10 else f12 } else min(f10, f12)
+        // vc90 levels: 0 = fit, 1 = crop fill, 2/3 = crop x1.3/x1.6.
+        val cropBase = if (sw <= sh) f10 else f12
+        val fMin = when (zoomLevel) {
+            0 -> min(f10, f12)
+            1 -> cropBase
+            2 -> cropBase * 1.3f
+            else -> cropBase * 1.6f
+        }
         val sx = fMin / f10
         val sy = fMin / f12
         val scaledW = vw * sx
@@ -197,7 +211,16 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     }
 
     private fun dispatchStreamSegment(toX: Float, toY: Float, willContinue: Boolean) {
-        val acc = MyAccessibilityService.instance ?: return
+        val acc = MyAccessibilityService.instance
+        if (acc == null) {
+            // vc90 TOUCH DIAGNOSTIC: never fail silently again.
+            // If the service is not bound, the user sees WHY on
+            // the feed itself instead of "cham khong an" with no
+            // reason. The vc90 config fix (canPerformGestures)
+            // needs a re-bind: toggle Accessibility off/on once.
+            setStatus("Cảm ứng cần bật Accessibility cho CFlip (Cài đặt > Trợ năng, tắt/bật lại 1 lần)")
+            return
+        }
         val path = Path()
         path.moveTo(streamLastX, streamLastY)
         if (toX != streamLastX || toY != streamLastY) path.lineTo(toX, toY)
@@ -213,6 +236,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         val gen = streamGeneration
         val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
+        hideStatus()
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
                 if (gen != streamGeneration) return
@@ -472,90 +496,74 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         root.addView(textureView, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
-        val stopBtn = android.widget.Button(context).apply {
-            text = "Dừng phản chiếu"
-            textSize = 12f
-            isAllCaps = false
-            setTextColor(0xFFFFFFFF.toInt())
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = 24f
-                setColor(android.graphics.Color.argb(180, 20, 20, 20))
-            }
-            setPadding(24, 12, 24, 12)
-            setOnClickListener {
-                runCatching {
-                    context.applicationContext.startService(android.content.Intent(
-                        context.applicationContext,
-                        com.cuong.cflip.service.ScreenMirrorService::class.java)
-                        .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
-                }
-            }
-        }
-        val status = android.widget.TextView(context).apply {
-            text = "Mirror: Presentation starting..."
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(0xFF000000.toInt())
-            textSize = 12f
-            setPadding(16, 16, 16, 16)
-        }
-        statusView = status
-        root.addView(status, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
-            setMargins(24, 24, 0, 0)
-        })
-        root.addView(stopBtn, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-            gravity = android.view.Gravity.TOP or android.view.Gravity.END
-            setMargins(0, 24, 24, 0)
-        })
-        // vc89 CONTROLS BAR: replaces the AssistiveTouch bubble on
-        // the mirror screen (user request 27/10). Four items, all
-        // above the TextureView so taps on them never reach main:
-        // Theo may (follow phone orientation), Khoa xoay (freeze),
-        // Phong to (crop-to-fill zoom), Thu nho (fit zoom out).
-        // The bar itself is not clickable, so touches between
-        // buttons still fall through to the feed below.
-        fun controlBtn(text: String, action: String): android.widget.Button {
-            return android.widget.Button(context).apply {
-                this.text = text
-                textSize = 12f
-                isAllCaps = false
+        // vc90 ICON COLUMN (user request): all controls as ONE
+        // vertical column of icons, placed at the RIGHT EDGE,
+        // OUTSIDE the mirrored feed in fit mode (the feed is a
+        // narrow centred strip, so the right black bar is free
+        // space - the column does not cover content there), with
+        // the STOP icon LAST. In crop-zoom mode the feed fills
+        // the width, so the small column sits on the feed edge
+        // instead - unavoidable, but still at the edge, not over
+        // the centre. Icons are large symbols on dark circles
+        // (no new drawable resources, code-only). Taps on an
+        // icon are consumed by that icon and never reach main.
+        // The old top-right stop button and bottom bar are gone.
+        fun iconBtn(symbol: String, action: String): android.widget.TextView {
+            return android.widget.TextView(context).apply {
+                text = symbol
+                textSize = 22f
                 setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                    cornerRadius = 24f
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
                     setColor(android.graphics.Color.argb(180, 20, 20, 20))
                 }
-                setPadding(24, 12, 24, 12)
+                setPadding(20, 20, 20, 20)
+                isClickable = true
                 setOnClickListener { onControl?.invoke(action) }
             }
         }
-        val bar = android.widget.LinearLayout(context).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
+        val column = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER
         }
-        val fb = controlBtn("Theo máy", "follow")
-        val lb = controlBtn("Khóa xoay", "lock")
-        val zi = controlBtn("Phóng to", "zoom_in")
-        val zo = controlBtn("Thu nhỏ", "zoom_out")
-        followBtn = fb; lockBtn = lb
-        for (b in listOf(fb, lb, zi, zo)) {
+        val icons = listOf(
+            iconBtn("\u21bb", "rotate"),
+            iconBtn("+", "zoom_in"),
+            iconBtn("\u2212", "zoom_out"),
+            android.widget.TextView(context).apply {
+                text = "\u25a0"
+                textSize = 20f
+                setTextColor(0xFFFFFFFF.toInt())
+                gravity = android.view.Gravity.CENTER
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(android.graphics.Color.argb(200, 180, 30, 30))
+                }
+                setPadding(20, 20, 20, 20)
+                isClickable = true
+                setOnClickListener {
+                    runCatching {
+                        context.applicationContext.startService(android.content.Intent(
+                            context.applicationContext,
+                            com.cuong.cflip.service.ScreenMirrorService::class.java)
+                            .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                    }
+                }
+            }
+        )
+        for (v in icons) {
             val lp = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(8, 0, 8, 0) }
-            bar.addView(b, lp)
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 10, 0, 10) }
+            column.addView(v, lp)
         }
-        root.addView(bar, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+        root.addView(column, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-            setMargins(0, 0, 0, 24)
+            gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            setMargins(0, 0, 12, 0)
         })
-        refreshControlButtons()
         setContentView(root)
     }
 
