@@ -86,6 +86,12 @@ class MirrorPermissionActivity : ComponentActivity() {
     // backed out, turn dual off" apart from "mirror just
     // started, do NOT turn dual off".
     private var serviceStarted = false
+    // vc69: true only while this instance is handing over to a
+    // fresh instance on the cover (reparented to main case).
+    // onDestroy must NOT disable dual then (the new instance
+    // needs it) and must NOT restore the bubble yet (mirror
+    // setup is still in progress).
+    private var relaunchingOnCover = false
 
     // vc67 HOST-BEFORE-DUAL (9Flip decompile, architecture only,
     // no copied code): 9Flip toggles dual INSIDE a 1x1
@@ -117,7 +123,24 @@ class MirrorPermissionActivity : ComponentActivity() {
         val settleMs = if (dualRes.getOrNull() == "dual already on") 500L else 2000L
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             if (!isFinishing) {
-                launchCapture()
+                // vc69: dual can reparent this activity from the
+                // cover to main. A dialog launched from main would
+                // appear on main (folded user sees nothing on the
+                // cover, bubble gone, cover unresponsive). If this
+                // activity is no longer on the cover, hand over to
+                // a fresh instance launched on the cover instead.
+                val cover = runCatching { com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay() }.getOrNull()
+                val myDisplayId = display?.displayId
+                if (cover != null && myDisplayId != null && myDisplayId != cover.displayId) {
+                    relaunchingOnCover = true
+                    val relaunch = android.content.Intent(this, MirrorPermissionActivity::class.java)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(cover.displayId).toBundle()
+                    runCatching { startActivity(relaunch, opts) }
+                    finishAndRemoveTask()
+                } else {
+                    launchCapture()
+                }
             }
         }, settleMs)
     }
@@ -135,6 +158,21 @@ class MirrorPermissionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // vc69 HOST WINDOW (9Flip host window flags, standard
+        // Android APIs only, no copied code): this activity has
+        // no UI of its own, so a normal full-screen window would
+        // block cover touches and hide bubble/panel below it while
+        // waiting for the dialog - the vc68 "no dialog, no
+        // bubble, cover unresponsive" trap. Make it a 1x1
+        // transparent NOT_TOUCH_MODAL window like 9Flip's dual
+        // host, so it stays alive to launch the dialog without
+        // blocking the cover underneath.
+        setFinishOnTouchOutside(false)
+        window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
+        window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        window?.setLayout(1, 1)
+        window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
         enableDualThenCapture()
     }
 
@@ -154,8 +192,20 @@ class MirrorPermissionActivity : ComponentActivity() {
     // recreation is safe: the new instance re-enables dual
     // ("dual already on" -> brief settle -> dialog).
     override fun onDestroy() {
-        if (!serviceStarted) {
+        // vc69: relaunching on cover must NOT disable dual (the
+        // new instance needs it) and must NOT restore the bubble
+        // yet (mirror setup is still in progress).
+        if (!serviceStarted && !relaunchingOnCover) {
             runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
+            // vc69: dual off alone does not bring the bubble back.
+            // Tell CoverForegroundService explicitly, like service
+            // cleanup does, so a failed/backed-out mirror never
+            // leaves the user with no AssistiveTouch and no cover UI.
+            runCatching {
+                applicationContext.startService(android.content.Intent(applicationContext, com.cuong.cflip.service.CoverForegroundService::class.java).apply {
+                    action = com.cuong.cflip.service.CoverForegroundService.ACTION_ROTATION_CHANGED
+                })
+            }
         }
         super.onDestroy()
     }
