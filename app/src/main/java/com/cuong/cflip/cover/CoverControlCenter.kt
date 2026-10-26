@@ -1578,7 +1578,19 @@ object CoverControlCenterManager {
                 showCoverMessage(ctx, display, "Dual ON - chờ 2s rồi mở xin quyền...")
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    // vc62 SECOND-START FIX: vc55-vc61 used SINGLE_TOP
+                    // + CLEAR_TOP to match 9Flip, but CFlip has no
+                    // state machine to block a duplicate launch like
+                    // 9Flip does. On the second tap, singleTop can
+                    // reuse the first permission activity (whose
+                    // capture dialog already finished) instead of
+                    // creating a fresh one, so onCreate never runs,
+                    // no new capture dialog appears, and the second
+                    // mirror looks dead. CLEAR_TASK forces a fresh
+                    // permission activity (mirror taskAffinity only)
+                    // on every tap. Manifest launchMode also goes
+                    // singleTop -> standard for the same reason.
                     val coverPermOk = runCatching {
                         val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
                         ctx.startActivity(permIntent, opts)
