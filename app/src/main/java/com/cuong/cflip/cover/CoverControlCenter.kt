@@ -65,6 +65,8 @@ object CoverControlCenterManager {
     private var wm: WindowManager? = null
     private var view: View? = null
     private var panelParams: WindowManager.LayoutParams? = null
+    private var shotFeedbackView: View? = null
+    private var shotFeedbackWm: WindowManager? = null
 
     /** Apply the panel's own brightness (3.2.0, 9Flip p6/t6 model). */
     fun applyPanelBrightness(appContext: Context) {
@@ -180,6 +182,38 @@ object CoverControlCenterManager {
 
     fun hide() {
         hidePanelOnly()
+    }
+
+    // vc48: transient cover message pill (screenshot feedback).
+    private fun showCoverMessage(display: Display, text: String) {
+        runCatching {
+            runCatching {
+                val v = shotFeedbackView; val w = shotFeedbackWm
+                if (v != null && w != null) w.removeView(v)
+            }
+            shotFeedbackView = null; shotFeedbackWm = null
+            val dctx = appContext.createDisplayContext(display)
+            val wm = dctx.getSystemService(WindowManager::class.java) ?: return@runCatching
+            val tv = TextView(dctx).apply {
+                this.text = text
+                textSize = 14f
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(0xE0000000.toInt())
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                gravity = Gravity.CENTER
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                android.graphics.PixelFormat.TRANSLUCENT).apply { gravity = Gravity.CENTER }
+            wm.addView(tv, params)
+            shotFeedbackView = tv; shotFeedbackWm = wm
+            handler.postDelayed({
+                runCatching { wm.removeView(tv) }
+                if (shotFeedbackView === tv) { shotFeedbackView = null; shotFeedbackWm = null }
+            }, 2500)
+        }
     }
 
     private fun hidePanelOnly() {
@@ -380,11 +414,6 @@ object CoverControlCenterManager {
         // cost. Now the apps grid builds only on first switch to tab 2.
         var buildAppsTab: (() -> Unit)? = null
         var buildNotifTab: (() -> Unit)? = null
-        // vc46 record help card: set by the control tab after the
-        // tile card, shown (instead of a 3.5s toast) when the
-        // recorder cannot be opened directly, so the user can
-        // actually read the cover-QS steps before hiding the panel.
-        var recordHelpCard: LinearLayout? = null
         fun selectTab(i: Int) {
             if (i == 1) buildNotifTab?.invoke()
             if (i == 2) buildAppsTab?.invoke()
@@ -1374,147 +1403,15 @@ object CoverControlCenterManager {
                 handler.postDelayed({
                     svc.takeScreenshotForDisplay(display.displayId) { ok, msg ->
                         if (ok) {
+                            showCoverMessage(display, "\u0110\u00e3 ch\u1ee5p m\u00e0n ph\u1ee5 \u2713\n" + msg)
                             android.widget.Toast.makeText(ctx, "Đã chụp màn phụ, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
                         } else {
+                            showCoverMessage(display, "Ch\u1ee5p th\u1ea5t b\u1ea1i: " + msg)
                             android.widget.Toast.makeText(ctx, "Chụp màn phụ thất bại ($msg). CFlip không chụp màn chính thay thế để khỏi nhầm ảnh - bấm lại sau 1 giây nếu mã là chụp quá nhanh.", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 }, 500)
             }
-        }
-        // vc42 record: no public intent starts Samsung's recorder.
-        // Try its packages first (if one has a launch intent, open
-        // it on the cover); otherwise open Quick Settings like before,
-        // but with a delay and a toast that says where to look if QS
-        // opened on the main display (folded, invisible from cover).
-        // vc44 record: vc42 used AppLauncher.launch, whose
-        // fallback opens on the MAIN display when the cover launch
-        // fails - again the reported "màn chính" bug. vc44 tries a
-        // cover-only launch for each Samsung recorder package and
-        // never falls back to main. Samsung's recorder has no
-        // public start intent (its tile lives in Samsung's own QS),
-        // and GLOBAL_ACTION_QUICK_SETTINGS always opens QS on the
-        // main display, so if no recorder activity opens, the tile
-        // no longer opens the wrong display - it tells the exact
-        // cover-native steps instead.
-        // vc45 record: vc44 only tried getLaunchIntentForPackage,
-        // which is null for Samsung's recorder (a system component
-        // with no launcher activity), so it always fell through to
-        // the manual toast. vc45 also tries every EXPORTED activity
-        // in the recorder packages explicitly on the cover display
-        // (public PackageManager query, no bypass): if Samsung
-        // exposes one, the tile now actually opens it. If none
-        // opens, the toast gives numbered cover-QS steps instead
-        // of a vague hint - Samsung's own docs list Screen
-        // recorder as a cover Quick Settings tile, so that path
-        // exists on the cover even though no app can start it.
-        tileRow("Quay màn hình", R.drawable.ic_cflip_record) {
-            val svc = MyAccessibilityService.instance
-            if (svc == null) {
-                android.widget.Toast.makeText(ctx, "Quay màn hình không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
-            } else {
-                // vc46: do NOT hide() up front any more - hiding
-                // first is why the help card could never be seen.
-                // Success path hides below; failure path leaves
-                // the panel open with the help card visible.
-                var openedRecorder = false
-                val recPkgs = listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")
-                for (pkg in recPkgs) {
-                    val intent = runCatching { ctx.packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
-                    if (intent != null) {
-                        val ok = runCatching {
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                            ctx.startActivity(intent, opts)
-                            true
-                        }.getOrDefault(false)
-                        if (ok) { openedRecorder = true; break }
-                    }
-                }
-                if (!openedRecorder) {
-                    for (pkg in recPkgs) {
-                        val pkgInfo = runCatching {
-                            @Suppress("DEPRECATION")
-                            ctx.packageManager.getPackageInfo(pkg, android.content.pm.PackageManager.GET_ACTIVITIES)
-                        }.getOrNull() ?: continue
-                        for (act in pkgInfo.activities ?: emptyArray()) {
-                            if (!act.exported) continue
-                            val ok = runCatching {
-                                val explicit = Intent().setClassName(pkg, act.name)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                                ctx.startActivity(explicit, opts)
-                                true
-                            }.getOrDefault(false)
-                            if (ok) { openedRecorder = true; break }
-                        }
-                        if (openedRecorder) break
-                    }
-                }
-                if (openedRecorder) {
-                    hide()
-                    android.widget.Toast.makeText(ctx, "Đã mở app quay của Samsung trên màn phụ", android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    // vc46: do NOT hide the panel into a disappearing
-                    // toast any more - vc45's long toast was gone in
-                    // ~3.5s, before the user could read 4 steps, so
-                    // record felt "still unusable". Show the steps
-                    // as a card that stays in the panel; the user
-                    // reads it, then taps its button to hide the
-                    // panel and swipe down on the cover. If the card
-                    // somehow is not built yet (should not happen -
-                    // it is built with the control tab), fall back
-                    // to the old toast so the user still gets steps.
-                    val card = recordHelpCard
-                    if (card != null) {
-                        card.visibility = View.VISIBLE
-                        android.widget.Toast.makeText(ctx, "Không mở được app quay trực tiếp - xem thẻ hướng dẫn trong panel", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Dùng trên màn phụ: 1) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ, 2) Bấm tile Quay màn hình, 3) Chọn âm thanh rồi Bắt đầu. Video lưu vào Gallery.", android.widget.Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }
-        var sortLabel: TextView? = null
-        val sortTile = tileWithLabel(R.drawable.ic_cflip_sort, "Sắp xếp ${when (store.load().sortMode) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}") {
-            val cur = store.load()
-            val next = (cur.sortMode + 1) % 3
-            store.save(cur.copy(sortMode = next))
-            sortLabel?.text = "Sắp xếp ${when (next) { 1 -> "Mở"; 2 -> "Cài"; else -> "A-Z" }}"
-        }
-        sortLabel = sortTile.second
-        grid.addView(sortTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
-        var colLabel: TextView? = null
-        val colTile = tileWithLabel(R.drawable.ic_cflip_columns, "Cột ${store.load().columns}") {
-            val cur = store.load()
-            val next = when (cur.columns) { 0 -> 3; 3 -> 4; 4 -> 5; 5 -> 6; else -> 0 }
-            store.save(cur.copy(columns = next))
-            colLabel?.text = "Cột $next"
-        }
-        colLabel = colTile.second
-        grid.addView(colTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
-        // vc39: Tên had the same captured-label bug as Rotate:
-        // the label was built once from showLabels, the click toggled
-        // the store but never rewrote the label, so repeated clicks
-        // looked dead. Now the label rewrites in place on every click.
-        run {
-            var nameTileRef: Pair<LinearLayout, TextView>? = null
-            val nameTile = tileWithLabel("Aa", if (store.load().showLabels) "Tên: Bật" else "Tên: Tắt", store.load().showLabels) {
-                val cur = store.load()
-                val nextOn = !cur.showLabels
-                store.save(cur.copy(showLabels = nextOn))
-                nameTileRef?.second?.text = if (nextOn) "Tên: Bật" else "Tên: Tắt"
-                nameTileRef?.second?.setTextColor(if (nextOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
-                val circle = nameTileRef?.first?.getChildAt(0) as? TextView
-                circle?.setTextColor(if (nextOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
-                    if (nextOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
-            }
-            nameTileRef = nameTile
-            grid.addView(nameTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
-        }
-        tileRow("Xóa ghim", R.drawable.ic_sec_close) {
-            ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE).edit().clear().apply()
         }
         tileRow("Phản chiếu", R.drawable.ic_sec_cast) {
             if (com.cuong.cflip.mirror.MirrorState.active) {
@@ -1533,6 +1430,12 @@ object CoverControlCenterManager {
                 // displayId); only if the system refuses a cover
                 // activity (Samsung blocks some cover activities)
                 // fall back to main + the unfold toast.
+                // vc48 GATE: mirror only when main display is ON.
+                val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON) {
+                    android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
+                    return@tileRow
+                }
                 hide()
                 val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY)
@@ -1586,54 +1489,7 @@ object CoverControlCenterManager {
             hide()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        // vc45 battery saver: vc44 always opened settings from
-        // applicationContext (main display) with a "mở máy ra"
-        // toast, so it felt unusable from the cover. Android does
-        // NOT let a third-party app toggle battery saver directly
-        // (PowerManager.setPowerSaveMode is system-only;
-        // setDynamicPowerSaveHint needs the OEM POWER_SAVER
-        // permission), so a direct in-place toggle like DND is
-        // impossible for CFlip - DND works only because CFlip holds
-        // Notification Policy Access, which has no battery
-        // equivalent. What vc45 CAN do: show the real state on the
-        // tile (mint when on, read via PowerManager.isPowerSaveMode
-        // at every panel build) and try to open the Battery Saver
-        // settings ON THE COVER first, falling back to main only
-        // if the cover dispatch fails, with a toast that says
-        // where it actually opened.
-        run {
-            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-            val saverOn = pm?.isPowerSaveMode == true
-            tileRowActive("Tiết kiệm pin", R.drawable.ic_cflip_battery, saverOn) {
-                // vc47 CLOSURE, not a cover fix: vc45/vc46 both
-                // tried a cover-first Settings launch and the
-                // user confirmed it never produced Settings on
-                // the cover in practice. Reasons, all verified:
-                // (1) PowerManager.setPowerSaveMode is system-only
-                // - a normal app cannot toggle saver directly;
-                // (2) Samsung's Battery Saver Settings is a main-
-                // display Settings activity and the system
-                // redirects it to main even when asked for cover;
-                // (3) Samsung's cover Quick Settings has no
-                // battery-saver tile to use instead; (4) 9Flip's
-                // battery element is display-only, not a toggle,
-                // so there is no mechanism to copy. The tile is
-                // therefore kept as an honest status tile + a
-                // main-settings shortcut: tapping it opens
-                // Battery Saver Settings on the MAIN display, so
-                // when the user unfolds, the setting is already
-                // there to toggle. The tile circle still shows
-                // the real saver state on every panel open.
-                hide()
-                runCatching {
-                    val appCtx = ctx.applicationContext
-                    val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
-                    else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }
-                android.widget.Toast.makeText(ctx, "Tiết kiệm pin không mở được trên màn phụ (Android chỉ cho app hệ thống bật/tắt, và Cài đặt Pin chỉ hiện trên màn chính). Đã mở Cài đặt Tiết kiệm pin trên màn chính - mở máy ra để bật/tắt, mở lại panel để thấy trạng thái mới.", android.widget.Toast.LENGTH_LONG).show()
-            }
-        }
+        // vc48 REMOVED by user request: Battery Saver tile and Screen Record tile are gone.
         // vc36 DND toggle in place, like rotate: press once -> on,
         // press again -> off, and the tile itself changes (moon filled
         // + mint circle when on, moon outline + dark circle when off).
@@ -1675,28 +1531,6 @@ object CoverControlCenterManager {
             gravity = Gravity.CENTER_HORIZONTAL
         })
         controlContent.addView(tileCard)
-        // vc46 record help card (initially GONE, shown by the
-        // record tile on failure, see above). Steps are Samsung's
-        // cover-QS path: cover Quick Settings lists Screen
-        // recorder as a built-in tile, so this path exists even
-        // though no app can start the recorder directly.
-        run {
-            val help = card()
-            help.visibility = View.GONE
-            help.addView(title("Quay màn hình"))
-            help.addView(TextView(ctx).apply {
-                text = "App quay của Samsung không mở được trực tiếp từ app thứ ba, và 9Flip cũng KHÔNG có tính năng quay - không có cơ chế nào để copy. Chỉ có đường của Samsung: dùng trên màn phụ theo các bước:\n1) Bấm nút bên dưới để ẩn panel.\n2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ.\n3) Nếu trong Cài đặt nhanh màn phụ KHÔNG thấy tile Quay màn hình, bấm nút Sửa (biểu tượng bút chì) trong Cài đặt nhanh màn phụ để thêm tile Quay màn hình vào trước, rồi mới bấm nó.\n4) Bấm tile Quay màn hình, chọn âm thanh rồi bấm Bắt đầu.\nVideo lưu vào Gallery."
-                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-            })
-            help.addView(modernButton("Ẩn panel để vuốt Cài đặt nhanh màn phụ", true).apply {
-                setOnClickListener {
-                    help.visibility = View.GONE
-                    hide()
-                }
-            })
-            recordHelpCard = help
-            controlContent.addView(help)
-        }
         // 3.6.0 order: Media first, Brightness second, Function island
         // third, Widget last. Widget was built first but is added here.
         widgetCardDeferred?.let { controlContent.addView(it) }
