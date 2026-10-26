@@ -274,6 +274,146 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var touchTotalViewMove = 0f
     private var touchLiveStarted = false
     private var touchLastUpMs = 0L
+    // vc104 9FLIP-EXACT TOUCH (u2/f4, user chose 9Flip
+    // 27/10, decompiled again for this build):
+    // u2 fields, own names: slop = scaledTouchSlop
+    // (view px), doubleTapTimeout, longPressTimeout
+    // from ViewConfiguration; k = touch valid (mapped
+    // point != null), l = multi-touch flag,
+    // p = long-press flag, s = live running,
+    // q = double-tap candidate. DOWN does NOT
+    // dispatch. MOVE starts live ONLY after total
+    // view movement > slop, with the FIRST list
+    // point (f4.b). UP: live -> finalize (f4.n);
+    // not live + long-press -> no tap, lastUp=0;
+    // not live + double-tap candidate + total >
+    // slop + list>=2 -> k4 replay (hold stroke
+    // timeout+80 willContinue, then 8-point chunks
+    // f4.c); not live + total <= slop -> tap 42ms
+    // moveTo-only (f4.v); not live + list>=2 ->
+    // one Path, duration clamp(dist/2.4,120,650)
+    // (f4.u). Long-press runnable (a4.a case 8):
+    // if valid, not multi, total <= slop, first
+    // point exists -> set long-press flag, haptic
+    // (omitted in CFlip, no vibrator path here),
+    // and if not live dispatch t() (moveTo first,
+    // duration timeout+80, willContinue=false).
+    // Deviation, documented: u2 UP with long-press
+    // flag alone drops a drag after long-press.
+    // vc104 keeps u2 for that case (no drag
+    // replay after a timeout long-press), because
+    // the user asked for 9Flip exactly, and a
+    // replay after lift would not be a live
+    // long-press drag anyway. Long-press drag
+    // that works in 9Flip is the double-tap drag
+    // replay (k4), which vc104 implements below.
+    private var touchSlopView = 0f
+    private var touchDoubleTapCandidate = false
+    private var touchLongPressFlag = false
+    private var touchMultiFlag = false
+    private var touchReplayMode = false
+    // vc104 GLOBAL PREPARED QUEUE (9Flip f4.m/i):
+    // prepared gestures (tap, drag, long-press,
+    // k4 hold is NOT queued, it is multi-segment)
+    // must never overlap a live stream or another
+    // prepared gesture. Queue max 12, drop oldest
+    // if full, like f4.m dropping a non-protected
+    // queued gesture. Live segments are NOT queued
+    // here - they use the pending-point mechanism
+    // (streamPendingX/Y + dispatchNextChunk).
+    private val touchPreparedQueue = ArrayDeque<GestureDescription>()
+    private var touchPreparedInFlight = false
+    private val touchLongPressRunnable: Runnable = Runnable {
+        if (!touchActive || touchMultiFlag || touchLiveStarted) return@Runnable
+        if (touchTotalViewMove > touchSlopView) return@Runnable
+        val first = touchPointList.firstOrNull() ?: return@Runnable
+        touchLongPressFlag = true
+        // f4.t: moveTo first, timeout+80, willContinue=false
+        val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+        val path = Path(); path.moveTo(first.first, first.second)
+        val gesture = GestureDescription.Builder().setDisplayId(0)
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
+            .build()
+        dispatchPreparedGesture(gesture)
+    }
+    private fun dispatchPreparedGesture(gesture: GestureDescription) {
+        val acc = MyAccessibilityService.instance ?: return
+        // Wait for a live stream to finish first:
+        // a prepared gesture overlapping an open
+        // live stroke would be rejected or would
+        // appear as a second finger on main.
+        if (streamStroke != null || streamInFlight || touchPreparedInFlight) {
+            if (touchPreparedQueue.size >= 12) touchPreparedQueue.removeFirst()
+            touchPreparedQueue.addLast(gesture)
+            return
+        }
+        touchPreparedInFlight = true
+        val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                touchPreparedInFlight = false
+                dispatchNextPrepared()
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                touchPreparedInFlight = false
+                dispatchNextPrepared()
+            }
+        }, gestureHandler)
+        if (!ok) {
+            touchPreparedInFlight = false
+            dispatchNextPrepared()
+        }
+    }
+    private fun dispatchNextPrepared() {
+        if (touchPreparedInFlight) return
+        if (streamStroke != null || streamInFlight) return
+        val next = touchPreparedQueue.removeFirstOrNull() ?: return
+        dispatchPreparedGesture(next)
+    }
+    // vc104 k4 REPLAY (9Flip k4.a, for double-tap
+    // drag on UP): hold stroke first, then chunks.
+    // Hold: moveTo first, duration timeout+80,
+    // willContinue=true. Chunks: remaining list
+    // points, 8 per chunk, duration n*22 (f4.c),
+    // last chunk willContinue=false. Uses
+    // streamStroke so chunks continue the hold.
+    private fun dispatchK4Replay() {
+        val acc = MyAccessibilityService.instance ?: return
+        if (touchPointList.size < 2) return
+        val first = touchPointList.first()
+        val remaining = touchPointList.drop(1)
+        val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+        val holdPath = Path(); holdPath.moveTo(first.first, first.second)
+        val holdStroke = GestureDescription.StrokeDescription(holdPath, 0L, timeout + 80L, true)
+        streamStroke = holdStroke
+        streamLastX = first.first; streamLastY = first.second
+        streamInFlight = true
+        touchReplayMode = true
+        streamPendingFinal = true
+        moveChunkPoints.clear()
+        remaining.forEach { moveChunkPoints.addLast(it) }
+        val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(holdStroke).build()
+        val gen = streamGeneration
+        val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                dispatchNextChunk()
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                streamStroke = null
+                touchReplayMode = false
+                moveChunkPoints.clear()
+            }
+        }, gestureHandler)
+        if (!ok) {
+            streamInFlight = false
+            streamStroke = null
+            touchReplayMode = false
+            moveChunkPoints.clear()
+        }
+    }
     // vc97 TOUCH REVERT (vc96 queue made it WORSE):
     // vc96 queued up to 12 points and dispatched them in
     // order, each 52ms + callback, so a fast swipe lagged
@@ -392,12 +532,19 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 streamInFlight = false
                 if (isFinalSegment) {
                     streamStroke = null
+                    touchReplayMode = false
                     val pinch = pinchPending
                     pinchPending = null
                     if (pinch != null) {
                         val a2 = MyAccessibilityService.instance
                         if (a2 != null) a2.dispatchGesture(pinch, null, gestureHandler)
                     }
+                    // vc104: a prepared gesture queued
+                    // during live (rare, e.g. long-press
+                    // runnable racing live start) now
+                    // drains, since the live stroke is
+                    // closed and no gesture is in flight.
+                    dispatchNextPrepared()
                     return
                 }
                 onStreamSegmentDone()
@@ -412,6 +559,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 streamPendingY = null
                 streamPendingFinal = false
                 moveChunkPoints.clear()
+                touchReplayMode = false
                 pinchPending = null
             }
         }, gestureHandler)
@@ -456,6 +604,16 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 streamPendingFinal = false
                 dispatchStreamSegment(touchLastX, touchLastY, false)
             }
+            return
+        }
+        if (touchReplayMode) {
+            val chunk = mutableListOf<Pair<Float, Float>>()
+            while (chunk.size < 8 && moveChunkPoints.isNotEmpty()) {
+                chunk.add(moveChunkPoints.removeFirst())
+            }
+            val isFinal = streamPendingFinal && moveChunkPoints.isEmpty()
+            if (isFinal) streamPendingFinal = false
+            dispatchStreamChunk(chunk, !isFinal)
             return
         }
         val last = moveChunkPoints.last()
@@ -516,9 +674,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             val path = Path()
             path.moveTo(pt.first, pt.second)
             val gesture = GestureDescription.Builder().setDisplayId(0)
-                .addStroke(GestureDescription.StrokeDescription(path, 0L, 50L))
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
                 .build()
-            acc.dispatchGesture(gesture, null, gestureHandler)
+            // vc104: 9Flip tap is 42ms (f4.v), not
+            // PowerFlip 50ms (vc101). Via prepared
+            // queue so it never overlaps a live stream.
+            dispatchPreparedGesture(gesture)
             return
         }
         // Drag/swipe: one Path from the whole list,
@@ -540,7 +701,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         val gesture = GestureDescription.Builder().setDisplayId(0)
             .addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
             .build()
-        acc.dispatchGesture(gesture, null, gestureHandler)
+        dispatchPreparedGesture(gesture)
     }
 
     private fun buildPinchGesture(durationMs: Long): GestureDescription {
@@ -633,6 +794,30 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        // vc104 u2 DOWN: parent must not
+                        // steal the touch, then reset
+                        // (u2 a(): if live running,
+                        // finalize it first), map the
+                        // point (g5: null outside feed
+                        // rect -> touch invalid, return
+                        // false), record double-tap
+                        // candidate, list=[down],
+                        // post long-press runnable.
+                        // NO dispatch here - live
+                        // starts only after slop.
+                        runCatching { textureView.parent?.requestDisallowInterceptTouchEvent(true) }
+                        // Note: u2 a() finalizes a previous
+                        // live on DOWN, but CFlip has no
+                        // global gesture queue for live
+                        // segments, so finalizing here
+                        // and then resetting streamStroke
+                        // would turn the final segment
+                        // into a new stroke (or drop it
+                        // if queued). Previous live is
+                        // already finalized by UP /
+                        // CANCEL / POINTER_DOWN in
+                        // normal sequences, so DOWN
+                        // just resets, like vc102/103.
                         val main = mirrorViewToMain(event.x, event.y) ?: return@setOnTouchListener false
                         touchStartX = main.first; touchStartY = main.second
                         touchLastX = main.first; touchLastY = main.second
@@ -641,6 +826,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         touchLastViewX = event.x; touchLastViewY = event.y
                         touchTotalViewMove = 0f
                         touchLiveStarted = false
+                        touchSlopView = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+                        val dt = event.eventTime - touchLastUpMs
+                        touchDoubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
+                        touchLongPressFlag = false
+                        touchMultiFlag = false
+                        touchReplayMode = false
                         touchPointList.clear()
                         touchPointList.add(Pair(main.first, main.second))
                         touchActive = true
@@ -654,13 +845,28 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         moveChunkPoints.clear()
                         streamGeneration++
                         hideStatus()
-                        startTouchLoop()
-                        queueStreamSegment(main.first, main.second, false)
+                        gestureHandler.removeCallbacks(touchLongPressRunnable)
+                        gestureHandler.postDelayed(touchLongPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                         true
                     }
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         if (!touchActive || pinchActive) return@setOnTouchListener true
                         if (event.pointerCount < 2) return@setOnTouchListener true
+                        // vc104 u2 POINTER_DOWN: cancel
+                        // long-press, set multi flag,
+                        // finalize live if running.
+                        // Pinch itself is NOT a 9Flip
+                        // feed feature (feed u2 is
+                        // single-pointer; 9Flip multi
+                        // is trackpad y4, not feed) -
+                        // CFlip keeps its prepared
+                        // pinch as an extra, after
+                        // cancelling the single live
+                        // stream exactly as u2 does.
+                        gestureHandler.removeCallbacks(touchLongPressRunnable)
+                        touchMultiFlag = true
+                        touchLongPressFlag = false
+                        touchDoubleTapCandidate = false
                         val p0 = mirrorViewToMain(event.getX(0), event.getY(0))
                         val p1 = mirrorViewToMain(event.getX(1), event.getY(1))
                         if (p0 == null || p1 == null) return@setOnTouchListener true
@@ -684,20 +890,36 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             }
                             true
                         } else {
-                            // u2: total movement in VIEW
-                            // coordinates, accumulated, not
-                            // per-event main distance.
+                            // vc104 u2 MOVE, single
+                            // pointer only, not multi:
+                            // total view movement
+                            // accumulated; > slop
+                            // cancels long-press;
+                            // live starts ONLY after
+                            // slop, with the FIRST
+                            // list point (f4.b), then
+                            // pending = latest point
+                            // (f4.o). Long-press flag
+                            // blocks live start, like u2.
+                            if (touchMultiFlag || event.pointerCount != 1) return@setOnTouchListener true
                             touchTotalViewMove += kotlin.math.hypot(event.x - touchLastViewX, event.y - touchLastViewY)
                             touchLastViewX = event.x; touchLastViewY = event.y
+                            if (touchTotalViewMove > touchSlopView) {
+                                gestureHandler.removeCallbacks(touchLongPressRunnable)
+                            }
                             val main = mirrorViewToMain(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
-                                // List cap 96, remove index 1
-                                // (keep DOWN point at 0, like u2).
                                 if (touchPointList.size >= 96) touchPointList.removeAt(1)
                                 touchPointList.add(Pair(main.first, main.second))
-                                touchLiveStarted = true
-                                queueStreamSegment(main.first, main.second, false)
+                                if (!touchLiveStarted && !touchLongPressFlag && touchTotalViewMove > touchSlopView) {
+                                    touchLiveStarted = true
+                                    startTouchLoop()
+                                    val first = touchPointList.first()
+                                    queueStreamSegment(first.first, first.second, false)
+                                } else if (touchLiveStarted) {
+                                    queueStreamSegment(main.first, main.second, false)
+                                }
                             }
                             true
                         }
@@ -706,6 +928,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         if (!pinchActive) return@setOnTouchListener true
                         pinchActive = false
                         touchActive = false
+                        stopTouchLoop()
                         val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
                         endPinch(durationMs)
                         true
@@ -719,39 +942,90 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
                             endPinch(durationMs)
                         } else {
-                            touchActive = false
+                            // vc104 u2 UP, exact order:
+                            // remove long-press, then
+                            // live -> finalize (f4.n);
+                            // not live + long-press ->
+                            // lastUp=0, no tap;
+                            // not live + double-tap
+                            // candidate + total > slop
+                            // + list>=2 -> k4 replay;
+                            // not live + total <= slop
+                            // -> tap 42ms (f4.v);
+                            // not live + list>=2 ->
+                            // one Path, dist/2.4
+                            // clamp 120-650 (f4.u);
+                            // list<2 -> tap last point.
+                            gestureHandler.removeCallbacks(touchLongPressRunnable)
                             val main = mirrorViewToMain(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
                                 if (touchPointList.size >= 96) touchPointList.removeAt(1)
                                 touchPointList.add(Pair(main.first, main.second))
                             }
-                            if (!touchLiveStarted) {
-                                // u2 UP fallback: live never
-                                // started, so deliver the
-                                // whole touch as one gesture.
-                                dispatchU2Fallback()
-                            } else {
+                            if (touchLiveStarted) {
                                 queueStreamSegment(touchLastX, touchLastY, true)
+                                if (touchLongPressFlag || touchTotalViewMove > touchSlopView) {
+                                    touchLastUpMs = 0L
+                                } else {
+                                    touchLastUpMs = event.eventTime
+                                }
+                                if (moveChunkPoints.isNotEmpty() && !streamInFlight) dispatchNextChunk()
+                            } else if (touchLongPressFlag) {
+                                touchLastUpMs = 0L
+                            } else if (touchDoubleTapCandidate && touchTotalViewMove > touchSlopView && touchPointList.size >= 2) {
+                                dispatchK4Replay()
+                                touchLastUpMs = 0L
+                            } else if (touchTotalViewMove <= touchSlopView) {
+                                val pt = touchPointList.lastOrNull()
+                                if (pt != null) {
+                                    val path = Path(); path.moveTo(pt.first, pt.second)
+                                    val gesture = GestureDescription.Builder().setDisplayId(0)
+                                        .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                                        .build()
+                                    dispatchPreparedGesture(gesture)
+                                }
+                                touchLastUpMs = event.eventTime
+                            } else if (touchPointList.size >= 2) {
+                                dispatchU2Fallback()
+                                touchLastUpMs = 0L
+                            } else {
+                                val pt = touchPointList.lastOrNull()
+                                if (pt != null) {
+                                    val path = Path(); path.moveTo(pt.first, pt.second)
+                                    val gesture = GestureDescription.Builder().setDisplayId(0)
+                                        .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                                        .build()
+                                    dispatchPreparedGesture(gesture)
+                                }
+                                touchLastUpMs = event.eventTime
                             }
-                            touchLastUpMs = event.eventTime
-                            // Final segment is queued
-                            // above; loop stops now so it
-                            // cannot re-dispatch after UP.
-                            // If a final chunk is still
-                            // queued and not in flight,
-                            // dispatch it now (loop off).
-                            if (moveChunkPoints.isNotEmpty() && !streamInFlight) dispatchNextChunk()
+                            touchActive = false
+                            touchLiveStarted = false
+                            touchLongPressFlag = false
+                            touchMultiFlag = false
+                            touchDoubleTapCandidate = false
+                            touchTotalViewMove = 0f
+                            touchPointList.clear()
                             stopTouchLoop()
                         }
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
+                        // vc104 u2 a(): if live, finalize
+                        // with cancel (final segment),
+                        // then clear all state.
+                        gestureHandler.removeCallbacks(touchLongPressRunnable)
                         if (touchActive && !pinchActive) {
                             if (touchLiveStarted) queueStreamSegment(touchLastX, touchLastY, true)
                         }
                         touchActive = false
                         pinchActive = false
+                        touchLiveStarted = false
+                        touchLongPressFlag = false
+                        touchMultiFlag = false
+                        touchDoubleTapCandidate = false
+                        touchTotalViewMove = 0f
                         touchPointList.clear()
                         stopTouchLoop()
                         true
