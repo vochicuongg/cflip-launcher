@@ -63,6 +63,19 @@ class MirrorPermissionActivity : ComponentActivity() {
                 putExtra(ScreenMirrorService.EXTRA_RESULT_DATA, data)
             }
             ContextCompat.startForegroundService(this, start)
+            // vc86 MAIN HOST: launch a 1x1 host on MAIN (display 0)
+            // right after grant, before the bridge finishes this
+            // cover instance. Without any activity on main, a folded
+            // main display sleeps and locks immediately after agree
+            // (vc85 test, device unlocked before tap), leaving no
+            // live main UI for AUTO_MIRROR to capture. Failure is
+            // ignored: mirror tries without a main host, like vc76.
+            runCatching {
+                val host = Intent(this, MainHostActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(0).toBundle()
+                startActivity(host, opts)
+            }
             // vc85 BRIDGE (vc84 lock gap): vc84 finished this activity
             // the instant grant arrived, leaving a windowless gap on
             // the cover between dialog dismiss and Presentation.show()
