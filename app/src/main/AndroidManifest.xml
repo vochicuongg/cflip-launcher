@@ -71,6 +71,21 @@
             android:taskAffinity="com.cuong.cflip.dualhost"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- vc86: main-side host for mirror (9Flip host-on-main pattern).
+             Launched by MirrorPermissionActivity on display 0 right
+             after grant; keeps the folded main display awake for
+             AUTO_MIRROR capture. 1x1 transparent, never disables dual
+             on death, finishes when MirrorState stops. -->
+        <activity
+            android:name=".mirror.MainHostActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.mainhost"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Keeps cover-related work alive while the phone is folded -->
         <service
             android:name=".service.CoverForegroundService"
