@@ -54,7 +54,52 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var statusView: android.widget.TextView? = null
     fun setStatus(text: String) {
         val v = statusView ?: return
-        v.post { v.text = text }
+        v.post {
+            v.text = text
+            v.visibility = android.view.View.VISIBLE
+            // vc89 NOTIFICATION FIX: the diagnostic status used to
+            // sit over the feed forever (vc88 screenshot). Once the
+            // feed is confirmed OK, hide it after 3s.
+            if (text.contains("virtual display OK")) {
+                v.postDelayed({ v.visibility = android.view.View.GONE }, 3000)
+            }
+        }
+    }
+
+    // vc89 MIRROR CONTROLS (9Flip h5, own code): zoom = crop-to-fill
+    // toggle (i4.d: crop flag + pan 0.5, fit = min scale centred),
+    // rotate follow/lock = whether cover-rotation changes re-apply
+    // content rotation (service listener) or freeze it.
+    var rotateFollow: Boolean = true
+    var onControl: ((String) -> Unit)? = null
+    private var followBtn: android.widget.Button? = null
+    private var lockBtn: android.widget.Button? = null
+    private var zoomCrop: Boolean = false
+    private var panFraction: Float = 0.5f
+    fun setZoom(crop: Boolean) {
+        zoomCrop = crop
+        if (!crop) panFraction = 0.5f
+        applyTransform()
+    }
+    fun refreshControlButtons() {
+        followBtn?.alpha = if (rotateFollow) 1.0f else 0.55f
+        lockBtn?.alpha = if (rotateFollow) 0.55f else 1.0f
+    }
+    private data class FitParams(val fMin: Float, val sx: Float, val sy: Float, val dx: Float, val dy: Float, val scaledW: Float, val scaledH: Float)
+    private fun fitParams(vw: Float, vh: Float): FitParams? {
+        val sw = sourceW; val sh = sourceH
+        if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
+        val f10 = vw / sw
+        val f12 = vh / sh
+        // 9Flip i4.a: fit = min, crop = f10 if source portrait else f12.
+        val fMin = if (zoomCrop) { if (sw <= sh) f10 else f12 } else min(f10, f12)
+        val sx = fMin / f10
+        val sy = fMin / f12
+        val scaledW = vw * sx
+        val scaledH = vh * sy
+        val dx = if (scaledW > vw) -(scaledW - vw) * panFraction else (vw - scaledW) / 2f
+        val dy = if (scaledH > vh) -(scaledH - vh) * panFraction else (vh - scaledH) / 2f
+        return FitParams(fMin, sx, sy, dx, dy, scaledW, scaledH)
     }
 
     /** Called once the drawing surface exists; the service points the virtual display at it. */
@@ -131,16 +176,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         val vw = textureView.width.toFloat()
         val vh = textureView.height.toFloat()
         val sw = sourceW; val sh = sourceH
-        if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
-        val f10 = vw / sw
-        val f12 = vh / sh
-        val fMin = min(f10, f12)
-        val sx = fMin / f10
-        val sy = fMin / f12
-        val dx = (vw - vw * sx) / 2f
-        val dy = (vh - vh * sy) / 2f
-        val scaledW = vw * sx
-        val scaledH = vh * sy
+        val fp = fitParams(vw, vh) ?: return null
+        val fMin = fp.fMin
+        val dx = fp.dx
+        val dy = fp.dy
+        val scaledW = fp.scaledW
+        val scaledH = fp.scaledH
         val cx = vw / 2f
         val cy = vh / 2f
         val (ux, uy) = when (rotationDeg) {
@@ -170,11 +211,27 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         streamLastY = toY
         streamInFlight = true
         val gen = streamGeneration
+        val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
                 if (gen != streamGeneration) return
                 streamInFlight = false
+                // vc89 TOUCH BUG (vc88 test: touches did nothing):
+                // the final segment's completion must NOT call
+                // onStreamSegmentDone, or the final point queued
+                // by UP would be discarded and the finger would
+                // stay down on main forever (tap never lands).
+                if (isFinalSegment) {
+                    streamStroke = null
+                    val pinch = pinchPending
+                    pinchPending = null
+                    if (pinch != null) {
+                        val a2 = MyAccessibilityService.instance
+                        if (a2 != null) a2.dispatchGesture(pinch, null, null)
+                    }
+                    return
+                }
                 onStreamSegmentDone()
             }
             override fun onCancelled(g: GestureDescription?) {
@@ -202,13 +259,15 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     private fun onStreamSegmentDone() {
         if (streamPendingFinal) {
+            val px = streamPendingX
+            val py = streamPendingY
             streamPendingFinal = false
-            streamStroke = null
-            val pinch = pinchPending
-            pinchPending = null
-            if (pinch != null) {
-                val acc = MyAccessibilityService.instance
-                if (acc != null) acc.dispatchGesture(pinch, null, null)
+            streamPendingX = null
+            streamPendingY = null
+            if (px != null && py != null) {
+                dispatchStreamSegment(px, py, false)
+            } else {
+                streamStroke = null
             }
             return
         }
@@ -453,6 +512,50 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             gravity = android.view.Gravity.TOP or android.view.Gravity.END
             setMargins(0, 24, 24, 0)
         })
+        // vc89 CONTROLS BAR: replaces the AssistiveTouch bubble on
+        // the mirror screen (user request 27/10). Four items, all
+        // above the TextureView so taps on them never reach main:
+        // Theo may (follow phone orientation), Khoa xoay (freeze),
+        // Phong to (crop-to-fill zoom), Thu nho (fit zoom out).
+        // The bar itself is not clickable, so touches between
+        // buttons still fall through to the feed below.
+        fun controlBtn(text: String, action: String): android.widget.Button {
+            return android.widget.Button(context).apply {
+                this.text = text
+                textSize = 12f
+                isAllCaps = false
+                setTextColor(0xFFFFFFFF.toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = 24f
+                    setColor(android.graphics.Color.argb(180, 20, 20, 20))
+                }
+                setPadding(24, 12, 24, 12)
+                setOnClickListener { onControl?.invoke(action) }
+            }
+        }
+        val bar = android.widget.LinearLayout(context).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+        }
+        val fb = controlBtn("Theo máy", "follow")
+        val lb = controlBtn("Khóa xoay", "lock")
+        val zi = controlBtn("Phóng to", "zoom_in")
+        val zo = controlBtn("Thu nhỏ", "zoom_out")
+        followBtn = fb; lockBtn = lb
+        for (b in listOf(fb, lb, zi, zo)) {
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(8, 0, 8, 0) }
+            bar.addView(b, lp)
+        }
+        root.addView(bar, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            setMargins(0, 0, 0, 24)
+        })
+        refreshControlButtons()
         setContentView(root)
     }
 
@@ -514,13 +617,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // fMin=min(f10,f12), sx=fMin/f10, sy=fMin/f12, then
         // scaledW=viewW*sx, scaledH=viewH*sy, centered. Total
         // scale is then f10*sx=fMin by f12*sy=fMin, uniform fit.
-        val f10 = tv.width.toFloat() / sw
-        val f12 = tv.height.toFloat() / sh
-        val fMin = min(f10, f12)
-        val sx = fMin / f10
-        val sy = fMin / f12
-        val dx = (tv.width - tv.width * sx) / 2f
-        val dy = (tv.height - tv.height * sy) / 2f
+        val fp = fitParams(tv.width.toFloat(), tv.height.toFloat()) ?: return
+        val sx = fp.sx
+        val sy = fp.sy
+        val dx = fp.dx
+        val dy = fp.dy
         val m = Matrix()
         m.setScale(sx, sy)
         m.postTranslate(dx, dy)
