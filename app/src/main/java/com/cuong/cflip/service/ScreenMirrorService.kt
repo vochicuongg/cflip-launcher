@@ -179,7 +179,33 @@ class ScreenMirrorService : Service() {
                 android.widget.Toast.makeText(coverCtx, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt.", android.widget.Toast.LENGTH_LONG).show()
             }
             runCatching { DualDisplayHelper.disable() }
-            stopSelf(); return
+            // vc55 REFUSAL PILL: Toasts are rate-limited by Android
+            // after the first few (vc46 screenshot symptom), so a
+            // repeated mirror tap can refuse silently even with
+            // vc54's cover Toast. A WindowManager pill is NOT
+            // rate-limited: show the refusal ON THE COVER for 4s
+            // so the folded user sees WHY it stopped, every time.
+            val pillAdded = runCatching {
+                val refusalCtx = createDisplayContext(secondary)
+                val refusalWm = refusalCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
+                val pill = android.widget.TextView(refusalCtx).apply {
+                    text = "Mirror stopped: main must be ON + cover must be ON (open phone)"
+                    setTextColor(android.graphics.Color.WHITE)
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                    textSize = 14f
+                    setPadding(24, 24, 24, 24)
+                }
+                val pillParams = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
+                refusalWm.addView(pill, pillParams)
+                handler.postDelayed({ runCatching { refusalWm.removeView(pill) }; stopSelf() }, 4000)
+                true
+            }.getOrDefault(false)
+            if (!pillAdded) { stopSelf() }
+            return
         }
 
         cleanupSession() // in case of a restart, do NOT disable dual here (tile just enabled it), drop any previous session first
@@ -196,13 +222,20 @@ class ScreenMirrorService : Service() {
         // system then had to mirror a tall main display into a
         // near-square virtual display - a second reason the feed
         // could come out black/distorted on Samsung.
+        // vc55 9FLIP SIZE: 9Flip session l.e() reads display 0
+        // via getRealMetrics (full real resolution, not the
+        // app-usable getSize which excludes system UI area).
+        // CFlip vc47-vc54 used getSize, so the virtual display
+        // could be smaller than the real main display and Samsung
+        // then had to mirror into a mismatched size. Use real
+        // metrics, dpi clamped to >=120 like 9Flip.
         val dm = getSystemService(DisplayManager::class.java)
         val main = dm?.getDisplay(Display.DEFAULT_DISPLAY)
-        val pt = Point()
-        @Suppress("DEPRECATION") main?.getSize(pt)
-        mainWidth = pt.x.coerceAtLeast(1)
-        mainHeight = pt.y.coerceAtLeast(1)
-        mainDpi = if (main != null) createDisplayContext(main).resources.displayMetrics.densityDpi else 320
+        val realMetrics = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") main?.getRealMetrics(realMetrics)
+        mainWidth = realMetrics.widthPixels.coerceAtLeast(1)
+        mainHeight = realMetrics.heightPixels.coerceAtLeast(1)
+        mainDpi = realMetrics.densityDpi.coerceAtLeast(120)
         Log.i(TAG, "Main display source size ${mainWidth}x$mainHeight @${mainDpi}dpi, cover id ${secondary.displayId}")
 
         // vc47 overlay: cover display context + overlay window
@@ -216,6 +249,24 @@ class ScreenMirrorService : Service() {
         val tv = TextureView(coverCtx)
         root.addView(tv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        // vc55 STATUS TEXT (temporary diagnostic, top-left over
+        // the feed): each mirror step updates it, so the next
+        // test shows exactly how far mirror got even without
+        // logcat - overlay shown? projection ok? surface ready?
+        // virtual display created? It will be removed once the
+        // feed itself is confirmed working.
+        val statusView = android.widget.TextView(coverCtx).apply {
+            text = "Mirror: starting..."
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundColor(android.graphics.Color.BLACK)
+            textSize = 12f
+            setPadding(16, 16, 16, 16)
+        }
+        root.addView(statusView, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            setMargins(12, 12, 12, 12)
+        })
         val stopBtn = Button(coverCtx).apply {
             text = "Dừng phản chiếu"
             setOnClickListener { cleanupAndDisableDual(); stopSelf() }
@@ -230,7 +281,9 @@ class ScreenMirrorService : Service() {
                 st.setDefaultBufferSize(mainWidth, mainHeight)
                 val surface = Surface(st)
                 mirrorSurface = surface
+                handler.post { statusView.text = "Mirror: surface ready, virtual display starting..." }
                 createVirtualDisplay(proj, surface)
+                handler.post { statusView.text = "Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show" }
                 Log.i(TAG, "Mirror overlay surface ready, virtual display started")
             }
             override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
@@ -250,6 +303,7 @@ class ScreenMirrorService : Service() {
             .onSuccess {
                 overlayView = root; overlayWm = wm; mirrorTexture = tv
                 MirrorState.active = true
+                statusView.text = "Mirror: overlay OK, waiting surface..."
                 Log.i(TAG, "Mirror overlay added on cover display ${secondary.displayId}")
             }
             .onFailure { Log.w(TAG, "System refused mirror overlay on cover", it); stopSelf() }

@@ -50,6 +50,9 @@
             android:name=".mirror.MirrorPermissionActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
             android:taskAffinity="com.cuong.cflip.mirror"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
