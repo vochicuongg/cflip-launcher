@@ -2,9 +2,6 @@ package com.cuong.cflip.service
 
 import android.accessibilityservice.AccessibilityService
 import android.app.NotificationManager
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.cuong.cflip.CFlipApp
@@ -67,45 +64,6 @@ class MyAccessibilityService : AccessibilityService() {
     // Error codes (Android): 1 internal, 2 no screenshot access,
     // 3 too soon after previous shot (1s interval), 4 invalid
     // display, 5 invalid window, 6 secure window.
-    // vc47: soft system-style click, generated in code.
-    // 150ms sine burst at 2000Hz, decaying envelope, amplitude
-    // capped at 20% and scaled to current STREAM_SYSTEM volume.
-    // This is deliberately NOT MediaActionSound (vc45 shutter,
-    // fixed-volume and too loud) and NOT FX_KEY_CLICK (vc46,
-    // silent on this Samsung). Silent on silent/vibrate.
-    private fun playSoftClick() {
-        runCatching {
-            val am = getSystemService(android.content.Context.AUDIO_SERVICE)
-                as? android.media.AudioManager ?: return@runCatching
-            if (am.ringerMode != android.media.AudioManager.RINGER_MODE_NORMAL) return@runCatching
-            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_SYSTEM).coerceAtLeast(1)
-            val cur = am.getStreamVolume(android.media.AudioManager.STREAM_SYSTEM)
-            val frac = (cur.toFloat() / max).coerceIn(0f, 1f)
-            if (frac <= 0f) return@runCatching
-            val sampleRate = 44100
-            val numSamples = sampleRate * 150 / 1000
-            val amplitude = ((0.25f + 0.25f * frac) * Short.MAX_VALUE).toInt()
-            val samples = ShortArray(numSamples) { i ->
-                val env = 1f - i.toFloat() / numSamples
-                (amplitude * env * kotlin.math.sin(2 * Math.PI * 1500 * i / sampleRate)).toInt().toShort()
-            }
-            val track = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
-                .setAudioFormat(AudioFormat.Builder()
-                    .setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                .setBufferSizeInBytes(samples.size * 2)
-                .setTransferMode(AudioTrack.MODE_STATIC)
-                .build()
-            track.write(samples, 0, samples.size)
-            track.play()
-            android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed({ runCatching { track.stop(); track.release() } }, 220)
-        }
-    }
-
     fun takeScreenshotForDisplay(displayId: Int, onDone: (Boolean, String) -> Unit) {
         takeScreenshotForDisplayInner(displayId, onDone, retried = false)
     }
@@ -150,7 +108,6 @@ class MyAccessibilityService : AccessibilityService() {
                         contentResolver.openOutputStream(uri)?.use { out ->
                             copy.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
                         } ?: throw IllegalStateException("Cannot open output stream")
-                        playSoftClick()
                         runCatching {
                             val notif = NotificationCompat.Builder(this@MyAccessibilityService, CFlipApp.CHANNEL_ID)
                                 .setContentTitle("CFlip - Đã chụp màn phụ")

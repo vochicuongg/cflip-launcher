@@ -1439,8 +1439,16 @@ object CoverControlCenterManager {
                 // activity (Samsung blocks some cover activities)
                 // fall back to main + the unfold toast.
                 // vc48 GATE: mirror only when main display is ON.
+                // vc50 GATE extension: cover display must ALSO be ON.
+                // When open, Samsung turns the cover OFF unless dual
+                // display is on, so an overlay on an OFF cover is
+                // invisible and mirror looks dead with no error.
+                // Refusing with a toast is honest; turning the cover
+                // ON requires Samsung's private dual-display toggle
+                // (see 9Flip decompile note in service), which is a
+                // separate user decision, not done silently here.
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
-                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON) {
+                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON || display.state != android.view.Display.STATE_ON) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
