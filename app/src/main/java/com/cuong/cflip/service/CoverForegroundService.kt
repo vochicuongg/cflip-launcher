@@ -261,59 +261,33 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // itself is hidden by the keyguard, so the user saw
         // nothing on lock. Locked check must run BEFORE the
         // isShown guard, not after it.
+        // vc101 NO BUBBLE ON LOCK (user request 27/10,
+        // vc100 test: lock rotation works AND lock info
+        // stays): vc99 proved an overlay bubble can sit
+        // on lock without hiding info, but the user now
+        // wants NO AssistiveTouch on lock at all, with
+        // lock rotation untouched. Rotation lives in
+        // the RotateHost ensured ABOVE (follow/lock per
+        // settings, vc100), which is independent of the
+        // bubble - removing the bubble does not remove
+        // the host. So on lock: hide bubble + panel,
+        // close any lingering UnlockActivity, and return
+        // WITHOUT showing an overlay bubble and WITHOUT
+        // launching UnlockActivity. The bubble returns
+        // on unlock via the unlocked path below (which
+        // sends FINISH_UNLOCK and shows the overlay).
+        // Mirror active already returned at the top, so
+        // this does not touch mirror rotation.
         val kmEarly = getSystemService(android.app.KeyguardManager::class.java)
         if (kmEarly != null && kmEarly.isKeyguardLocked) {
-            // vc98 AUTO-WAKE GATE: only launch the lock
-            // bubble when the cover display is already
-            // ON. If it is OFF (just locked, screen
-            // timed out, folded shut), launching anything
-            // here would wake it - that was the vc97
-            // auto-wake bug, together with TurnScreenOn
-            // in UnlockActivity (removed in vc98).
-            // Skipping here does NOT lose the bubble:
-            // the next display change that turns the
-            // cover ON (user folds, taps cover) runs
-            // tryShow again and launches it then, on
-            // top of Samsung's lock UI.
-            if (secondary.state != android.view.Display.STATE_ON) {
-                Log.i(TAG, "Locked but cover display not ON (state=${secondary.state}), not launching lock bubble")
-                return
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverControlCenterManager.hide()
+            assistiveTouchDisplayId = -1
+            runCatching {
+                sendBroadcast(android.content.Intent(
+                    com.cuong.cflip.cover.CoverUnlockActivity.ACTION_FINISH_UNLOCK))
             }
-            if (settings.assistiveTouchEnabled) {
-                // vc99: try the 2032 overlay bubble FIRST.
-                // If it shows, lock info stays (overlay,
-                // not an Activity) and UnlockActivity is
-                // NOT launched at all - it only appears
-                // when the user taps the bubble on lock
-                // (see CoverAssistiveTouchManager lock
-                // tap). Only if the overlay fails do we
-                // fall back to the vc95-vc98 Activity path.
-                val overlayOk = com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary).isSuccess &&
-                    com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()
-                if (overlayOk) {
-                    assistiveTouchDisplayId = secondary.displayId
-                    Log.i(TAG, "Lock bubble via overlay (2032 try), UnlockActivity not launched (vc99)")
-                    return
-                }
-                Log.w(TAG, "Lock overlay bubble failed, falling back to UnlockActivity (vc99)")
-                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                assistiveTouchDisplayId = -1
-                val now = android.os.SystemClock.uptimeMillis()
-                if (now - lastUnlockLaunchMs > 2000L) {
-                    lastUnlockLaunchMs = now
-                    runCatching {
-                        val unlock = android.content.Intent(
-                            this, com.cuong.cflip.cover.CoverUnlockActivity::class.java
-                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        val opts = android.app.ActivityOptions.makeBasic()
-                            .setLaunchDisplayId(secondary.displayId).toBundle()
-                        startActivity(unlock, opts)
-                        Log.i(TAG, "Lock bubble launched on cover (keyguard locked, vc96 early)")
-                    }.onFailure { Log.w(TAG, "Lock bubble launch failed", it) }
-                }
-            } else {
-                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-            }
+            Log.i(TAG, "Locked - bubble hidden, RotateHost kept (vc101)")
             return
         }
         if (assistiveTouchDisplayId == secondary.displayId &&

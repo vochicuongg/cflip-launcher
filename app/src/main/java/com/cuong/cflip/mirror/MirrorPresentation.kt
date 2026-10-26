@@ -186,6 +186,60 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // 1px threshold), they never become segments.
     private val moveChunkPoints = ArrayDeque<Pair<Float, Float>>()
     private val gestureHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // vc101 TOUCH LOOP (PowerFlip GestureDispatcher
+    // f4.d, decompiled 27/10): PowerFlip does NOT
+    // chain chunks on dispatch callbacks. It runs a
+    // Handler loop every 25ms (postDelayed 25L) that
+    // drains the accumulated point list into one
+    // GestureDescription per tick, duration = clamp(
+    // time since last tick, 15, 100)ms, callback null.
+    // CFlip vc88-vc100 chained on callbacks, so if a
+    // callback was lost (mirror exits, dispatch
+    // rejected, service restart) the touch stalled
+    // forever waiting for a callback that never came
+    // - "khong theo tuong tac" and "vang khoi phan
+    // chieu nhung van hoat dong". vc101 keeps the
+    // callback chain as primary, and adds PowerFlip's
+    // loop as a watchdog: every 25ms while touch is
+    // active, if points are queued and no segment is
+    // in flight, dispatch the next chunk. It cannot
+    // double-dispatch (main thread, inFlight check,
+    // points removed before dispatch). If touch is
+    // paused >1s with no points, it sends one hold
+    // segment (moveTo last, lineTo last, 25ms,
+    // willContinue=true) so the system does not time
+    // out the open stroke mid-drag, then waits again.
+    private var touchLoopRunning = false
+    private var touchLastDispatchMs = 0L
+    private val touchLoopRunnable = Runnable {
+        touchLoopRunning = false
+        if (!touchActive) return@Runnable
+        if (moveChunkPoints.isNotEmpty() && !streamInFlight) {
+            dispatchNextChunk()
+        } else if (touchLiveStarted && moveChunkPoints.isEmpty() && !streamPendingFinal) {
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - touchLastDispatchMs > 1000L && streamStroke != null && !streamInFlight) {
+                // Hold segment, PowerFlip loop style:
+                // path with no movement, keeps the
+                // continued stroke alive through a pause.
+                dispatchStreamSegment(streamLastX, streamLastY, true)
+            }
+        }
+        if (touchActive) {
+            touchLoopRunning = true
+            gestureHandler.postDelayed(touchLoopRunnable, 25L)
+        }
+    }
+    private fun startTouchLoop() {
+        if (!touchLoopRunning) {
+            touchLoopRunning = true
+            gestureHandler.postDelayed(touchLoopRunnable, 25L)
+        }
+    }
+    private fun stopTouchLoop() {
+        touchLoopRunning = false
+        gestureHandler.removeCallbacks(touchLoopRunnable)
+    }
     // vc99 TOUCH (9Flip u2, decompiled with --show-bad-code
     // 27/10, now readable): u2 does NOT only live-stream.
     // It keeps a full point list (cap 96, remove index 1
@@ -316,6 +370,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         streamStroke = stroke
         streamLastX = last.first
         streamLastY = last.second
+        touchLastDispatchMs = android.os.SystemClock.uptimeMillis()
         streamInFlight = true
         val gen = streamGeneration
         val isFinalSegment = !willContinue
@@ -429,7 +484,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             val path = Path()
             path.moveTo(pt.first, pt.second)
             val gesture = GestureDescription.Builder().setDisplayId(0)
-                .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, 50L))
                 .build()
             acc.dispatchGesture(gesture, null, gestureHandler)
             return
@@ -567,6 +622,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         moveChunkPoints.clear()
                         streamGeneration++
                         hideStatus()
+                        startTouchLoop()
                         queueStreamSegment(main.first, main.second, false)
                         true
                     }
@@ -627,6 +683,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         if (pinchActive) {
                             pinchActive = false
                             touchActive = false
+                            stopTouchLoop()
                             val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
                             endPinch(durationMs)
                         } else {
@@ -646,6 +703,14 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                                 queueStreamSegment(touchLastX, touchLastY, true)
                             }
                             touchLastUpMs = event.eventTime
+                            // Final segment is queued
+                            // above; loop stops now so it
+                            // cannot re-dispatch after UP.
+                            // If a final chunk is still
+                            // queued and not in flight,
+                            // dispatch it now (loop off).
+                            if (moveChunkPoints.isNotEmpty() && !streamInFlight) dispatchNextChunk()
+                            stopTouchLoop()
                         }
                         true
                     }
@@ -656,6 +721,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         touchActive = false
                         pinchActive = false
                         touchPointList.clear()
+                        stopTouchLoop()
                         true
                     }
                     else -> false
