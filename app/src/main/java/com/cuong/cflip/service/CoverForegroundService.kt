@@ -44,6 +44,17 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         hostRetryPending = false
         tryShowOnSecondary(isRetry = true)
     }
+    private var bubbleRetryAttempts = 0
+    private val bubbleRetryRunnable = Runnable {
+        if (com.cuong.cflip.mirror.MirrorState.active && bubbleRetryAttempts < 3) {
+            bubbleRetryAttempts++
+            Log.i(TAG, "Bubble re-show deferred, MirrorState still active, retry $bubbleRetryAttempts/3")
+            hostHandler.postDelayed(bubbleRetryRunnable, 500L)
+        } else {
+            bubbleRetryAttempts = 0
+            tryShowOnSecondary()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -103,7 +114,22 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 Log.i(TAG, "Cover AssistiveTouch hidden on request (RotateHost kept)")
             }
             ACTION_ROTATION_CHANGED -> {
-                tryShowOnSecondary()
+                // vc92 BUBBLE-RESTORE FIX (log 04:06-04:13 27/10:
+                // mirror stops cleanly, bubble lost, only
+                // lock/unlock brings it back): tryShow returns
+                // early while MirrorState.active is still true,
+                // and if that early return swallows the one
+                // re-show request, no later display event retries
+                // it - lock/unlock is the first event that does.
+                // Retry the re-show up to 3x at 500ms instead of
+                // dropping it, so the bubble returns without a
+                // lock/unlock cycle.
+                if (com.cuong.cflip.mirror.MirrorState.active) {
+                    bubbleRetryAttempts = 0
+                    hostHandler.postDelayed(bubbleRetryRunnable, 500L)
+                } else {
+                    tryShowOnSecondary()
+                }
             }
             else -> tryShowOnSecondary()
         }
@@ -112,6 +138,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
 
     override fun onDestroy() {
         hostHandler.removeCallbacks(hostRetryRunnable)
+        hostHandler.removeCallbacks(bubbleRetryRunnable)
         getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(this)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(this)
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()

@@ -505,6 +505,7 @@ class ScreenMirrorService : Service() {
             }, 3000)
             mirrorPresentation?.let { pres ->
                 pres.onControl = { action ->
+                    Log.i(TAG, "Mirror control tapped: $action")
                     when (action) {
                         "rotate" -> {
                             // vc90: one tap = +90 degrees, cycling
