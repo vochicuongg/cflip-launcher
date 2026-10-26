@@ -598,9 +598,26 @@ object CoverControlCenterManager {
                     }
                     val hasPins = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().isNotEmpty()
                     if (favApps.isEmpty()) {
+                        // vc71 WIDGET RETRY: the old text blamed
+                        // pinning ("Chưa ghim...") even when the query
+                        // itself failed, and offered no recovery - the
+                        // widget stayed empty until the panel was
+                        // closed and reopened, and if the query failed
+                        // systematically it stayed empty forever. Now
+                        // the text says honestly that the list failed
+                        // to load, and a retry button rebuilds the
+                        // panel fresh (same pattern as addWidgetOnCover),
+                        // so a transient empty recovers with one tap,
+                        // no AssistiveTouch restart needed.
                         widgetCard.addView(TextView(ctx).apply {
-                            text = "Chưa ghim app nào — ghim ở CFlip rồi Widget này mới có nội dung."
+                            text = "Không tải được danh sách ứng dụng (0 app) - bấm Thử lại."
                             textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                        })
+                        widgetCard.addView(modernButton("Thử lại").apply {
+                            setOnClickListener {
+                                hidePanelOnly()
+                                CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                            }
                         })
                     } else {
                         if (!hasPins) {
