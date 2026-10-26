@@ -1392,6 +1392,17 @@ object CoverControlCenterManager {
         // main display, so if no recorder activity opens, the tile
         // no longer opens the wrong display - it tells the exact
         // cover-native steps instead.
+        // vc45 record: vc44 only tried getLaunchIntentForPackage,
+        // which is null for Samsung's recorder (a system component
+        // with no launcher activity), so it always fell through to
+        // the manual toast. vc45 also tries every EXPORTED activity
+        // in the recorder packages explicitly on the cover display
+        // (public PackageManager query, no bypass): if Samsung
+        // exposes one, the tile now actually opens it. If none
+        // opens, the toast gives numbered cover-QS steps instead
+        // of a vague hint - Samsung's own docs list Screen
+        // recorder as a cover Quick Settings tile, so that path
+        // exists on the cover even though no app can start it.
         tileRow("Quay màn hình", R.drawable.ic_cflip_record) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
@@ -1399,7 +1410,8 @@ object CoverControlCenterManager {
             } else {
                 hide()
                 var openedRecorder = false
-                for (pkg in listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")) {
+                val recPkgs = listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")
+                for (pkg in recPkgs) {
                     val intent = runCatching { ctx.packageManager.getLaunchIntentForPackage(pkg) }.getOrNull()
                     if (intent != null) {
                         val ok = runCatching {
@@ -1411,10 +1423,30 @@ object CoverControlCenterManager {
                         if (ok) { openedRecorder = true; break }
                     }
                 }
+                if (!openedRecorder) {
+                    for (pkg in recPkgs) {
+                        val pkgInfo = runCatching {
+                            @Suppress("DEPRECATION")
+                            ctx.packageManager.getPackageInfo(pkg, android.content.pm.PackageManager.GET_ACTIVITIES)
+                        }.getOrNull() ?: continue
+                        for (act in pkgInfo.activities ?: emptyArray()) {
+                            if (!act.exported) continue
+                            val ok = runCatching {
+                                val explicit = Intent().setClassName(pkg, act.name)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                                ctx.startActivity(explicit, opts)
+                                true
+                            }.getOrDefault(false)
+                            if (ok) { openedRecorder = true; break }
+                        }
+                        if (openedRecorder) break
+                    }
+                }
                 if (openedRecorder) {
                     android.widget.Toast.makeText(ctx, "Đã mở app quay của Samsung trên màn phụ", android.widget.Toast.LENGTH_SHORT).show()
                 } else {
-                    android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Vuốt xuống trên màn phụ để mở Cài đặt nhanh của màn phụ, rồi bấm tile Quay màn hình của Samsung ở đó.", android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Dùng trên màn phụ: 1) Panel đã ẩn, 2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ, 3) Bấm tile Quay màn hình, 4) Chọn âm thanh rồi Bắt đầu. Video lưu vào Gallery.", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1463,6 +1495,9 @@ object CoverControlCenterManager {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                // vc45: service cleanup now restores AssistiveTouch,
+                // so stopping from here is no longer a one-way door.
+                android.widget.Toast.makeText(ctx, "Đã dừng phản chiếu, AssistiveTouch sẽ hiện lại", android.widget.Toast.LENGTH_SHORT).show()
                 hide()
             } else {
                 // vc32: previously this tile only stopped or toasted.
@@ -1513,17 +1548,44 @@ object CoverControlCenterManager {
             hide()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        // vc36: Battery Saver settings only show on the main display,
-        // so say so explicitly and open from applicationContext (main),
-        // not from the cover display context.
-        tileRow("Tiết kiệm pin", R.drawable.ic_cflip_battery) {
-            hide()
-            android.widget.Toast.makeText(ctx, "Mở máy ra để bật Tiết kiệm pin — Cài đặt Pin chỉ hiện trên màn chính", android.widget.Toast.LENGTH_LONG).show()
-            runCatching {
-                val appCtx = ctx.applicationContext
-                val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (intent.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(intent)
-                else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // vc45 battery saver: vc44 always opened settings from
+        // applicationContext (main display) with a "mở máy ra"
+        // toast, so it felt unusable from the cover. Android does
+        // NOT let a third-party app toggle battery saver directly
+        // (PowerManager.setPowerSaveMode is system-only;
+        // setDynamicPowerSaveHint needs the OEM POWER_SAVER
+        // permission), so a direct in-place toggle like DND is
+        // impossible for CFlip - DND works only because CFlip holds
+        // Notification Policy Access, which has no battery
+        // equivalent. What vc45 CAN do: show the real state on the
+        // tile (mint when on, read via PowerManager.isPowerSaveMode
+        // at every panel build) and try to open the Battery Saver
+        // settings ON THE COVER first, falling back to main only
+        // if the cover dispatch fails, with a toast that says
+        // where it actually opened.
+        run {
+            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+            val saverOn = pm?.isPowerSaveMode == true
+            tileRowActive("Tiết kiệm pin", R.drawable.ic_cflip_battery, saverOn) {
+                hide()
+                val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val coverOk = runCatching {
+                    val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                    ctx.startActivity(intent, opts)
+                    true
+                }.getOrDefault(false)
+                if (!coverOk) {
+                    runCatching {
+                        val appCtx = ctx.applicationContext
+                        val fallback = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        if (fallback.resolveActivity(appCtx.packageManager) != null) appCtx.startActivity(fallback)
+                        else appCtx.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                    android.widget.Toast.makeText(ctx, "Cài đặt Tiết kiệm pin không mở được trên màn phụ, đã mở trên màn chính - mở máy ra để bật/tắt", android.widget.Toast.LENGTH_LONG).show()
+                } else {
+                    android.widget.Toast.makeText(ctx, "Đã mở Cài đặt Tiết kiệm pin trên màn phụ - bật/tắt ở đó, mở lại panel để thấy trạng thái mới", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
         // vc36 DND toggle in place, like rotate: press once -> on,
