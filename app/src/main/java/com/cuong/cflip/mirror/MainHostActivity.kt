@@ -7,6 +7,10 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 
 /**
  * vc86 MAIN-SIDE HOST (9Flip host-on-main pattern, own code).
@@ -48,6 +52,7 @@ import android.view.Gravity
 class MainHostActivity : Activity() {
     companion object {
         private const val TAG = "CFlipMainHost"
+        const val ACTION_MIRROR_STOP = "com.cuong.cflip.mirror.STOP_HOST"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -78,8 +83,33 @@ class MainHostActivity : Activity() {
         }
     }
 
+    // vc94 MAIN-BRIGHT FIX: MainHost is the ONLY window
+    // CFlip holds on MAIN with KEEP_SCREEN_ON + TurnScreenOn
+    // (vc86, to stop the main locking during mirror). It used
+    // to finish only on its 1s poll after MirrorState went
+    // false, and 9Flip has no force-off either - it simply
+    // stops keeping main awake, so main then follows the
+    // normal screen timeout. To make CFlip release main
+    // deterministically at stop time (not on poll luck),
+    // cleanupSession now broadcasts STOP and this host
+    // finishes at once, releasing KEEP_SCREEN_ON. After
+    // that, main follows the user's own timeout - it is
+    // NOT instantly locked (instant lock needs device-admin
+    // lockNow, which neither CFlip nor 9Flip uses).
+    private val stopReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_MIRROR_STOP) {
+                Log.i(TAG, "Mirror stop broadcast, finishing main host (vc94)")
+                finishAndRemoveTask()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        runCatching {
+            registerReceiver(stopReceiver, IntentFilter(ACTION_MIRROR_STOP), Context.RECEIVER_NOT_EXPORTED)
+        }
         startTimeMs = System.currentTimeMillis()
         // Modern Activity setters (API 27+, minSdk 33 here), not the
         // deprecated window flags: keep main awake and allow this
@@ -98,6 +128,7 @@ class MainHostActivity : Activity() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(stopReceiver) }
         pollingStopped = true
         mainHandler.removeCallbacks(pollRunnable)
         super.onDestroy()

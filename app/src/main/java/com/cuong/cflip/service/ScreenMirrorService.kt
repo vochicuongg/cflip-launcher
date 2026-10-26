@@ -847,6 +847,12 @@ class ScreenMirrorService : Service() {
         runCatching { mirrorPresentation?.dismiss() }
         mirrorPresentation = null
         MirrorState.active = false
+        // vc94: tell MainHost to finish at once (see its
+        // stopReceiver) so its KEEP_SCREEN_ON on main is
+        // released at stop time, not on the next 1s poll.
+        runCatching {
+            sendBroadcast(Intent(com.cuong.cflip.mirror.MainHostActivity.ACTION_MIRROR_STOP))
+        }
         runCatching {
             startService(Intent(this, CoverForegroundService::class.java).apply {
                 action = CoverForegroundService.ACTION_ROTATION_CHANGED

@@ -221,13 +221,28 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             setStatus("Cảm ứng cần bật Accessibility cho CFlip (Cài đặt > Trợ năng, tắt/bật lại 1 lần)")
             return
         }
+        // vc94 TOUCH (9Flip f4.d/e, decompiled 27/10):
+        // CFlip used a flat 50ms per segment, so a tap cost
+        // DOWN 50ms + UP 50ms + two callback round-trips,
+        // and every MOVE dispatched even when the point had
+        // not moved 1px. 9Flip uses 16ms for a new stroke,
+        // 52ms for a moved continuation, and 1ms for an
+        // unmoved/final continuation, with a 1px movement
+        // threshold. Tap now costs ~17ms instead of ~100ms.
+        val moved = kotlin.math.hypot(toX - streamLastX, toY - streamLastY) >= 1f
+        val segDuration = when {
+            streamStroke == null -> 16L
+            !willContinue && !moved -> 1L
+            !moved -> 1L
+            else -> 52L
+        }
         val path = Path()
         path.moveTo(streamLastX, streamLastY)
         if (toX != streamLastX || toY != streamLastY) path.lineTo(toX, toY)
         val stroke = if (streamStroke == null) {
-            GestureDescription.StrokeDescription(path, 0L, 50L, willContinue)
+            GestureDescription.StrokeDescription(path, 0L, segDuration, willContinue)
         } else {
-            streamStroke!!.continueStroke(path, 0L, 50L, willContinue)
+            streamStroke!!.continueStroke(path, 0L, segDuration, willContinue)
         }
         streamStroke = stroke
         streamLastX = toX
@@ -647,6 +662,18 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             val m0 = Matrix()
             m0.postRotate(rotationDeg.toFloat(), cx, cy)
             tv.setTransform(m0)
+            // vc94 DELAY FIX (9Flip i4.a, decompiled 27/10):
+            // 9Flip calls postInvalidateOnAnimation() right
+            // after setTransform, so the new matrix draws on
+            // the next animation frame even if the main screen
+            // is static and MediaProjection sends no new frame.
+            // CFlip only called setTransform, which does NOT
+            // redraw by itself - on a static main screen
+            // (Settings, lock) the rotate/zoom sat idle until
+            // the next main frame arrived, seconds later.
+            // That is the "delay rat nang" for controls, while
+            // Stop (window destroy) felt instant.
+            tv.postInvalidateOnAnimation()
             return
         }
         // vc63 FIT FIX: vc62 used buffer-space scale (0.283)
@@ -672,5 +699,8 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             m.postRotate(rotationDeg.toFloat(), tv.width / 2f, tv.height / 2f)
         }
         tv.setTransform(m)
+        // vc94: same as above - force redraw on next frame,
+        // do not wait for the next MediaProjection frame.
+        tv.postInvalidateOnAnimation()
     }
 }
