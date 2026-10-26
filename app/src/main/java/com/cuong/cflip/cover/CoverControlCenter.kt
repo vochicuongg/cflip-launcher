@@ -1425,6 +1425,7 @@ object CoverControlCenterManager {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
                     .setAction(com.cuong.cflip.service.ScreenMirrorService.ACTION_STOP))
+                runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
                 // vc45: service cleanup now restores AssistiveTouch,
                 // so stopping from here is no longer a one-way door.
                 android.widget.Toast.makeText(ctx, "Đã dừng phản chiếu, AssistiveTouch sẽ hiện lại", android.widget.Toast.LENGTH_SHORT).show()
@@ -1448,8 +1449,21 @@ object CoverControlCenterManager {
                 // (see 9Flip decompile note in service), which is a
                 // separate user decision, not done silently here.
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
-                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON || display.state != android.view.Display.STATE_ON) {
+                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
+                    return@tileRow
+                }
+                // vc51 DUAL ENABLE (user chose 9Flip way): before
+                // asking for capture permission, request Samsung
+                // dual display via DualDisplayHelper (DeviceState
+                // transact 3). If this fails, do NOT launch the
+                // permission dialog - without dual ON, the cover
+                // stays OFF and mirror would look dead again.
+                // The exact failure is toasted so the user can see
+                // whether Samsung blocked the private API on One UI 9.
+                val dualRes = com.cuong.cflip.service.DualDisplayHelper.enable()
+                if (dualRes.isFailure) {
+                    android.widget.Toast.makeText(ctx, "Dual display failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"), android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
                 hide()

@@ -8,7 +8,10 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Binder
 import android.os.Build
+import android.os.IBinder
+import android.os.Parcel
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -77,14 +80,14 @@ class ScreenMirrorService : Service() {
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.i(TAG, "Projection stopped by system/user")
-            cleanup()
+            cleanupAndDisableDual()
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> { cleanup(); stopSelf(); return START_NOT_STICKY }
+            ACTION_STOP -> { cleanupAndDisableDual(); stopSelf(); return START_NOT_STICKY }
             ACTION_APPLY_ROTATION -> {
                 // vc47: with the overlay route, rotation is just
                 // a virtual-display recreate on the same surface
@@ -160,10 +163,11 @@ class ScreenMirrorService : Service() {
         if (mainGate == null || mainGate.state != Display.STATE_ON || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
             Log.w(TAG, "Mirror gate refused: mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             android.widget.Toast.makeText(applicationContext, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt, kh\u00f4ng ph\u1ea3n chi\u1ebfu khi g\u1eadp m\u00e1y.", android.widget.Toast.LENGTH_LONG).show()
+            runCatching { DualDisplayHelper.disable() }
             stopSelf(); return
         }
 
-        cleanup() // in case of a restart, drop any previous session first
+        cleanupSession() // in case of a restart, do NOT disable dual here (tile just enabled it), drop any previous session first
 
         val mpm = getSystemService(MediaProjectionManager::class.java)
         projection = mpm?.getMediaProjection(resultCode, resultData)
@@ -245,7 +249,7 @@ class ScreenMirrorService : Service() {
         Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size)")
     }
 
-    private fun cleanup() {
+    private fun cleanupSession() {
         // vc45 restore: previously cleanup only set active=false
         // and dismissed the presentation, but never told
         // CoverForegroundService to show the bubble again. After
@@ -275,7 +279,12 @@ class ScreenMirrorService : Service() {
         }
     }
 
-    override fun onDestroy() { cleanup(); super.onDestroy() }
+    private fun cleanupAndDisableDual() {
+        cleanupSession()
+        runCatching { DualDisplayHelper.disable() }
+    }
+
+    override fun onDestroy() { cleanupAndDisableDual(); super.onDestroy() }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
@@ -285,5 +294,79 @@ class ScreenMirrorService : Service() {
         const val ACTION_APPLY_ROTATION = "com.cuong.cflip.mirror.APPLY_ROTATION"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+    }
+}
+
+
+/**
+ * vc51 Dual Display toggle, following 9Flip's mechanism in
+ * principle (own code, not a copy of its obfuscated helpers).
+ * 9Flip's decompile shows: dual ON = DeviceStateManager
+ * ("device_state" Binder service) transact 3 with payload
+ * [Binder token, int 4, int 20]; dual OFF = transact 4 with
+ * empty payload (just the interface token), falling back to
+ * Samsung SemWindowManager.setForcedDefaultDisplayDevice(0)
+ * to restore the main display as default. The Binder token is
+ * held while mirror is active; transact 4 is the explicit
+ * cancel, token release alone does not cancel the override
+ * (the system holds the token until cancelled or the process
+ * dies). All calls are best-effort and wrapped: if Samsung
+ * blocks the private API on One UI 9, enable() returns the
+ * exact failure instead of silently pretending dual is on.
+ */
+object DualDisplayHelper {
+    private var token: Binder? = null
+
+    fun enable(): Result<String> = runCatching {
+        if (token != null) return@runCatching "dual already on"
+        val smClass = Class.forName("android.os.ServiceManager")
+        val getService = smClass.getMethod("getService", String::class.java)
+        val binder = getService.invoke(null, "device_state") as? IBinder
+            ?: throw IllegalStateException("device_state service unavailable")
+        val tok = Binder()
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        try {
+            data.writeInterfaceToken("android.hardware.devicestate.IDeviceStateManager")
+            data.writeStrongBinder(tok)
+            data.writeInt(4)
+            data.writeInt(20)
+            if (!binder.transact(3, data, reply, 0)) {
+                throw IllegalStateException("DeviceState transact 3 not handled")
+            }
+            reply.readException()
+        } finally {
+            data.recycle(); reply.recycle()
+        }
+        token = tok
+        "dual display requested (state 4, flags 20)"
+    }
+
+    fun disable(): Result<String> = runCatching {
+        token = null
+        // Best-effort OFF: transact 4 first, then SemWindowManager
+        // restore to main (0). Either failing is caught and
+        // ignored here; the caller still stops the mirror.
+        runCatching {
+            val smClass = Class.forName("android.os.ServiceManager")
+            val getService = smClass.getMethod("getService", String::class.java)
+            val binder = getService.invoke(null, "device_state") as? IBinder
+                ?: throw IllegalStateException("device_state unavailable")
+            val data = Parcel.obtain(); val reply = Parcel.obtain()
+            try {
+                data.writeInterfaceToken("android.hardware.devicestate.IDeviceStateManager")
+                if (!binder.transact(4, data, reply, 0)) {
+                    throw IllegalStateException("transact 4 not handled")
+                }
+                reply.readException()
+            } finally { data.recycle(); reply.recycle() }
+        }
+        runCatching {
+            val cls = Class.forName("com.samsung.android.view.SemWindowManager")
+            val inst = cls.getMethod("getInstance").invoke(null)
+                ?: throw IllegalStateException("SemWindowManager null")
+            cls.getMethod("setForcedDefaultDisplayDevice", Int::class.javaPrimitiveType).invoke(inst, 0)
+        }
+        "dual display off requested"
     }
 }
