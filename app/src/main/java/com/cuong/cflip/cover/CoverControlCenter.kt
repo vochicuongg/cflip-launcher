@@ -564,10 +564,22 @@ object CoverControlCenterManager {
                     widgetCard.addView(TextView(ctx).apply {
                         text = "Ứng dụng yêu thích"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
                     })
+                    // vc56 APPGRID FALLBACK: vc55 report was "widget
+                    // app does not show apps". The old code dropped
+                    // a pinned app entirely if loadLaunchableApps()
+                    // did not contain its package (query failed,
+                    // icon load failed, package renamed) - then the
+                    // widget showed the misleading "no pinned app"
+                    // text even though favorites were still saved.
+                    // Now a pinned package always renders as a
+                    // text button (label = last package segment,
+                    // no icon) so it stays visible and launchable.
                     val favApps = run {
                         val repo = com.cuong.cflip.data.AppRepository(ctx)
-                        val byPkg = repo.loadLaunchableApps().associateBy { it.packageName }
-                        com.cuong.cflip.data.FavoritesStore(ctx).getFavorites().mapNotNull { byPkg[it] }.take(8)
+                        val byPkg = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList()).associateBy { it.packageName }
+                        com.cuong.cflip.data.FavoritesStore(ctx).getFavorites().map { pkg ->
+                            byPkg[pkg] ?: com.cuong.cflip.data.AppInfo(packageName = pkg, label = pkg.substringAfterLast('.'), icon = null)
+                        }.take(8)
                     }
                     if (favApps.isEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
@@ -1644,11 +1656,31 @@ object CoverControlCenterManager {
         var appsTabBuilt = false
         buildAppsTab = {
             if (!appsTabBuilt) {
-                appsTabBuilt = true
+                // vc56 APPS TAB FIX: vc41-vc55 set appsTabBuilt =
+                // true BEFORE querying. If the query threw or
+                // returned empty, the tab stayed blank forever
+                // for that panel instance - tapping the tab again
+                // did nothing because the flag was already true.
+                // Now the flag is set only after a non-empty grid
+                // is added, the query is guarded, and an empty
+                // result shows a retry button instead of a blank
+                // tab. Clearing first also prevents a duplicate
+                // title on retry.
+                appsContent.removeAllViews()
         appsContent.addView(title("Ứng dụng"))
         run {
             val appRepo = com.cuong.cflip.data.AppRepository(ctx)
-            val allApps = appRepo.loadLaunchableApps()
+            val allApps = runCatching { appRepo.loadLaunchableApps() }.getOrDefault(emptyList())
+            if (allApps.isEmpty()) {
+                appsContent.addView(android.widget.TextView(ctx).apply {
+                    text = "Không tải được danh sách ứng dụng (0 app) - bấm Thử lại."
+                    textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                })
+                appsContent.addView(modernButton("Thử lại").apply {
+                    setOnClickListener { appsContent.removeAllViews(); buildAppsTab?.invoke() }
+                })
+                return@run
+            }
             val settings = store.load()
             val recentOrder = com.cuong.cflip.data.RecentAppsRepository(ctx).recentPackages(100)
             // vc41: installTimes was queried for every package on
@@ -1679,6 +1711,7 @@ object CoverControlCenterManager {
                 }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
             }
             appsContent.addView(appGrid)
+            appsTabBuilt = true
         }
 
             }
