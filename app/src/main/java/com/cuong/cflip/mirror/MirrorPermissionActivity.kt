@@ -77,8 +77,26 @@ class MirrorPermissionActivity : ComponentActivity() {
                     // overlay keeps the cover on from there. If the
                     // service failed, onDestroy/service cleanup
                     // still disable dual and restore the bubble.
+                    // vc75 MAIN HOST (9Flip host activity, architecture
+                    // only, no copied code): vc70 bridge just finished
+                    // after 4s, leaving NO activity alive on main during
+                    // mirror. 9Flip keeps its 1x1 host top-resumed on main
+                    // for the whole mirror, which keeps main display ON so
+                    // AUTO_MIRROR has a live main UI to capture (folded
+                    // main would otherwise stay OFF and feed stays black).
+                    // Launch a host-only instance on main (display 0) now,
+                    // then finish this cover instance (serviceStarted is
+                    // true, so onDestroy will NOT disable dual). Launch
+                    // failure is ignored: mirror tries without host, like vc74.
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         if (!isFinishing) {
+                            runCatching {
+                                val host = android.content.Intent(this, MirrorPermissionActivity::class.java)
+                                    .putExtra("cflip_host_only", true)
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(0).toBundle()
+                                startActivity(host, opts)
+                            }
                             finishAndRemoveTask()
                         }
                     }, 4000)
@@ -111,6 +129,37 @@ class MirrorPermissionActivity : ComponentActivity() {
     // needs it) and must NOT restore the bubble yet (mirror
     // setup is still in progress).
     private var relaunchingOnCover = false
+    // vc75 MAIN HOST: true only for the host-only instance launched
+    // on main after grant (see grant branch). It never enables dual
+    // and never shows a dialog; it just stays resumed on main to
+    // keep main display ON for AUTO_MIRROR, polling MirrorState
+    // until mirror stops, then finishes.
+    private var hostOnly = false
+    // vc75: grace 5s + 5s before first active check, so a slow
+    // Presentation start (up to 3s surface wait) does not kill the
+    // host prematurely; then poll every 1s until mirror stops.
+    private fun startHostPolling() {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing) {
+                if (com.cuong.cflip.mirror.MirrorState.active) {
+                    pollHostLoop()
+                } else {
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (!isFinishing) {
+                            if (com.cuong.cflip.mirror.MirrorState.active) pollHostLoop() else finishAndRemoveTask()
+                        }
+                    }, 5000)
+                }
+            }
+        }, 5000)
+    }
+    private fun pollHostLoop() {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing) {
+                if (!com.cuong.cflip.mirror.MirrorState.active) finishAndRemoveTask() else pollHostLoop()
+            }
+        }, 1000)
+    }
 
     // vc67 HOST-BEFORE-DUAL (9Flip decompile, architecture only,
     // no copied code): 9Flip toggles dual INSIDE a 1x1
@@ -172,6 +221,8 @@ class MirrorPermissionActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // vc75: host-only instance must never enable dual or dialog.
+        if (hostOnly) return
         enableDualThenCapture()
     }
 
@@ -197,6 +248,17 @@ class MirrorPermissionActivity : ComponentActivity() {
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
+        // vc75 MAIN HOST: host-only instance on main skips dual +
+        // dialog entirely; it just stays resumed (1x1, KEEP) and
+        // polls MirrorState until mirror stops, then finishes.
+        // Its onDestroy (serviceStarted=false) will disable dual +
+        // restore bubble, which is the correct cleanup when mirror
+        // has stopped (service cleanup already did it, idempotent).
+        if (intent?.getBooleanExtra("cflip_host_only", false) == true) {
+            hostOnly = true
+            startHostPolling()
+            return
+        }
         enableDualThenCapture()
     }
 
