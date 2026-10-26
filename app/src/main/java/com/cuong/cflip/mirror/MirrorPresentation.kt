@@ -43,8 +43,13 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // (same value as RotateHost / current cover rotation).
     // Applied to this window in onCreate so the cover does not
     // snap to 0° when dual drops the RotateHost overlay.
-    // Content transform stays scale+translate only (like 9Flip
-    // i4), no content rotation added, so no double-rotate.
+    // vc79: content rotation ADDED (service sets rotationDeg via
+    // applyRotation to the diff desired-actual). Window flags
+    // alone were ignored in dual (vc72-vc74 proof), so content
+    // rotation is what actually corrects the feed; the window
+    // flag is kept as-is, and if it ever takes effect after
+    // start the feed may double-rotate (vc80 must make this
+    // dynamic in that case).
     var windowOrientation: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     private var statusView: android.widget.TextView? = null
     fun setStatus(text: String) {
@@ -74,6 +79,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // Map a cover view point to main coords via the inverse of
     // the fit transform (view = main*fMin + offset). Returns null
     // for touches in the black bars, which have no main point.
+    // vc79 TOUCH INVERSE: applyTransform rotates content
+    // clockwise by rotationDeg around the view center, so a tap
+    // must be inverse-rotated back to unrotated fit space first.
+    // 0° is unchanged (exact old behavior); other angles fall
+    // back to unrotated mapping (should not happen: service only
+    // sets 0/90/180/270).
     private fun mirrorViewToMain(viewX: Float, viewY: Float): Pair<Float, Float>? {
         if (!::textureView.isInitialized) return null
         val vw = textureView.width.toFloat()
@@ -89,9 +100,17 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         val dy = (vh - vh * sy) / 2f
         val scaledW = vw * sx
         val scaledH = vh * sy
-        if (viewX < dx || viewX > dx + scaledW || viewY < dy || viewY > dy + scaledH) return null
-        val mainX = ((viewX - dx) / fMin).coerceIn(0f, (sw - 1).toFloat())
-        val mainY = ((viewY - dy) / fMin).coerceIn(0f, (sh - 1).toFloat())
+        val cx = vw / 2f
+        val cy = vh / 2f
+        val (ux, uy) = when (rotationDeg) {
+            90 -> Pair(cx + (viewY - cy), cy - (viewX - cx))
+            180 -> Pair(2f * cx - viewX, 2f * cy - viewY)
+            270 -> Pair(cx - (viewY - cy), cy + (viewX - cx))
+            else -> Pair(viewX, viewY)
+        }
+        if (ux < dx || ux > dx + scaledW || uy < dy || uy > dy + scaledH) return null
+        val mainX = ((ux - dx) / fMin).coerceIn(0f, (sw - 1).toFloat())
+        val mainY = ((uy - dy) / fMin).coerceIn(0f, (sh - 1).toFloat())
         return Pair(mainX, mainY)
     }
 
@@ -258,8 +277,10 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // scale = min(viewW/sourceW, viewH/sourceH), then center
     // with (viewW-scaledW)/2, (viewH-scaledH)/2, black bars
     // from the black TextureView background. Same math here,
-    // plus the old rotation on top only if rotationDeg != 0
-    // (service never sets it today, so it is identity).
+    // plus the rotation on top only if rotationDeg != 0
+    // (vc79: service now sets it via applyRotation to the
+    // diff desired-actual, so it is no longer identity when
+    // dual snaps the cover).
     private fun applyTransform() {
         val tv = textureView
         if (tv.width == 0 || tv.height == 0) return
