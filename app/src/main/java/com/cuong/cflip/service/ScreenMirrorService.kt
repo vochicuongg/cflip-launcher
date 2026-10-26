@@ -428,9 +428,14 @@ class ScreenMirrorService : Service() {
         // and to the overlay fallback (applyFitTransform) below.
         mirrorContentDeg = computeContentDeg(secondary)
         mirrorSecondaryId = secondary.displayId
-        mirrorRotateFollow = true
+        // vc90: follow is OFF by user request - rotation is now a
+        // manual +90 degree step (works on lock screen and in
+        // apps like Settings, because it only changes the
+        // TextureView transform, never the app/display rotation).
+        // The display listener is kept unregistered; cleanup
+        // unregister is still runCatching-safe.
+        mirrorRotateFollow = false
         removeFailurePill()
-        runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(mirrorDisplayListener, handler) }
         Log.i(TAG, "vc79 mirror content rotation ${mirrorContentDeg}deg (desired orient $mirrorWinOrient, actual rotation ${secondary.rotation})")
         // vc80 REMOVE MIRROR ROTATE VIEW (vc79 regression):
         // vc73/vc74 added a second 1x1 rotate host here (fixed to
@@ -499,29 +504,22 @@ class ScreenMirrorService : Service() {
                 }
             }, 3000)
             mirrorPresentation?.let { pres ->
-                pres.rotateFollow = mirrorRotateFollow
                 pres.onControl = { action ->
                     when (action) {
-                        "follow" -> {
-                            mirrorRotateFollow = true
-                            pres.rotateFollow = true
-                            pres.refreshControlButtons()
-                            val sec = DisplayRepository(this).secondaryDisplay()
-                            if (sec != null) {
-                                mirrorContentDeg = computeContentDeg(sec)
-                                pres.applyRotation(mirrorContentDeg)
-                            }
+                        "rotate" -> {
+                            // vc90: one tap = +90 degrees, cycling
+                            // 0 -> 90 -> 180 -> 270 -> 0. Pure content
+                            // transform, so it works regardless of
+                            // main app orientation lock or lock screen.
+                            mirrorContentDeg = (mirrorContentDeg + 90) % 360
+                            pres.applyRotation(mirrorContentDeg)
+                            val tv = mirrorTexture
+                            if (tv != null && overlayView != null) applyFitTransform(tv, tv.width, tv.height)
                         }
-                        "lock" -> {
-                            mirrorRotateFollow = false
-                            pres.rotateFollow = false
-                            pres.refreshControlButtons()
-                        }
-                        "zoom_in" -> pres.setZoom(true)
-                        "zoom_out" -> pres.setZoom(false)
+                        "zoom_in" -> pres.zoomIn()
+                        "zoom_out" -> pres.zoomOut()
                     }
                 }
-                pres.refreshControlButtons()
             }
             return
         }
