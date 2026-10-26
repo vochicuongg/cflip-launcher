@@ -1506,7 +1506,7 @@ object CoverControlCenterManager {
                 // same instant as the transact, racing a cover
                 // display that was not yet ready as display 1.
                 // Wait 1200ms after dual ON before launching.
-                android.widget.Toast.makeText(ctx, "Dual display ON - waiting 1.2s for displays to settle", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Dual display ON - waiting 2s for displays to settle", android.widget.Toast.LENGTH_SHORT).show()
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -1523,7 +1523,7 @@ object CoverControlCenterManager {
                             android.widget.Toast.LENGTH_LONG).show()
                         runCatching { ctx.applicationContext.startActivity(permIntent) }
                     }
-                }, 1200)
+                }, 2000)
             }
         }
         // vc35 missing system tiles from 9Flip (f0/u list).
