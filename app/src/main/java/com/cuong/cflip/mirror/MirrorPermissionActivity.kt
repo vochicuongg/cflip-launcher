@@ -88,15 +88,14 @@ class MirrorPermissionActivity : ComponentActivity() {
                     // then finish this cover instance (serviceStarted is
                     // true, so onDestroy will NOT disable dual). Launch
                     // failure is ignored: mirror tries without host, like vc74.
+                    // vc76: host was already launched early (see
+                    // enableDualThenCapture); this is only a retry if
+                    // early launch failed (flag still false). Then
+                    // finish cover instance as before (serviceStarted
+                    // is true, so onDestroy will NOT disable dual).
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         if (!isFinishing) {
-                            runCatching {
-                                val host = android.content.Intent(this, MirrorPermissionActivity::class.java)
-                                    .putExtra("cflip_host_only", true)
-                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(0).toBundle()
-                                startActivity(host, opts)
-                            }
+                            launchMainHost()
                             finishAndRemoveTask()
                         }
                     }, 4000)
@@ -135,28 +134,44 @@ class MirrorPermissionActivity : ComponentActivity() {
     // keep main display ON for AUTO_MIRROR, polling MirrorState
     // until mirror stops, then finishes.
     private var hostOnly = false
-    // vc75: grace 5s + 5s before first active check, so a slow
-    // Presentation start (up to 3s surface wait) does not kill the
-    // host prematurely; then poll every 1s until mirror stops.
+    // vc76: static flag so relaunch (cover reparent) and grant
+    // retry do not launch duplicate main hosts. Reset in onDestroy
+    // of the host instance, so the next mirror attempt can launch
+    // a fresh host. Launch sets it true only on success, so a
+    // failed launch can be retried in the grant branch.
+    companion object {
+        @Volatile var mainHostLaunched: Boolean = false
+    }
+    // vc76: launch the main-side host activity (display 0). Best
+    // effort: failure is ignored, mirror tries without host (vc74
+    // behavior) and the grant branch retries once.
+    private fun launchMainHost(): Boolean {
+        if (mainHostLaunched) return true
+        val launched = runCatching {
+            val host = android.content.Intent(this, MirrorPermissionActivity::class.java)
+                .putExtra("cflip_host_only", true)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(0).toBundle()
+            startActivity(host, opts)
+        }.isSuccess
+        if (launched) mainHostLaunched = true
+        return launched
+    }
+    // vc76 DUAL-BASED POLLING (replaces vc75 active-based grace):
+    // Host must stay alive while dual is ON, even before service
+    // starts (dialog pending, grant pending) - vc75 active-based
+    // grace (5s+5s) could finish the host before service ever set
+    // active=true, killing dual early. Dual ON = stay, dual OFF =
+    // mirror ended or declined = finish. No grace needed because
+    // host is launched only after dual is ON.
     private fun startHostPolling() {
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             if (!isFinishing) {
-                if (com.cuong.cflip.mirror.MirrorState.active) {
-                    pollHostLoop()
+                if (!com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
+                    finishAndRemoveTask()
                 } else {
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        if (!isFinishing) {
-                            if (com.cuong.cflip.mirror.MirrorState.active) pollHostLoop() else finishAndRemoveTask()
-                        }
-                    }, 5000)
+                    startHostPolling()
                 }
-            }
-        }, 5000)
-    }
-    private fun pollHostLoop() {
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            if (!isFinishing) {
-                if (!com.cuong.cflip.mirror.MirrorState.active) finishAndRemoveTask() else pollHostLoop()
             }
         }, 1000)
     }
@@ -188,6 +203,17 @@ class MirrorPermissionActivity : ComponentActivity() {
             finishAndRemoveTask()
             return
         }
+        // vc76 EARLY HOST (9Flip host-before-dialog, architecture
+        // only): vc75 launched the main host only AFTER grant + 2s
+        // + service start + 4s bridge, so during dialog/grant/service
+        // start there was NO main activity and dual could time out
+        // at ~2s, dismissing the cover Presentation - exactly the
+        // vc75 symptom (window shows then disappears after ~2s).
+        // 9Flip host is alive BEFORE dialog and stays throughout.
+        // Launch main host NOW, right after dual is ON, so it is
+        // alive during settle + dialog + grant + service start.
+        // Failure is ignored (grant branch retries once).
+        launchMainHost()
         val settleMs = if (dualRes.getOrNull() == "dual already on") 500L else 2000L
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             if (!isFinishing) {
@@ -278,6 +304,10 @@ class MirrorPermissionActivity : ComponentActivity() {
     // recreation is safe: the new instance re-enables dual
     // ("dual already on" -> brief settle -> dialog).
     override fun onDestroy() {
+        // vc76: host finishing frees the next mirror attempt to
+        // launch a fresh host (otherwise flag would stay true and
+        // the second mirror would run without a host, like vc74).
+        if (hostOnly) mainHostLaunched = false
         // vc69: relaunching on cover must NOT disable dual (the
         // new instance needs it) and must NOT restore the bubble
         // yet (mirror setup is still in progress).
