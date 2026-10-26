@@ -185,21 +185,29 @@ object CoverControlCenterManager {
     }
 
     // vc48: transient cover message pill (screenshot feedback).
-    private fun showCoverMessage(display: Display, text: String) {
+    private fun showCoverMessage(ctx: Context, display: Display, text: String) {
         runCatching {
             runCatching {
                 val v = shotFeedbackView; val w = shotFeedbackWm
                 if (v != null && w != null) w.removeView(v)
             }
             shotFeedbackView = null; shotFeedbackWm = null
-            val dctx = appContext.createDisplayContext(display)
+            // vc49 fix: this method lives on the manager object,
+            // NOT inside buildPanel, so it cannot see buildPanel's
+            // locals appContext/dp (that was the vc48 compile error:
+            // Unresolved appContext/dp). Use the caller's ctx
+            // (already a cover display context) directly, and
+            // compute dp from its density locally.
+            val dctx = ctx
             val wm = dctx.getSystemService(WindowManager::class.java) ?: return@runCatching
+            val density = dctx.resources.displayMetrics.density
+            val dpF = { v: Int -> (v * density).toInt() }
             val tv = TextView(dctx).apply {
                 this.text = text
                 textSize = 14f
                 setTextColor(0xFFFFFFFF.toInt())
                 setBackgroundColor(0xE0000000.toInt())
-                setPadding(dp(16), dp(12), dp(16), dp(12))
+                setPadding(dpF(16), dpF(12), dpF(16), dpF(12))
                 gravity = Gravity.CENTER
             }
             val params = WindowManager.LayoutParams(
@@ -209,7 +217,7 @@ object CoverControlCenterManager {
                 android.graphics.PixelFormat.TRANSLUCENT).apply { gravity = Gravity.CENTER }
             wm.addView(tv, params)
             shotFeedbackView = tv; shotFeedbackWm = wm
-            handler.postDelayed({
+            handler.postDelayed(Runnable {
                 runCatching { wm.removeView(tv) }
                 if (shotFeedbackView === tv) { shotFeedbackView = null; shotFeedbackWm = null }
             }, 2500)
@@ -1403,10 +1411,10 @@ object CoverControlCenterManager {
                 handler.postDelayed({
                     svc.takeScreenshotForDisplay(display.displayId) { ok, msg ->
                         if (ok) {
-                            showCoverMessage(display, "\u0110\u00e3 ch\u1ee5p m\u00e0n ph\u1ee5 \u2713\n" + msg)
+                            showCoverMessage(ctx, display, "\u0110\u00e3 ch\u1ee5p m\u00e0n ph\u1ee5 \u2713\n" + msg)
                             android.widget.Toast.makeText(ctx, "Đã chụp màn phụ, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
                         } else {
-                            showCoverMessage(display, "Ch\u1ee5p th\u1ea5t b\u1ea1i: " + msg)
+                            showCoverMessage(ctx, display, "Ch\u1ee5p th\u1ea5t b\u1ea1i: " + msg)
                             android.widget.Toast.makeText(ctx, "Chụp màn phụ thất bại ($msg). CFlip không chụp màn chính thay thế để khỏi nhầm ảnh - bấm lại sau 1 giây nếu mã là chụp quá nhanh.", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
