@@ -1439,17 +1439,19 @@ object CoverControlCenterManager {
                 // displayId); only if the system refuses a cover
                 // activity (Samsung blocks some cover activities)
                 // fall back to main + the unfold toast.
-                // vc48 GATE: mirror only when main display is ON.
-                // vc50 GATE extension: cover display must ALSO be ON.
-                // When open, Samsung turns the cover OFF unless dual
-                // display is on, so an overlay on an OFF cover is
-                // invisible and mirror looks dead with no error.
-                // Refusing with a toast is honest; turning the cover
-                // ON requires Samsung's private dual-display toggle
-                // (see 9Flip decompile note in service), which is a
-                // separate user decision, not done silently here.
+                // vc53 ORDER FIX: vc51/vc52 refused BEFORE trying
+                // dual enable when the main display was OFF (folded),
+                // so dual was never even attempted in the exact
+                // situation where the user taps the tile on the
+                // cover panel - and the tap looked like "nothing
+                // happens". 9Flip does NOT check main ON first; it
+                // toggles dual first, then checks dual state. vc53
+                // follows that order: try dual first regardless of
+                // folded/open, then let the service gates decide
+                // after permission. Only a missing main display
+                // (impossible in practice) refuses here.
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
-                if (mainDisplay == null || mainDisplay.state != android.view.Display.STATE_ON) {
+                if (mainDisplay == null) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
@@ -1466,7 +1468,14 @@ object CoverControlCenterManager {
                     android.widget.Toast.makeText(ctx, "Dual display failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"), android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
-                hide()
+                // vc53: do NOT hide() before permission. vc51/vc52
+                // hid the panel first, then the capture dialog
+                // appeared on the MAIN display (folded, invisible
+                // from cover), so the tap looked like nothing
+                // happened. Panel stays open during permission;
+                // on success the full-screen mirror overlay will
+                // cover it anyway, on decline it stays for retry.
+                android.widget.Toast.makeText(ctx, "Dual display ON - opening permission dialog", android.widget.Toast.LENGTH_SHORT).show()
                 val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY)
                 val coverPermOk = runCatching {
