@@ -282,6 +282,18 @@ class MirrorPermissionActivity : ComponentActivity() {
         // has stopped (service cleanup already did it, idempotent).
         if (intent?.getBooleanExtra("cflip_host_only", false) == true) {
             hostOnly = true
+            // vc77 FULL-SCREEN HOST: vc76 early 1x1 host kept the
+            // mirror window staying (dual timeout fixed) but feed
+            // stayed black - main may still be OFF because system
+            // does not power main ON for a 1x1 activity when folded.
+            // A full-screen transparent NOT_TOUCHABLE host on main is
+            // a real resumed full UI, so system must render main
+            // display (and AUTO_MIRROR can capture it), while
+            // transparency + not-touchable keeps underlying main UI
+            // visible and interactive. Cover permission instance
+            // keeps 1x1 (this branch is host-only only).
+            window?.setLayout(android.view.WindowManager.LayoutParams.MATCH_PARENT, android.view.WindowManager.LayoutParams.MATCH_PARENT)
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
             startHostPolling()
             return
         }
