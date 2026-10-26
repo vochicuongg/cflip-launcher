@@ -69,6 +69,10 @@ class ScreenMirrorService : Service() {
     // separate Presentation window.
     private var overlayView: View? = null
     private var overlayWm: WindowManager? = null
+    // vc58 Presentation host (9Flip l4/p4 route): tried BEFORE
+    // overlay. If set and showing, it owns the TextureView
+    // surface; overlay is not created in that case.
+    private var mirrorPresentation: com.cuong.cflip.mirror.MirrorPresentation? = null
     private var mirrorTexture: TextureView? = null
     private var mirrorSurface: Surface? = null
     private var mainWidth: Int = 0
@@ -238,11 +242,55 @@ class ScreenMirrorService : Service() {
         mainDpi = realMetrics.densityDpi.coerceAtLeast(120)
         Log.i(TAG, "Main display source size ${mainWidth}x$mainHeight @${mainDpi}dpi, cover id ${secondary.displayId}")
 
+        // vc58 PRESENTATION FIRST (full 9Flip decompile):
+        // 9Flip mirror UI lives in a Presentation (p4) created
+        // from its AccessibilityService on display 1, NOT in a
+        // TYPE_APPLICATION_OVERLAY window from a service. In
+        // DUAL mode Samsung shows Presentation windows on the
+        // secondary display, while service overlays (which work
+        // fine in normal FlexWindow cover mode for bubble/panel)
+        // may be hidden behind dual mode. CFlip vc47-vc57 used
+        // overlay only, after vc32-vc46 Presentation failed for
+        // OTHER reasons (dual off, main off, cover-sized virtual
+        // display, permission on main, NO_HISTORY) that vc51-vc57
+        // have since fixed. Retry Presentation now, with those
+        // fixes in place, preferring AccessibilityService context
+        // like 9Flip (l4.e), falling back to service context.
+        // If Presentation.show() fails or it is not showing,
+        // fall through to the vc57 overlay path below - no
+        // regression, overlay remains the fallback.
+        val coverCtx = createDisplayContext(secondary)
+        val presTried = runCatching {
+            val acc = MyAccessibilityService.instance
+            val presCtx = if (acc != null) acc.createDisplayContext(secondary) else coverCtx
+            val pres = com.cuong.cflip.mirror.MirrorPresentation(presCtx, secondary).apply {
+                sourceW = mainWidth; sourceH = mainHeight
+                onSurfaceReady = { surface ->
+                    mirrorSurface = surface
+                    setStatus("Mirror: Presentation surface ready, virtual display starting...")
+                    createVirtualDisplay(proj, surface)
+                    setStatus("Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show")
+                    Log.i(TAG, "Mirror Presentation surface ready, virtual display started")
+                }
+                onSurfaceGone = {
+                    mirrorSurface = null
+                    virtualDisplay?.release(); virtualDisplay = null
+                }
+            }
+            pres.show()
+            mirrorPresentation = pres
+            MirrorState.active = true
+            pres.isShowing
+        }.getOrDefault(false)
+        if (presTried) {
+            Log.i(TAG, "Mirror Presentation shown on cover display ${secondary.displayId}, overlay skipped")
+            return
+        }
+        Log.i(TAG, "Mirror Presentation not shown, falling back to overlay")
         // vc47 overlay: cover display context + overlay window
         // (same route as bubble/panel, which Samsung DOES show
         // on this cover). The TextureView fills the cover; its
         // buffer is the main size, TextureView scales it down.
-        val coverCtx = createDisplayContext(secondary)
         val wm = coverCtx.getSystemService(WindowManager::class.java)
         if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); stopSelf(); return }
         val root = FrameLayout(coverCtx)
@@ -340,6 +388,9 @@ class ScreenMirrorService : Service() {
             if (v != null && w != null) w.removeView(v)
         }
         overlayView = null; overlayWm = null
+        // vc58: dismiss Presentation host if it was the active path.
+        runCatching { mirrorPresentation?.dismiss() }
+        mirrorPresentation = null
         MirrorState.active = false
         runCatching {
             startService(Intent(this, CoverForegroundService::class.java).apply {

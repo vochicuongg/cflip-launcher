@@ -27,6 +27,20 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     lateinit var textureView: TextureView
         private set
 
+    // vc58 9FLIP SOURCE SIZE: old vc45-vc46 Presentation used
+    // COVER display size as buffer, so the virtual display was
+    // cover-sized, not source-sized. 9Flip session sizes its
+    // virtual display to MAIN (source) size and lets TextureView
+    // scale down. Service sets these before show(); if unset,
+    // bufferSize() falls back to cover size (old behavior).
+    var sourceW: Int = 0
+    var sourceH: Int = 0
+    private var statusView: android.widget.TextView? = null
+    fun setStatus(text: String) {
+        val v = statusView ?: return
+        v.post { v.text = text }
+    }
+
     /** Called once the drawing surface exists; the service points the virtual display at it. */
     var onSurfaceReady: ((Surface) -> Unit)? = null
     /** Called when the surface goes away; the service must release the virtual display. */
@@ -53,6 +67,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                     val (bw, bh) = bufferSize()
                     st.setDefaultBufferSize(bw, bh)
                     applyTransform()
+                    setStatus("Mirror: Presentation surface ready")
                     onSurfaceReady?.invoke(Surface(st))
                 }
                 override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = applyTransform()
@@ -85,6 +100,20 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 }
             }
         }
+        val status = android.widget.TextView(context).apply {
+            text = "Mirror: Presentation starting..."
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFF000000.toInt())
+            textSize = 12f
+            setPadding(16, 16, 16, 16)
+        }
+        statusView = status
+        root.addView(status, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setMargins(24, 24, 0, 0)
+        })
         root.addView(stopBtn, android.widget.FrameLayout.LayoutParams(
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
             android.widget.FrameLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -96,8 +125,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     /** Width/height the projection should render at for the current rotation. */
     fun bufferSize(): Pair<Int, Int> {
-        val w = display.mode.physicalWidth
-        val h = display.mode.physicalHeight
+        // vc58: source (main) size if service set it, else cover size.
+        val w = if (sourceW > 0) sourceW else display.mode.physicalWidth
+        val h = if (sourceH > 0) sourceH else display.mode.physicalHeight
         return if (rotationDeg % 180 != 0) h to w else w to h
     }
 
