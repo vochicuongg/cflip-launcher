@@ -843,6 +843,10 @@ object CoverControlCenterManager {
             // wave (decorative, not real audio data).
             waveformSeed = mediaInfo?.title?.hashCode() ?: 0
             wavePlaying = mediaInfo?.isPlaying == true
+            // vc108: wave colour from album art
+            // dominant colour (falls back to the
+            // title-hash hue when art is null).
+            setMediaArt(mediaInfo?.albumArt)
             if (mediaInfo != null && mediaInfo.durationMs > 0) {
                 progress = mediaInfo.positionMs.toFloat() / mediaInfo.durationMs
             }
@@ -907,7 +911,17 @@ object CoverControlCenterManager {
         var lastMediaArt: android.graphics.Bitmap? = mediaInfo?.albumArt
         fun updateMediaViews() {
             runCatching { mediaRepo.refresh() }
-            val cur = MediaState.current.value ?: return
+            val cur = MediaState.current.value
+            if (cur == null) {
+                // vc108 STOP: session gone while the
+                // panel is open. Card position stays
+                // as built at open (see vc108 order
+                // block), but the wave must lower
+                // down to the timeline instead of
+                // freezing at full height.
+                mediaProgress.wavePlaying = false
+                return
+            }
             mediaTitleView.text = cur.title
             mediaArtistView.text = cur.artist
             mediaElapsed.text = fmtTime(cur.positionMs)
@@ -921,6 +935,11 @@ object CoverControlCenterManager {
             if (cur.albumArt !== lastMediaArt) {
                 lastMediaArt = cur.albumArt
                 mediaArtView.setImageBitmap(cur.albumArt)
+                // vc108: wave colour follows the new
+                // art's dominant colour (or falls
+                // back to the title-hash hue if the
+                // new track has no art).
+                mediaProgress.setMediaArt(cur.albumArt)
             }
         }
         val mediaRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -1611,42 +1630,46 @@ object CoverControlCenterManager {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
-        // vc105 MEDIA CARD POSITION (user, 27/10):
-        // playing -> as before: combinedRow
-        // (media card + vertical sliders) above
-        // Function, then Function, then Widget.
-        // NOT playing -> media card moves BELOW
-        // Function: combinedRow without the media
-        // card (sliders only, horizontal, full
-        // width) above Function, then Function,
-        // then the media card, then Widget. When
-        // there is no session at all the media
-        // card is GONE, so adding it below Function
-        // changes nothing visible, and Play last
-        // pill (added earlier, above combinedRow)
-        // stays as the no-session control.
+        // vc108 MEDIA CARD POSITION (user, 27/10,
+        // replaces vc105 playing-based rule):
+        // DEFAULT (no media session): media card
+        // at the VERY BOTTOM, after Widget.
+        // Order: PlayLastPill, sliders only
+        // (horizontal, full width), Function,
+        // Widget, media card (empty, vc106), spacer.
+        // MEDIA EXISTS (session present, playing
+        // OR paused): media card goes back up into
+        // combinedRow, horizontally alongside the
+        // brightness + volume sliders, unchanged
+        // from the original layout. Order: combined
+        // row (media + sliders), Function, Widget.
+        // Sliders orientation is unchanged by this
+        // rule: playing -> vertical (vc105, confirmed
+        // correct), paused -> horizontal.
         // Layout is decided at panel open, from
         // mediaInfo at that moment - like the rest
         // of this panel, which builds once and only
-        // ticks text/progress while open. If media
-        // starts/stops while the panel is open,
-        // close and reopen to get the new layout.
-        if (mediaInfo?.isPlaying == true) {
+        // ticks text/progress/wave while open. If a
+        // session starts/ends while the panel is
+        // open, close and reopen to get the new
+        // card position (wave lowering on stop,
+        // vc108, DOES update while open - see
+        // updateMediaViews null branch).
+        if (mediaInfo != null) {
             controlContent.addView(combinedRow)
             controlContent.addView(tileCard)
+            widgetCardDeferred?.let { controlContent.addView(it) }
         } else {
             combinedRow.removeView(mediaCard)
             controlContent.addView(combinedRow)
             controlContent.addView(tileCard)
+            widgetCardDeferred?.let { controlContent.addView(it) }
             mediaCard.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, 0, 0, dp(12))
             }
             controlContent.addView(mediaCard)
         }
-        // 3.6.0 order: Media first, Brightness second, Function island
-        // third, Widget last. Widget was built first but is added here.
-        widgetCardDeferred?.let { controlContent.addView(it) }
         // vc41: bottom spacer so the last card (Function island or
         // Widget) is never hidden behind the cover's bottom gesture
         // bar when scrolled to the end.
