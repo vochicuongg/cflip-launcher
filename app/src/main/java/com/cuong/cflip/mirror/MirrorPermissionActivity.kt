@@ -71,19 +71,60 @@ class MirrorPermissionActivity : ComponentActivity() {
         }
     }
 
-    // vc62 SECOND-START DEFENSE: if the system still reuses
-    // this activity via onNewIntent (singleTop residue), re-launch
-    // the capture intent instead of showing a blank reused activity
-    // with no dialog. Normal path still goes through onCreate.
+    // vc67: guards a second enableDualThenCapture call (e.g.
+    // onNewIntent arriving while the first settle delay is still
+    // pending) from scheduling a duplicate capture dialog.
+    private var dualCaptureScheduled = false
+
+    // vc67 HOST-BEFORE-DUAL (9Flip decompile, architecture only,
+    // no copied code): 9Flip toggles dual INSIDE a 1x1
+    // NOT_TOUCH_MODAL transparent host activity that is already
+    // on the cover, registers the SCREEN_OFF receiver, and only
+    // then shows its cover UI. CFlip vc51-vc66 did the opposite:
+    // the tile enabled dual from a panel overlay (no activity
+    // alive), then waited 2000ms with nothing alive on the cover
+    // in dual mode - that is the 1-2s window in the vc66 repro
+    // (panel -> mirror -> wait 1-2s -> screen off completely),
+    // before the permission activity even exists. New order:
+    // this activity is launched on the cover FIRST (the tile no
+    // longer enables dual), it enables dual itself while its own
+    // window is alive on the cover, waits for dual to settle,
+    // then shows the capture dialog. "dual already on" from a
+    // previous attempt is not a failure: settle briefly, then
+    // show the dialog. On dual failure, toast + finish without
+    // a dialog; dual was never turned on, so nothing to disable.
+    // Decline still disables dual (existing branch below).
+    private fun enableDualThenCapture() {
+        if (dualCaptureScheduled) return
+        dualCaptureScheduled = true
+        val dualRes = com.cuong.cflip.service.DualDisplayHelper.enable()
+        if (dualRes.isFailure) {
+            Toast.makeText(this, "Dual display failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"), Toast.LENGTH_LONG).show()
+            finishAndRemoveTask()
+            return
+        }
+        val settleMs = if (dualRes.getOrNull() == "dual already on") 500L else 2000L
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing) {
+                launchCapture()
+            }
+        }, settleMs)
+    }
+
+    // vc62 SECOND-START DEFENSE, updated vc67: if the system
+    // still reuses this activity, go through the same
+    // enable-then-dialog flow (guarded against duplicates),
+    // not straight to launchCapture, so a reused activity
+    // cannot skip the dual step.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        launchCapture()
+        enableDualThenCapture()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        launchCapture()
+        enableDualThenCapture()
     }
 
     private fun launchCapture() {
