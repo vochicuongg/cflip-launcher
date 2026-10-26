@@ -108,6 +108,57 @@ class ScreenMirrorService : Service() {
     // the feed; if the flags ever do take effect after start,
     // the feed may double-rotate and vc80 must make this dynamic.
     private var mirrorContentDeg: Int = 0
+    // vc89 MIRROR CONTROLS + ROTATE IN APP/LOCK: follow = cover
+    // rotation changes re-apply content rotation (so the feed
+    // stays upright when the phone turns, whatever app or lock
+    // screen main is showing - the listener fires on the cover
+    // display, not on main's app); lock = freeze at start.
+    private var mirrorRotateFollow: Boolean = true
+    private var mirrorSecondaryId: Int = -1
+    private var failurePillView: View? = null
+    private var failurePillWm: WindowManager? = null
+    private val mirrorDisplayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != mirrorSecondaryId || !mirrorRotateFollow) return
+            val sec = DisplayRepository(this@ScreenMirrorService).secondaryDisplay() ?: return
+            mirrorContentDeg = computeContentDeg(sec)
+            mirrorPresentation?.applyRotation(mirrorContentDeg)
+            val tv = mirrorTexture
+            if (tv != null && overlayView != null) applyFitTransform(tv, tv.width, tv.height)
+        }
+    }
+    private fun computeContentDeg(secondary: Display): Int {
+        val desiredDeg = when (mirrorWinOrient) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> 0
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> 90
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT -> 180
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE -> 270
+            else -> -1
+        }
+        val actualDeg = when (secondary.rotation) {
+            android.view.Surface.ROTATION_90 -> 90
+            android.view.Surface.ROTATION_180 -> 180
+            android.view.Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        return if (desiredDeg < 0) 0 else ((desiredDeg - actualDeg) % 360 + 360) % 360
+    }
+    private fun removeFailurePill() {
+        runCatching {
+            val v = failurePillView; val w = failurePillWm
+            if (v != null && w != null) w.removeView(v)
+        }
+        failurePillView = null; failurePillWm = null
+    }
+    private fun hideCoverBubble() {
+        runCatching {
+            startService(Intent(this, CoverForegroundService::class.java).apply {
+                action = CoverForegroundService.ACTION_HIDE_COVER
+            })
+        }
+    }
     // vc73: mirror's own rotate host view (1x1 overlay). Removed
     // in cleanupSession. See startMirroring for why it exists.
     private var mirrorRotateView: View? = null
@@ -375,22 +426,11 @@ class ScreenMirrorService : Service() {
         // If display already matches desired, diff is 0, no
         // double-rotate. Applied to Presentation (applyRotation)
         // and to the overlay fallback (applyFitTransform) below.
-        mirrorContentDeg = run {
-            val desiredDeg = when (mirrorWinOrient) {
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> 0
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> 90
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT -> 180
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE -> 270
-                else -> -1
-            }
-            val actualDeg = when (secondary.rotation) {
-                android.view.Surface.ROTATION_90 -> 90
-                android.view.Surface.ROTATION_180 -> 180
-                android.view.Surface.ROTATION_270 -> 270
-                else -> 0
-            }
-            if (desiredDeg < 0) 0 else ((desiredDeg - actualDeg) % 360 + 360) % 360
-        }
+        mirrorContentDeg = computeContentDeg(secondary)
+        mirrorSecondaryId = secondary.displayId
+        mirrorRotateFollow = true
+        removeFailurePill()
+        runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(mirrorDisplayListener, handler) }
         Log.i(TAG, "vc79 mirror content rotation ${mirrorContentDeg}deg (desired orient $mirrorWinOrient, actual rotation ${secondary.rotation})")
         // vc80 REMOVE MIRROR ROTATE VIEW (vc79 regression):
         // vc73/vc74 added a second 1x1 rotate host here (fixed to
@@ -435,6 +475,7 @@ class ScreenMirrorService : Service() {
             pres.show()
             mirrorPresentation = pres
             MirrorState.active = true
+            hideCoverBubble()
             pres.isShowing
         }.onFailure { Log.w(TAG, "Mirror Presentation failed", it) }.getOrDefault(false)
         if (presTried) {
@@ -457,6 +498,31 @@ class ScreenMirrorService : Service() {
                         .onFailure { Log.w(TAG, "Mirror overlay fallback failed", it); showFailurePillAndStop(secondary, "Mirror failed: overlay error") }
                 }
             }, 3000)
+            mirrorPresentation?.let { pres ->
+                pres.rotateFollow = mirrorRotateFollow
+                pres.onControl = { action ->
+                    when (action) {
+                        "follow" -> {
+                            mirrorRotateFollow = true
+                            pres.rotateFollow = true
+                            pres.refreshControlButtons()
+                            val sec = DisplayRepository(this).secondaryDisplay()
+                            if (sec != null) {
+                                mirrorContentDeg = computeContentDeg(sec)
+                                pres.applyRotation(mirrorContentDeg)
+                            }
+                        }
+                        "lock" -> {
+                            mirrorRotateFollow = false
+                            pres.rotateFollow = false
+                            pres.refreshControlButtons()
+                        }
+                        "zoom_in" -> pres.setZoom(true)
+                        "zoom_out" -> pres.setZoom(false)
+                    }
+                }
+                pres.refreshControlButtons()
+            }
             return
         }
         Log.i(TAG, "Mirror Presentation not shown, falling back to overlay")
@@ -559,6 +625,7 @@ class ScreenMirrorService : Service() {
                 handler.post { statusView.text = "Mirror: surface ready, virtual display starting..." }
                 createVirtualDisplay(proj, surface)
                 handler.post { statusView.text = "Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show" }
+                handler.postDelayed({ statusView.visibility = View.GONE }, 3000)
                 Log.i(TAG, "Mirror overlay surface ready, virtual display started")
             }
             override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { applyFitTransform(tv, w, h) }
@@ -593,6 +660,7 @@ class ScreenMirrorService : Service() {
             .onSuccess {
                 overlayView = root; overlayWm = wm; mirrorTexture = tv
                 MirrorState.active = true
+                hideCoverBubble()
                 statusView.text = "Mirror: overlay OK, waiting surface..."
                 Log.i(TAG, "Mirror overlay added on cover display ${secondary.displayId}")
             }
@@ -708,6 +776,10 @@ class ScreenMirrorService : Service() {
     // cannot be added, stop immediately.
     private fun showFailurePillAndStop(secondary: Display, reason: String) {
         runCatching { DualDisplayHelper.disable() }
+        // vc89 PILL FIX: never stack a new pill over an old one -
+        // stale pills from a previous session were the "thong bao
+        // khong bien mat" in the vc88 screenshot.
+        removeFailurePill()
         val added = runCatching {
             val pillCtx = createDisplayContext(secondary)
             val pillWm = pillCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
@@ -724,13 +796,17 @@ class ScreenMirrorService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
             pillWm.addView(pill, pillParams)
-            handler.postDelayed({ runCatching { pillWm.removeView(pill) }; stopSelf() }, 5000)
+            failurePillView = pill; failurePillWm = pillWm
+            handler.postDelayed({ removeFailurePill(); stopSelf() }, 5000)
             true
         }.getOrDefault(false)
         if (!added) { stopSelf() }
     }
 
     private fun cleanupSession() {
+        runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorDisplayListener) }
+        mirrorSecondaryId = -1
+        removeFailurePill()
         // vc62 SECOND-START FIX: cancel any pending handler
         // callbacks from the previous session (notably the vc59
         // 3s Presentation->overlay fallback timer). Without this,
