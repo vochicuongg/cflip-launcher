@@ -334,15 +334,29 @@ class ScreenMirrorService : Service() {
         // Removed in cleanupSession, so normal RotateHost returns
         // after stop. Same orientation as vc72 flags, so no
         // conflict if both apply.
+        // vc74 9FLIP TYPE FIX (decompile round 5): vc73 used
+        // service context + TYPE_APPLICATION_OVERLAY (2038),
+        // which dual hides/ignores, so cover still snapped 180°.
+        // 9Flip's rotate host (ROTATE-SUMMARY, function l()) uses
+        // AccessibilityService display context + type 2032, and
+        // STOPS if that service is not running (no fallback).
+        // 2032 is TYPE_ACCESSIBILITY_OVERLAY (public SDK, API 26+),
+        // used by ALL 9Flip cover windows, not 2038. Try 2032 +
+        // accessibility first; fall back to 2038 + service context
+        // only if accessibility is not running, so mirror still
+        // tries instead of crashing (but orientation preserve will
+        // not hold in dual without accessibility - see reply).
         runCatching {
             if (mirrorWinOrient != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                val rotCtx = createDisplayContext(secondary)
+                val acc = MyAccessibilityService.instance
+                val rotCtx = if (acc != null) acc.createDisplayContext(secondary) else createDisplayContext(secondary)
+                val rotType = if (acc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 val rotWm = rotCtx.getSystemService(WindowManager::class.java)
                 if (rotWm != null) {
                     val rotView = View(rotCtx)
                     val rotParams = WindowManager.LayoutParams(
                         1, 1,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        rotType,
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                         PixelFormat.TRANSLUCENT,
                     ).apply {
