@@ -208,27 +208,28 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // vc81: capture the host Result (before, it was ignored, so a failed
         // add silently left rotation dead). On success, clear any pending
         // retry; on failure, schedule a bounded retry (see fields above).
-        // vc98 LOCK INFO FIX (vc97 test: lock rotated
-        // but clock/calendar vanished): follow() keeps a
-        // FULL_SENSOR host alive continuously, so while
-        // locked the cover orientation keeps being
-        // re-forced as the sensor fluctuates, and Samsung's
-        // cover lock UI (which owns its own orientation)
-        // is repeatedly displaced - its widgets do not
-        // settle. 9Flip's host is a STATIC orientation
-        // (a() takes one orientation value; FULL_SENSOR
-        // is only a 220ms pulse, h()), not a continuous
-        // sensor host. So while locked, CFlip now uses
-        // lock() - one fixed orientation, the current
-        // display rotation - so the lock UI stays put
-        // with its clock/calendar, and rotation is still
-        // correct (it just does not flip on lock).
-        // Unlocked, follow/lock follow settings as before.
-        val kmForHost = getSystemService(android.app.KeyguardManager::class.java)
-        val lockedForHost = kmForHost != null && kmForHost.isKeyguardLocked
-        val hostResult = if (lockedForHost) {
-            com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
-        } else if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
+        // vc100 LOCK ROTATE RESTORE (vc99 test:
+        // lock info is BACK, but lock no longer rotates):
+        // vc98 changed the lock host to lock() (fixed
+        // orientation) on the hypothesis that a
+        // continuous FULL_SENSOR host displaced lock
+        // widgets. vc98 still lost info, vc99 restored
+        // info WITHOUT changing the host - vc99 only
+        // replaced the auto-launched UnlockActivity
+        // with a 2032 overlay bubble. That proves the
+        // info loss was the Activity, not the host.
+        // Keeping lock() on lock therefore only costs
+        // rotation for no benefit: the lock screen
+        // stays at whatever rotation it had when it
+        // locked and never follows the sensor. vc100
+        // restores follow()/lock() per settings on
+        // lock exactly as when unlocked, keeping the
+        // vc99 overlay bubble (no Activity) so info
+        // stays. If info vanishes again on vc100, the
+        // host will be proven guilty after all and
+        // vc101 can revisit it - but the evidence
+        // now points to the Activity, not the host.
+        val hostResult = if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
             com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
         } else {
             com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
