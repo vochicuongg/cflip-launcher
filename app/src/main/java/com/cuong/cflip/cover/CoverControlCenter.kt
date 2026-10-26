@@ -574,19 +574,41 @@ object CoverControlCenterManager {
                     // Now a pinned package always renders as a
                     // text button (label = last package segment,
                     // no icon) so it stays visible and launchable.
+                    // vc59 WIDGET FALLBACK: vc56 fixed pinned apps
+                    // disappearing when the query failed, but if
+                    // the user has pinned ZERO apps, the widget
+                    // still showed only "Chưa ghim" text and no
+                    // apps at all - which reads as "widget doesn't
+                    // show apps". Now, with no pins, the widget
+                    // shows the first 8 launchable apps instead,
+                    // with a note that pinning in CFlip replaces
+                    // them with the user's own picks. Only if the
+                    // query itself returns empty does it show the
+                    // empty text. Query uses applicationContext
+                    // (not the cover display context) to avoid
+                    // display-specific PackageManager quirks.
                     val favApps = run {
-                        val repo = com.cuong.cflip.data.AppRepository(ctx)
-                        val byPkg = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList()).associateBy { it.packageName }
-                        com.cuong.cflip.data.FavoritesStore(ctx).getFavorites().map { pkg ->
+                        val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
+                        val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
+                        val byPkg = all.associateBy { it.packageName }
+                        val pins = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().map { pkg ->
                             byPkg[pkg] ?: com.cuong.cflip.data.AppInfo(packageName = pkg, label = pkg.substringAfterLast('.'), icon = null)
                         }.take(8)
+                        if (pins.isNotEmpty()) pins else all.take(8)
                     }
+                    val hasPins = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().isNotEmpty()
                     if (favApps.isEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
                             text = "Chưa ghim app nào — ghim ở CFlip rồi Widget này mới có nội dung."
                             textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                         })
                     } else {
+                        if (!hasPins) {
+                            widgetCard.addView(TextView(ctx).apply {
+                                text = "Chưa ghim app nào - hiện 8 app đầu, ghim ở CFlip để chọn riêng."
+                                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                            })
+                        }
                         val favGrid = GridLayout(ctx).apply { columnCount = 4 }
                         for (app in favApps) {
                             favGrid.addView(Button(ctx).apply {
@@ -1654,6 +1676,7 @@ object CoverControlCenterManager {
 
         // ---- Tab 3: Ứng dụng ---- (lazy, see selectTab above)
         var appsTabBuilt = false
+        var appsEmptyRetryDone = false
         buildAppsTab = {
             if (!appsTabBuilt) {
                 // vc56 APPS TAB FIX: vc41-vc55 set appsTabBuilt =
@@ -1669,7 +1692,7 @@ object CoverControlCenterManager {
                 appsContent.removeAllViews()
         appsContent.addView(title("Ứng dụng"))
         run {
-            val appRepo = com.cuong.cflip.data.AppRepository(ctx)
+            val appRepo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
             val allApps = runCatching { appRepo.loadLaunchableApps() }.getOrDefault(emptyList())
             if (allApps.isEmpty()) {
                 appsContent.addView(android.widget.TextView(ctx).apply {
@@ -1679,6 +1702,20 @@ object CoverControlCenterManager {
                 appsContent.addView(modernButton("Thử lại").apply {
                     setOnClickListener { appsContent.removeAllViews(); buildAppsTab?.invoke() }
                 })
+                // vc59 AUTO-RETRY: after an app update/install the
+                // first PackageManager query can transiently return
+                // empty (system still indexing). Vc56 left that to
+                // a manual "Thử lại" tap, which reads as "tab is
+                // broken". Now the tab retries itself once after
+                // 800ms, so a transient empty no longer needs a
+                // tap to recover. Manual retry stays for a real
+                // persistent empty.
+                if (!appsEmptyRetryDone) {
+                    appsEmptyRetryDone = true
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (!appsTabBuilt) { appsContent.removeAllViews(); buildAppsTab?.invoke() }
+                    }, 800)
+                }
                 return@run
             }
             val settings = store.load()
