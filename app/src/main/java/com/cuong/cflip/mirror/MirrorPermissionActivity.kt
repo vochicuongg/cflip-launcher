@@ -45,6 +45,8 @@ class MirrorPermissionActivity : ComponentActivity() {
             Toast.makeText(this, "Đang phản chiếu lên cover", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "Bạn chưa đồng ý phản chiếu màn hình", Toast.LENGTH_SHORT).show()
+            // vc51: user declined capture - turn dual back off, do not leave system in dual mode.
+            runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
         }
         // vc34: remove the task entirely, so this never looks like
         // re-entering the CFlip app in recents / task stack.
