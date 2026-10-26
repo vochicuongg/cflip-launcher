@@ -211,7 +211,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // out the open stroke mid-drag, then waits again.
     private var touchLoopRunning = false
     private var touchLastDispatchMs = 0L
-    private val touchLoopRunnable = Runnable {
+    // vc102 BUILD FIX: same vc92 pattern - a
+    // Runnable that posts itself inside its own
+    // initializer makes Kotlin type-checking
+    // recursive (error at line 230 in vc101).
+    // Fix, as in vc93: declare the type explicitly.
+    private val touchLoopRunnable: Runnable = Runnable {
         touchLoopRunning = false
         if (!touchActive) return@Runnable
         if (moveChunkPoints.isNotEmpty() && !streamInFlight) {
