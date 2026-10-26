@@ -436,7 +436,7 @@ class ScreenMirrorService : Service() {
             mirrorPresentation = pres
             MirrorState.active = true
             pres.isShowing
-        }.getOrDefault(false)
+        }.onFailure { Log.w(TAG, "Mirror Presentation failed", it) }.getOrDefault(false)
         if (presTried) {
             Log.i(TAG, "Mirror Presentation shown on cover display ${secondary.displayId}, overlay skipped for now")
             // vc59 AUTO-FALLBACK: vc58 left the user stuck on a
@@ -453,7 +453,8 @@ class ScreenMirrorService : Service() {
                     Log.i(TAG, "Mirror Presentation surface not ready in 3s, falling back to overlay")
                     runCatching { mirrorPresentation?.dismiss() }
                     mirrorPresentation = null
-                    createOverlayMirror(proj, secondary, coverCtx)
+                    runCatching { createOverlayMirror(proj, secondary, coverCtx) }
+                        .onFailure { Log.w(TAG, "Mirror overlay fallback failed", it); showFailurePillAndStop(secondary, "Mirror failed: overlay error") }
                 }
             }, 3000)
             return
@@ -463,7 +464,10 @@ class ScreenMirrorService : Service() {
         // (same route as bubble/panel, which Samsung DOES show
         // on this cover). The TextureView fills the cover; its
         // buffer is the main size, TextureView scales it down.
-        createOverlayMirror(proj, secondary, coverCtx)
+        // vc87: wrapped so an overlay bug becomes a failure pill,
+        // never a FATAL EXCEPTION that kills the service process.
+        runCatching { createOverlayMirror(proj, secondary, coverCtx) }
+            .onFailure { Log.w(TAG, "Mirror overlay failed", it); showFailurePillAndStop(secondary, "Mirror failed: overlay error") }
     }
 
     // vc59 OVERLAY HELPER: extracted from startMirroring so
@@ -477,7 +481,14 @@ class ScreenMirrorService : Service() {
         val wm = coverCtx.getSystemService(WindowManager::class.java)
         if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); showFailurePillAndStop(secondary, "Mirror failed: no WindowManager for cover"); return }
         val root = FrameLayout(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
-        val tv = TextureView(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
+        // vc87 CRASH FIX (logcat 03:29, proven): TextureView does NOT
+        // support a background drawable — this exact line threw
+        // UnsupportedOperationException and killed the whole service
+        // process (FATAL EXCEPTION at ScreenMirrorService.kt:480),
+        // which is why the user saw disconnect + lock + crash on
+        // every attempt, including the 2nd. Root FrameLayout above
+        // is already black; TextureView needs no background.
+        val tv = TextureView(coverCtx)
         root.addView(tv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         // vc55 STATUS TEXT (temporary diagnostic, top-left over
