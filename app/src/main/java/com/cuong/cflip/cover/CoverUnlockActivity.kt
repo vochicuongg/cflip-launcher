@@ -90,6 +90,20 @@ class CoverUnlockActivity : Activity() {
         window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        // vc97 LOCK INFO FIX (vc96 test: lock rotated but
+        // clock/calendar vanished): vc95 made this a
+        // FULL-SCREEN activity. Even with a transparent
+        // background, a full-screen showWhenLocked activity
+        // on the cover displaces Samsung's cover lock UI,
+        // so its clock/calendar are not drawn underneath.
+        // 9Flip's UnlockActivity is also transparent, but
+        // it is TRANSIENT (it requests dismiss at once and
+        // finishes) - it never sits on lock. CFlip's lock
+        // bubble DOES sit on lock, so its window must be
+        // only bubble-sized (set below, after size/position
+        // are computed), leaving the rest of the lock
+        // screen to Samsung. Touches outside the bubble
+        // pass through (NOT_TOUCH_MODAL) to the lock UI.
         runCatching {
             registerReceiver(finishReceiver, IntentFilter(ACTION_FINISH_UNLOCK), Context.RECEIVER_NOT_EXPORTED)
         }
@@ -124,6 +138,16 @@ class CoverUnlockActivity : Activity() {
         startX = startX.coerceIn(0, maxOf(0, dispW - size))
         startY = startY.coerceIn(0, maxOf(0, dispH - size))
 
+        // vc97: window is exactly the bubble, at its
+        // saved position. Lock info outside this rect is
+        // Samsung's lock UI, untouched by this window.
+        window?.setLayout(size, size)
+        window?.setGravity(Gravity.TOP or Gravity.START)
+        window?.attributes?.let { attrs ->
+            attrs.x = startX
+            attrs.y = startY
+            window?.attributes = attrs
+        }
         val root = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -144,15 +168,75 @@ class CoverUnlockActivity : Activity() {
                 gradientType = GradientDrawable.LINEAR_GRADIENT
                 setStroke(dp(1), 0xFF7FE3C0.toInt())
             }
-            // Tap only (no drag on lock: dragging over the
-            // keyguard could fight the lock swipe). One tap
-            // asks the system to dismiss the keyguard.
-            setOnClickListener { requestUnlock() }
+            // vc97 DRAG + SYNC (vc96 test: lock bubble can
+            // be moved and its position syncs with the
+            // unlocked bubble - preserve that, and make it
+            // real for the lock bubble too): drag moves
+            // this small window; on lift, the new position
+            // is saved to the SAME prefs the overlay bubble
+            // reads ("assistive_touch" x/y + display size),
+            // so after unlock the overlay bubble appears
+            // exactly where the lock bubble was left. A tap
+            // (moved less than touch slop) still asks the
+            // system to dismiss the keyguard, it does not
+            // drag.
+            var downRawX = 0f
+            var downRawY = 0f
+            var downWinX = 0
+            var downWinY = 0
+            var moved = false
+            val slop = android.view.ViewConfiguration.get(this@CoverUnlockActivity).scaledTouchSlop
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        downRawX = event.rawX
+                        downRawY = event.rawY
+                        val attrs = window?.attributes
+                        downWinX = attrs?.x ?: startX
+                        downWinY = attrs?.y ?: startY
+                        moved = false
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val dx = (event.rawX - downRawX).toInt()
+                        val dy = (event.rawY - downRawY).toInt()
+                        if (!moved && (kotlin.math.abs(dx) > slop || kotlin.math.abs(dy) > slop)) moved = true
+                        if (moved) {
+                            val newX = (downWinX + dx).coerceIn(0, maxOf(0, dispW - size))
+                            val newY = (downWinY + dy).coerceIn(0, maxOf(0, dispH - size))
+                            window?.attributes?.let { attrs ->
+                                attrs.x = newX
+                                attrs.y = newY
+                                window?.attributes = attrs
+                            }
+                        }
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        if (!moved) {
+                            requestUnlock()
+                        } else {
+                            // Save the dropped position so
+                            // the unlocked bubble syncs to it.
+                            val attrs = window?.attributes
+                            val fx = attrs?.x ?: downWinX
+                            val fy = attrs?.y ?: downWinY
+                            prefs.edit()
+                                .putInt("x", fx)
+                                .putInt("y", fy)
+                                .putInt("display_w", dispW)
+                                .putInt("display_h", dispH)
+                                .apply()
+                        }
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_CANCEL -> true
+                    else -> false
+                }
+            }
         }
         val lp = FrameLayout.LayoutParams(size, size).apply {
-            gravity = Gravity.TOP or Gravity.START
-            leftMargin = startX
-            topMargin = startY
+            gravity = Gravity.CENTER
         }
         root.addView(btn, lp)
         setContentView(root)

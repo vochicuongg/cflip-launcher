@@ -163,16 +163,23 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var streamPendingX: Float? = null
     private var streamPendingY: Float? = null
     private var streamPendingFinal = false
-    // vc96 TOUCH QUEUE (9Flip f4.m: queue max 12, single
-    // in-flight gesture): vc88-vc94 coalesced every MOVE to
-    // the LATEST point only, so fast swipes lost their
-    // intermediate path and arrived as jumps. Now MOVE
-    // points (including MotionEvent history points, which
-    // carry the finger positions between delivered MOVE
-    // events) are queued in order, up to 12, oldest dropped
-    // when full so the stream stays live, and dispatched
-    // in order on each segment completion.
-    private val streamPointQueue = ArrayDeque<Pair<Float, Float>>()
+    // vc97 TOUCH REVERT (vc96 queue made it WORSE):
+    // vc96 queued up to 12 points and dispatched them in
+    // order, each 52ms + callback, so a fast swipe lagged
+    // behind the finger by up to ~1s - exactly the
+    // "delay, khong theo tuong tac" in the vc96 test.
+    // 9Flip's LIVE touch (f4.d/o/n, decompiled 27/10) does
+    // the opposite: it keeps only the LATEST pending point
+    // (a4Var.f1239c), and if a segment is already in flight
+    // it just updates that pending point, it does NOT queue
+    // a new segment. The 12-deep queue in f4.m is for
+    // pre-built gestures, not for live finger movement.
+    // So vc97 goes back to latest-only coalescing, with
+    // 9Flip d() durations: 16ms for a new/moved segment,
+    // 1ms for an unmoved/final continuation. No history
+    // points as separate segments (history is already old
+    // by delivery time; dispatching it in order only adds
+    // lag behind the current finger position).
     private var streamGeneration = 0
     private var pinchActive = false
     private var pinchStart1X = 0f
@@ -239,12 +246,15 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // 52ms for a moved continuation, and 1ms for an
         // unmoved/final continuation, with a 1px movement
         // threshold. Tap now costs ~17ms instead of ~100ms.
+        // vc97: 9Flip d() - 16ms for new or moved,
+        // 1ms for unmoved/final. The vc94 52ms for moved
+        // came from f4.e() (a different, non-live path)
+        // and tripled live-touch latency vs 16ms.
         val moved = kotlin.math.hypot(toX - streamLastX, toY - streamLastY) >= 1f
         val segDuration = when {
             streamStroke == null -> 16L
-            !willContinue && !moved -> 1L
             !moved -> 1L
-            else -> 52L
+            else -> 16L
         }
         val path = Path()
         path.moveTo(streamLastX, streamLastY)
@@ -292,7 +302,6 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 streamPendingX = null
                 streamPendingY = null
                 streamPendingFinal = false
-                streamPointQueue.clear()
                 pinchPending = null
             }
         }, null)
@@ -304,48 +313,46 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             streamPendingX = null
             streamPendingY = null
             streamPendingFinal = false
-            streamPointQueue.clear()
         }
     }
 
     private fun onStreamSegmentDone() {
-        // vc96: pop the next queued point in order (or the
-        // final point if the queue drained). The vc89 fix
-        // (final segment must dispatch, not be discarded)
-        // lives in the dispatch callback above, unchanged.
-        dispatchNextQueued()
+        if (streamPendingFinal) {
+            val px = streamPendingX
+            val py = streamPendingY
+            streamPendingFinal = false
+            streamPendingX = null
+            streamPendingY = null
+            if (px != null && py != null) {
+                dispatchStreamSegment(px, py, false)
+            } else {
+                streamStroke = null
+            }
+            return
+        }
+        val px = streamPendingX
+        val py = streamPendingY
+        if (px != null && py != null) {
+            streamPendingX = null
+            streamPendingY = null
+            dispatchStreamSegment(px, py, true)
+        }
     }
 
     private fun queueStreamSegment(toX: Float, toY: Float, final: Boolean) {
         if (final) streamPendingFinal = true
         streamPendingX = toX
         streamPendingY = toY
-        // vc96: queue in order, cap 12 (9Flip queue size).
-        // Drop the oldest when full, never the newest, so a
-        // fast swipe stays live instead of stalling behind
-        // a full queue.
-        if (streamPointQueue.isEmpty() || streamPointQueue.last() != Pair(toX, toY)) {
-            streamPointQueue.addLast(Pair(toX, toY))
-            while (streamPointQueue.size > 12) streamPointQueue.removeFirst()
-        }
         if (!streamInFlight) {
-            dispatchNextQueued()
+            val px = streamPendingX
+            val py = streamPendingY
+            if (px == null || py == null) return
+            streamPendingX = null
+            streamPendingY = null
+            val isFinal = streamPendingFinal
+            if (isFinal) streamPendingFinal = false
+            dispatchStreamSegment(px, py, !isFinal)
         }
-    }
-
-    private fun dispatchNextQueued() {
-        val pt = streamPointQueue.removeFirstOrNull() ?: run {
-            // No queued points left: if UP already queued a
-            // final, dispatch it at the last position.
-            if (streamPendingFinal) {
-                streamPendingFinal = false
-                dispatchStreamSegment(touchLastX, touchLastY, false)
-            }
-            return
-        }
-        val isFinal = streamPendingFinal && streamPointQueue.isEmpty()
-        if (isFinal) streamPendingFinal = false
-        dispatchStreamSegment(pt.first, pt.second, !isFinal)
     }
 
     private fun buildPinchGesture(durationMs: Long): GestureDescription {
@@ -450,7 +457,6 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         streamInFlight = false
                         streamPendingX = null; streamPendingY = null
                         streamPendingFinal = false
-                        streamPointQueue.clear()
                         streamGeneration++
                         queueStreamSegment(main.first, main.second, false)
                         true
@@ -481,18 +487,6 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             }
                             true
                         } else {
-                            // vc96: feed history points first, then
-                            // the current point, so a fast swipe
-                            // keeps its full path instead of
-                            // jumping from the last delivered
-                            // MOVE straight to the current one.
-                            for (h in 0 until event.historySize) {
-                                val hm = mirrorViewToMain(event.getHistoricalX(h), event.getHistoricalY(h))
-                                if (hm != null) {
-                                    touchLastX = hm.first; touchLastY = hm.second
-                                    queueStreamSegment(hm.first, hm.second, false)
-                                }
-                            }
                             val main = mirrorViewToMain(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
