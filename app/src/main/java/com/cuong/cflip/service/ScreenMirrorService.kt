@@ -17,19 +17,40 @@ import android.view.Surface
 import androidx.core.app.NotificationCompat
 import com.cuong.cflip.CFlipApp
 import com.cuong.cflip.R
-import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.DisplayRepository
-import com.cuong.cflip.mirror.MirrorPresentation
+import android.app.PendingIntent
+import android.graphics.PixelFormat
+import android.graphics.Point
+import android.view.Display
+import android.view.Gravity
+import android.view.TextureView
+import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.FrameLayout
 import com.cuong.cflip.mirror.MirrorState
 
 /**
  * Mirrors the main screen onto the cover display.
  *
- * Flow (Android rules, cannot be shortcut): the user approves the system
- * screen-capture dialog in MainActivity's flow, this media-projection
- * foreground service takes the one-shot result, creates a virtual display
- * with VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR whose surface is the cover
- * Presentation's TextureView - so the main screen is drawn live on the cover.
+ * vc47 ARCHITECTURE CHANGE (from full 9Flip mirror decompile):
+ * 9Flip's mirror does NOT render into a separate Presentation window.
+ * Its cover UI itself supplies a Surface, and the projection service
+ * creates an AUTO_MIRROR virtual display at the SOURCE display's size
+ * into that surface - the feed lives INSIDE the normal cover UI.
+ * CFlip vc32-vc46 did the opposite: a separate Presentation window
+ * on the cover, sized to the COVER display. On Samsung's FlexWindow
+ * a third-party Presentation is not reliably shown (the window is
+ * created without error but the cover keeps showing Samsung's own
+ * cover UI, so the user sees no main UI at all - exactly the vc46
+ * report). vc47 therefore drops the Presentation and renders into
+ * an OVERLAY on the cover (the same TYPE_APPLICATION_OVERLAY route
+ * the bubble and panel already use successfully on this cover),
+ * with the virtual display sized to the MAIN display (source size,
+ * like 9Flip) and the TextureView scaling it down to the cover.
+ * The feed will look vertically squished (tall main UI onto a near-
+ * square cover) - that is inherent to mirroring, not a bug; the
+ * goal of vc47 is visibility first, aspect refinement later.
  *
  * Reality check: it mirrors whatever the MAIN display shows. Fold the phone
  * fully closed and the main display is off, so the mirror goes black - for
@@ -41,8 +62,16 @@ class ScreenMirrorService : Service() {
 
     private var projection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private var presentation: MirrorPresentation? = null
+    // vc47 overlay route (Presentation removed): the feed view
+    // lives in a cover overlay, like bubble/panel, not a
+    // separate Presentation window.
+    private var overlayView: View? = null
+    private var overlayWm: WindowManager? = null
+    private var mirrorTexture: TextureView? = null
     private var mirrorSurface: Surface? = null
+    private var mainWidth: Int = 0
+    private var mainHeight: Int = 0
+    private var mainDpi: Int = 0
     private val handler = Handler(Looper.getMainLooper())
 
     private val projectionCallback = object : MediaProjection.Callback() {
@@ -57,19 +86,14 @@ class ScreenMirrorService : Service() {
         when (intent?.action) {
             ACTION_STOP -> { cleanup(); stopSelf(); return START_NOT_STICKY }
             ACTION_APPLY_ROTATION -> {
-                // Old bug: only the TextureView transform changed, but the
-                // virtual display kept its old (portrait/landscape) size, so
-                // the rotated feed was squashed. Recreate the virtual display
-                // at the new buffer size on the same surface/projection.
-                val pres = presentation
+                // vc47: with the overlay route, rotation is just
+                // a virtual-display recreate on the same surface
+                // at source size (TextureView scales to cover).
                 val proj = projection
                 val surface = mirrorSurface
-                if (pres != null && proj != null && surface != null) {
-                    pres.applyRotation(SettingsStore(this).load().coverRotation)
+                if (proj != null && surface != null) {
                     virtualDisplay?.release(); virtualDisplay = null
-                    createVirtualDisplay(proj, pres, surface)
-                } else {
-                    pres?.applyRotation(SettingsStore(this).load().coverRotation)
+                    createVirtualDisplay(proj, surface)
                 }
                 return START_STICKY
             }
@@ -79,11 +103,19 @@ class ScreenMirrorService : Service() {
     }
 
     private fun startMirroring(intent: Intent) {
+        // vc47: mirror notification now has a STOP action
+        // (like 9Flip's), so the user can stop from the shade
+        // as a third exit path besides the overlay button and
+        // the panel tile.
+        val stopIntent = Intent(this, ScreenMirrorService::class.java).apply { action = ACTION_STOP }
+        val stopPi = PendingIntent.getService(this, 9042, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification: Notification = NotificationCompat.Builder(this, CFlipApp.CHANNEL_ID)
             .setContentTitle("CFlip Launcher")
             .setContentText("Đang phản chiếu màn hình chính lên cover")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
+            .addAction(R.drawable.ic_launcher_foreground, "Dừng phản chiếu", stopPi)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -116,25 +148,78 @@ class ScreenMirrorService : Service() {
         if (proj == null) { Log.w(TAG, "getMediaProjection returned null"); stopSelf(); return }
         proj.registerCallback(projectionCallback, handler)
 
-        val pres = MirrorPresentation(this, secondary)
-        pres.applyRotation(SettingsStore(this).load().coverRotation)
-        pres.onSurfaceReady = { surface -> mirrorSurface = surface; createVirtualDisplay(proj, pres, surface) }
-        pres.onSurfaceGone = { mirrorSurface = null; virtualDisplay?.release(); virtualDisplay = null }
-        runCatching { pres.show() }
-            .onSuccess { presentation = pres; MirrorState.active = true
-                Log.i(TAG, "Mirror presentation shown on display ${secondary.displayId}") }
-            .onFailure { Log.w(TAG, "System refused mirror Presentation on cover", it); stopSelf() }
+        // vc47 source size (9Flip approach): the virtual
+        // display is sized to the MAIN display, not the cover.
+        // vc44-vc46 sized it to the cover (720x748-ish) and the
+        // system then had to mirror a tall main display into a
+        // near-square virtual display - a second reason the feed
+        // could come out black/distorted on Samsung.
+        val dm = getSystemService(DisplayManager::class.java)
+        val main = dm?.getDisplay(Display.DEFAULT_DISPLAY)
+        val pt = Point()
+        @Suppress("DEPRECATION") main?.getSize(pt)
+        mainWidth = pt.x.coerceAtLeast(1)
+        mainHeight = pt.y.coerceAtLeast(1)
+        mainDpi = if (main != null) createDisplayContext(main).resources.displayMetrics.densityDpi else 320
+        Log.i(TAG, "Main display source size ${mainWidth}x$mainHeight @${mainDpi}dpi, cover id ${secondary.displayId}")
+
+        // vc47 overlay: cover display context + overlay window
+        // (same route as bubble/panel, which Samsung DOES show
+        // on this cover). The TextureView fills the cover; its
+        // buffer is the main size, TextureView scales it down.
+        val coverCtx = createDisplayContext(secondary)
+        val wm = coverCtx.getSystemService(WindowManager::class.java)
+        if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); stopSelf(); return }
+        val root = FrameLayout(coverCtx)
+        val tv = TextureView(coverCtx)
+        root.addView(tv, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        val stopBtn = Button(coverCtx).apply {
+            text = "Dừng phản chiếu"
+            setOnClickListener { cleanup(); stopSelf() }
+        }
+        root.addView(stopBtn, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.END
+            setMargins(12, 12, 12, 12)
+        })
+        tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                st.setDefaultBufferSize(mainWidth, mainHeight)
+                val surface = Surface(st)
+                mirrorSurface = surface
+                createVirtualDisplay(proj, surface)
+                Log.i(TAG, "Mirror overlay surface ready, virtual display started")
+            }
+            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+            override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
+                mirrorSurface = null
+                virtualDisplay?.release(); virtualDisplay = null
+                return true
+            }
+            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
+        runCatching { wm.addView(root, params) }
+            .onSuccess {
+                overlayView = root; overlayWm = wm; mirrorTexture = tv
+                MirrorState.active = true
+                Log.i(TAG, "Mirror overlay added on cover display ${secondary.displayId}")
+            }
+            .onFailure { Log.w(TAG, "System refused mirror overlay on cover", it); stopSelf() }
     }
 
-    private fun createVirtualDisplay(proj: MediaProjection, pres: MirrorPresentation, surface: Surface) {
-        val (bw, bh) = pres.bufferSize()
-        val dpi = createDisplayContext(pres.display).resources.displayMetrics.densityDpi
+    private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         virtualDisplay = proj.createVirtualDisplay(
-            "CFlipMirror", bw, bh, dpi,
+            "CFlipMirror", mainWidth, mainHeight, mainDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler,
         )
-        Log.i(TAG, "Virtual display created ${bw}x$bh @${dpi}dpi")
+        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size)")
     }
 
     private fun cleanup() {
@@ -148,10 +233,17 @@ class ScreenMirrorService : Service() {
         // service to re-show the cover UI (its tryShowOnSecondary
         // checks active==false first, so this cannot re-hide).
         mirrorSurface = null
+        mirrorTexture = null
         virtualDisplay?.release(); virtualDisplay = null
         runCatching { projection?.stop() }
         projection = null
-        presentation?.dismiss(); presentation = null
+        // vc47: remove the cover overlay (Presentation dismiss
+        // is gone with the Presentation route).
+        runCatching {
+            val v = overlayView; val w = overlayWm
+            if (v != null && w != null) w.removeView(v)
+        }
+        overlayView = null; overlayWm = null
         MirrorState.active = false
         runCatching {
             startService(Intent(this, CoverForegroundService::class.java).apply {
