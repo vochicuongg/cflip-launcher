@@ -96,6 +96,10 @@ class ScreenMirrorService : Service() {
     // (Presentation + overlay). Set in startMirroring before any
     // mirror window is created; UNSPECIFIED means "not set yet".
     private var mirrorWinOrient: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    // vc73: mirror's own rotate host view (1x1 overlay). Removed
+    // in cleanupSession. See startMirroring for why it exists.
+    private var mirrorRotateView: View? = null
+    private var mirrorRotateWm: WindowManager? = null
     private val handler = Handler(Looper.getMainLooper())
 
     private val projectionCallback = object : MediaProjection.Callback() {
@@ -317,6 +321,38 @@ class ScreenMirrorService : Service() {
             android.view.Surface.ROTATION_180 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
             android.view.Surface.ROTATION_270 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
             else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        // vc73 ROTATE HOST RE-APPLY: vc72 window flags were
+        // IGNORED in dual mode (user confirms cover still snaps
+        // 180° in vc72). RotateHost's own mechanism (1x1 overlay
+        // with screenOrientation at addView time) IS proven in
+        // normal mode, but foreground service returns early when
+        // mirror is active, so it never re-adds the host after
+        // dual removes/re-adds the display. Mirror service adds
+        // its own 1x1 rotate view here, with the same orientation,
+        // BEFORE any mirror window shows, so cover never snaps.
+        // Removed in cleanupSession, so normal RotateHost returns
+        // after stop. Same orientation as vc72 flags, so no
+        // conflict if both apply.
+        runCatching {
+            if (mirrorWinOrient != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+                val rotCtx = createDisplayContext(secondary)
+                val rotWm = rotCtx.getSystemService(WindowManager::class.java)
+                if (rotWm != null) {
+                    val rotView = View(rotCtx)
+                    val rotParams = WindowManager.LayoutParams(
+                        1, 1,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        PixelFormat.TRANSLUCENT,
+                    ).apply {
+                        gravity = Gravity.TOP or Gravity.START
+                        screenOrientation = mirrorWinOrient
+                    }
+                    rotWm.addView(rotView, rotParams)
+                    mirrorRotateView = rotView; mirrorRotateWm = rotWm
+                }
+            }
         }
         val presTried = runCatching {
             val acc = MyAccessibilityService.instance
@@ -614,6 +650,15 @@ class ScreenMirrorService : Service() {
             if (v != null && w != null) w.removeView(v)
         }
         overlayView = null; overlayWm = null
+        // vc73: remove mirror's own rotate host (added in
+        // startMirroring). Must go before foreground service
+        // re-shows cover UI below, so normal RotateHost can
+        // return cleanly without a duplicate host.
+        runCatching {
+            val rv = mirrorRotateView; val rw = mirrorRotateWm
+            if (rv != null && rw != null) rw.removeView(rv)
+        }
+        mirrorRotateView = null; mirrorRotateWm = null
         // vc58: dismiss Presentation host if it was the active path.
         runCatching { mirrorPresentation?.dismiss() }
         mirrorPresentation = null
