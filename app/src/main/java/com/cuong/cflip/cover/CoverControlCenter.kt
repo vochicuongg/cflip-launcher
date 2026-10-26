@@ -1455,11 +1455,9 @@ object CoverControlCenterManager {
                 }, 500)
             }
         }
-        // vc61 PENDING FLAG: tracks whether this panel instance
-        // already told the user about a stuck dual-ON pending
-        // attempt, so a second tap cancels it instead of
-        // launching a duplicate permission activity.
-        var mirrorDualAlreadyNotified = false
+        // vc67: vc61 pending flag removed - dual is now enabled
+        // by MirrorPermissionActivity, so "dual already on" is
+        // handled there (brief settle, then dialog), not here.
         tileRow("Phản chiếu", R.drawable.ic_sec_cast) {
             if (com.cuong.cflip.mirror.MirrorState.active) {
                 ctx.startService(Intent(ctx, com.cuong.cflip.service.ScreenMirrorService::class.java)
@@ -1505,108 +1503,39 @@ object CoverControlCenterManager {
                 // tap is visibly registered even if later Toasts
                 // are suppressed or the permission dialog ends up
                 // on main.
-                showCoverMessage(ctx, display, "Đã bấm Phản chiếu - đang bật màn hình kép...")
+                showCoverMessage(ctx, display, "Đã bấm Phản chiếu - đang mở xin quyền...")
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
                 if (mainDisplay == null) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
-                // vc51 DUAL ENABLE (user chose 9Flip way): before
-                // asking for capture permission, request Samsung
-                // dual display via DualDisplayHelper (DeviceState
-                // transact 3). If this fails, do NOT launch the
-                // permission dialog - without dual ON, the cover
-                // stays OFF and mirror would look dead again.
-                // The exact failure is toasted so the user can see
-                // whether Samsung blocked the private API on One UI 9.
-                val dualRes = com.cuong.cflip.service.DualDisplayHelper.enable()
-                if (dualRes.isFailure) {
-                    android.widget.Toast.makeText(ctx, "Dual display failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"), android.widget.Toast.LENGTH_LONG).show()
-                    showCoverMessage(ctx, display, "Dual failed: " + (dualRes.exceptionOrNull()?.message ?: "unknown"))
-                    return@tileRow
+                // vc67 HOST-BEFORE-DUAL: tile no longer enables
+                // dual itself and no longer waits 2000ms with
+                // nothing alive on the cover in dual mode (the
+                // vc66 repro dead window). MirrorPermissionActivity
+                // is launched immediately on the cover; it enables
+                // dual itself while its own window is alive, waits
+                // for dual to settle, then shows the dialog.
+                // vc62 SECOND-START FIX is kept: CLEAR_TASK forces
+                // a fresh permission activity (mirror taskAffinity
+                // only) on every tap.
+                val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                val coverPermOk = runCatching {
+                    val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                    ctx.startActivity(permIntent, opts)
+                    true
+                }.getOrDefault(false)
+                if (coverPermOk) {
+                    android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
+                    showCoverMessage(ctx, display, "Đã mở xin quyền trên màn phụ - bấm Cho phép")
+                } else {
+                    android.widget.Toast.makeText(
+                        ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
+                        android.widget.Toast.LENGTH_LONG).show()
+                    showCoverMessage(ctx, display, "Mở máy ra để đồng ý phản chiếu màn hình")
+                    runCatching { ctx.applicationContext.startActivity(permIntent) }
                 }
-                // vc61 STUCK PENDING: enable() returns "dual already
-                // on" when a previous tap already enabled dual but
-                // mirror never started (permission dialog still
-                // pending on main, user folded and saw nothing).
-                // Launching another permission activity on top of
-                // that looks like "nothing happens" again. First
-                // tap in this panel instance: tell the user to
-                // unfold and approve the pending dialog. Second
-                // tap: cancel the pending attempt (disable dual)
-                // so the next tap is a fresh attempt.
-                if (dualRes.getOrNull() == "dual already on") {
-                    if (!mirrorDualAlreadyNotified) {
-                        mirrorDualAlreadyNotified = true
-                        showCoverMessage(ctx, display, "Dual đã bật từ lần bấm trước - mở máy ra để đồng ý phản chiếu nếu hộp thoại đang chờ trên màn chính")
-                        android.widget.Toast.makeText(ctx, "Dual đã bật từ lần bấm trước - mở máy ra để đồng ý phản chiếu", android.widget.Toast.LENGTH_LONG).show()
-                    } else {
-                        mirrorDualAlreadyNotified = false
-                        runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
-                        showCoverMessage(ctx, display, "Đã hủy chờ phản chiếu - bấm lại để thử mới")
-                        android.widget.Toast.makeText(ctx, "Đã hủy chờ phản chiếu", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                    return@tileRow
-                }
-                // vc53: do NOT hide() before permission. vc51/vc52
-                // hid the panel first, then the capture dialog
-                // appeared on the MAIN display (folded, invisible
-                // from cover), so the tap looked like nothing
-                // happened. Panel stays open during permission;
-                // on success the full-screen mirror overlay will
-                // cover it anyway, on decline it stays for retry.
-                // vc55 9FLIP ALIGNMENT (two fixes in one):
-                // (a) NO_HISTORY REMOVED: vc32-vc54 launched the
-                // permission activity with FLAG_ACTIVITY_NO_HISTORY.
-                // 9Flip does NOT use it (it uses NEW_TASK |
-                // SINGLE_TOP | CLEAR_TOP, manifest singleTop).
-                // NO_HISTORY finishes an activity as soon as it
-                // leaves the foreground - when the system capture
-                // dialog covers it, the permission activity can be
-                // finished before the user approves, its result
-                // callback is lost, the service never starts, and
-                // the tap looks dead AFTER the dialog. That matches
-                // the vc54 report exactly. Flags now match 9Flip.
-                // (b) DUAL SETTLE DELAY: 9Flip toggles dual in its
-                // own host activity and only launches permission
-                // after the dual state settles (its toggle stamps
-                // now+1000ms). CFlip launched permission in the
-                // same instant as the transact, racing a cover
-                // display that was not yet ready as display 1.
-                // Wait 1200ms after dual ON before launching.
-                android.widget.Toast.makeText(ctx, "Dual display ON - waiting 2s for displays to settle", android.widget.Toast.LENGTH_SHORT).show()
-                showCoverMessage(ctx, display, "Dual ON - chờ 2s rồi mở xin quyền...")
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                    // vc62 SECOND-START FIX: vc55-vc61 used SINGLE_TOP
-                    // + CLEAR_TOP to match 9Flip, but CFlip has no
-                    // state machine to block a duplicate launch like
-                    // 9Flip does. On the second tap, singleTop can
-                    // reuse the first permission activity (whose
-                    // capture dialog already finished) instead of
-                    // creating a fresh one, so onCreate never runs,
-                    // no new capture dialog appears, and the second
-                    // mirror looks dead. CLEAR_TASK forces a fresh
-                    // permission activity (mirror taskAffinity only)
-                    // on every tap. Manifest launchMode also goes
-                    // singleTop -> standard for the same reason.
-                    val coverPermOk = runCatching {
-                        val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                        ctx.startActivity(permIntent, opts)
-                        true
-                    }.getOrDefault(false)
-                    if (coverPermOk) {
-                        android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
-                        showCoverMessage(ctx, display, "Đã mở xin quyền trên màn phụ - bấm Cho phép")
-                    } else {
-                        android.widget.Toast.makeText(
-                            ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
-                            android.widget.Toast.LENGTH_LONG).show()
-                        showCoverMessage(ctx, display, "Mở máy ra để đồng ý phản chiếu màn hình")
-                        runCatching { ctx.applicationContext.startActivity(permIntent) }
-                    }
-                }, 2000)
             }
         }
         // vc35 missing system tiles from 9Flip (f0/u list).
