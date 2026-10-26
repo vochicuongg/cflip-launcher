@@ -177,8 +177,21 @@ class ScreenMirrorService : Service() {
         val secMode = secondary.mode
         val secW = secMode.physicalWidth; val secH = secMode.physicalHeight
         val isCoverSized = (secW in 700..760 && secH in 700..760)
-        if (mainGate == null || mainGate.state != Display.STATE_ON || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
-            Log.w(TAG, "Mirror gate refused: mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
+        // vc65 FOLDED FIX: vc48 gate required main STATE_ON, which
+        // blocks folded mirror by design - folded main is OFF,
+        // so vc64 folded test (feed never appeared) died here,
+        // then disable-dual turned the cover off, then the
+        // one-shot MediaProjection asked again on retry. 9Flip
+        // gates on dual true only, not main ON (its permission
+        // activity refuses on dual off, its service requires
+        // dual true + STARTING). New gate: dual ON + cover ON
+        // + cover-sized + not self-capture. Main state is kept
+        // only as a diagnostic in log/pill/toast, not a refusal.
+        // vc62 feed success was open/flex posture (main ON), not
+        // folded, which is why the old gate passed there.
+        val dualOn = DualDisplayHelper.isDualOn()
+        if (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror") {
+            Log.w(TAG, "Mirror gate refused: dualOn=$dualOn mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             // vc54 MINIMAL SUCCESS FIX: vc51-vc53 toasted the refusal
             // only via applicationContext, which shows on the MAIN
             // display. A folded user looks at the COVER, main is
@@ -191,10 +204,10 @@ class ScreenMirrorService : Service() {
             // case (user looking at main). No gate logic changed:
             // main ON + cover ON + cover-sized + not self-capture
             // are still required, otherwise the vc47 tunnel returns.
-            android.widget.Toast.makeText(applicationContext, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt, kh\u00f4ng ph\u1ea3n chi\u1ebfu khi g\u1eadp m\u00e1y.", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: can Dual ON + man phu that. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val coverCtx = createDisplayContext(secondary)
-                android.widget.Toast.makeText(coverCtx, "Ph\u1ea3n chi\u1ebfu \u0111\u00e3 d\u1eebng: c\u1ea7n M\u1ede M\u00e1y (m\u00e0n ch\u00ednh b\u1eadt) v\u00e0 m\u00e0n ph\u1ee5 th\u1eadt.", android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: can Dual ON. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
             }
             runCatching { DualDisplayHelper.disable() }
             // vc55 REFUSAL PILL: Toasts are rate-limited by Android
@@ -207,7 +220,7 @@ class ScreenMirrorService : Service() {
                 val refusalCtx = createDisplayContext(secondary)
                 val refusalWm = refusalCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
                 val pill = android.widget.TextView(refusalCtx).apply {
-                    text = "Mirror stopped: main must be ON + cover must be ON (open phone)"
+                    text = "Mirror stopped: dualOn=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
                     setTextColor(android.graphics.Color.WHITE)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     textSize = 14f
@@ -581,6 +594,11 @@ class ScreenMirrorService : Service() {
  */
 object DualDisplayHelper {
     private var token: Binder? = null
+
+    // vc65 FOLDED GATE: the service checks dual via this, not
+    // via main display STATE_ON. Folded main is OFF by
+    // definition, so a main-ON gate can never pass folded.
+    fun isDualOn(): Boolean = token != null
 
     fun enable(): Result<String> = runCatching {
         if (token != null) return@runCatching "dual already on"
