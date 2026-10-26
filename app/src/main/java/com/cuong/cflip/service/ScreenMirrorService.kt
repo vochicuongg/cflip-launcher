@@ -2,6 +2,7 @@ package com.cuong.cflip.service
 
 import android.app.Notification
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
