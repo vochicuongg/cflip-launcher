@@ -65,16 +65,57 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     var rotationDeg: Int = 0
         private set
 
-    // vc63 TOUCH: state for cover -> main forwarding (9Flip
-    // trackpad idea, own implementation via AccessibilityService
-    // dispatchGesture). DOWN stores the mapped main point, MOVE
-    // updates it, UP dispatches a tap (small move) or swipe.
+    // vc88 TOUCH: live streaming, 9Flip-style (own code, not a copy).
+    // 9Flip (decompiled f4/g5, 27/10) does NOT wait for finger-up:
+    // it maps each cover point through the inverse fit matrix
+    // (g5 case 0: rectF.contains guard, inverse matrix, then
+    // clamp to source size), then streams stroke segments through
+    // the accessibility service with willContinue=true, chaining
+    // each next segment on the previous stroke's completion
+    // callback (f4 queue, single in-flight gesture, chunks of
+    // ~120-220ms), and only the final segment has
+    // willContinue=false. Tap = 16ms first segment (f4.d),
+    // long-press = 80ms + longPressTimeout segment, also
+    // willContinue=true (k4), pinch = two 180ms strokes from a
+    // centre point outward/inward (y4). CFlip vc63 sent ONE
+    // stroke only at UP time, so scroll/drag only reacted on
+    // lift and a held finger never produced a live long-press.
+    // vc88 streams instead: DOWN sends the first segment
+    // immediately (willContinue=true, so main sees a held down
+    // and long-press fires naturally while the user still holds),
+    // each MOVE queues the latest point (coalesced, like 9Flip
+    // chunking), each segment completion sends the next queued
+    // point, and UP sends the final segment (willContinue=false).
+    // Pinch: second finger starts pinch tracking and ends the
+    // single-finger stream; the two-finger path is dispatched as
+    // one GestureDescription with two strokes when the pinch
+    // lifts (after the single stream finishes, so the service
+    // never has two gestures in flight at once).
     private var touchStartX = 0f
     private var touchStartY = 0f
     private var touchLastX = 0f
     private var touchLastY = 0f
     private var touchStartTime = 0L
     private var touchActive = false
+    private var streamStroke: GestureDescription.StrokeDescription? = null
+    private var streamLastX = 0f
+    private var streamLastY = 0f
+    private var streamInFlight = false
+    private var streamPendingX: Float? = null
+    private var streamPendingY: Float? = null
+    private var streamPendingFinal = false
+    private var streamGeneration = 0
+    private var pinchActive = false
+    private var pinchStart1X = 0f
+    private var pinchStart1Y = 0f
+    private var pinchStart2X = 0f
+    private var pinchStart2Y = 0f
+    private var pinchLast1X = 0f
+    private var pinchLast1Y = 0f
+    private var pinchLast2X = 0f
+    private var pinchLast2Y = 0f
+    private var pinchStartTime = 0L
+    private var pinchPending: GestureDescription? = null
 
     // Map a cover view point to main coords via the inverse of
     // the fit transform (view = main*fMin + offset). Returns null
@@ -114,19 +155,109 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         return Pair(mainX, mainY)
     }
 
-    private fun dispatchMirrorGesture(durationMs: Long) {
+    private fun dispatchStreamSegment(toX: Float, toY: Float, willContinue: Boolean) {
         val acc = MyAccessibilityService.instance ?: return
         val path = Path()
-        path.moveTo(touchStartX, touchStartY)
-        val dist = kotlin.math.hypot(touchLastX - touchStartX, touchLastY - touchStartY)
-        if (dist < 1f) {
-            path.lineTo(touchStartX + 1f, touchStartY)
+        path.moveTo(streamLastX, streamLastY)
+        if (toX != streamLastX || toY != streamLastY) path.lineTo(toX, toY)
+        val stroke = if (streamStroke == null) {
+            GestureDescription.StrokeDescription(path, 0L, 50L, willContinue)
         } else {
-            path.lineTo(touchLastX, touchLastY)
+            streamStroke!!.continueStroke(path, 0L, 50L, willContinue)
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
+        streamStroke = stroke
+        streamLastX = toX
+        streamLastY = toY
+        streamInFlight = true
+        val gen = streamGeneration
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
-        acc.dispatchGesture(gesture, null, null)
+        val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                onStreamSegmentDone()
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                streamStroke = null
+                touchActive = false
+                pinchActive = false
+                streamPendingX = null
+                streamPendingY = null
+                streamPendingFinal = false
+                pinchPending = null
+            }
+        }, null)
+        if (!ok) {
+            android.util.Log.w("CFlipMirror", "dispatchGesture rejected, touch stream dropped")
+            streamInFlight = false
+            streamStroke = null
+            touchActive = false
+            streamPendingX = null
+            streamPendingY = null
+            streamPendingFinal = false
+        }
+    }
+
+    private fun onStreamSegmentDone() {
+        if (streamPendingFinal) {
+            streamPendingFinal = false
+            streamStroke = null
+            val pinch = pinchPending
+            pinchPending = null
+            if (pinch != null) {
+                val acc = MyAccessibilityService.instance
+                if (acc != null) acc.dispatchGesture(pinch, null, null)
+            }
+            return
+        }
+        val px = streamPendingX
+        val py = streamPendingY
+        if (px != null && py != null) {
+            streamPendingX = null
+            streamPendingY = null
+            dispatchStreamSegment(px, py, true)
+        }
+    }
+
+    private fun queueStreamSegment(toX: Float, toY: Float, final: Boolean) {
+        if (final) streamPendingFinal = true
+        streamPendingX = toX
+        streamPendingY = toY
+        if (!streamInFlight) {
+            val px = streamPendingX
+            val py = streamPendingY
+            if (px == null || py == null) return
+            streamPendingX = null
+            streamPendingY = null
+            val isFinal = streamPendingFinal
+            if (isFinal) streamPendingFinal = false
+            dispatchStreamSegment(px, py, !isFinal)
+        }
+    }
+
+    private fun buildPinchGesture(durationMs: Long): GestureDescription {
+        val path1 = Path()
+        path1.moveTo(pinchStart1X, pinchStart1Y)
+        if (pinchLast1X != pinchStart1X || pinchLast1Y != pinchStart1Y) path1.lineTo(pinchLast1X, pinchLast1Y)
+        val path2 = Path()
+        path2.moveTo(pinchStart2X, pinchStart2Y)
+        if (pinchLast2X != pinchStart2X || pinchLast2Y != pinchStart2Y) path2.lineTo(pinchLast2X, pinchLast2Y)
+        return GestureDescription.Builder().setDisplayId(0)
+            .addStroke(GestureDescription.StrokeDescription(path1, 0L, durationMs))
+            .addStroke(GestureDescription.StrokeDescription(path2, 0L, durationMs))
+            .build()
+    }
+
+    private fun endPinch(durationMs: Long) {
+        val gesture = buildPinchGesture(durationMs)
+        if (streamInFlight || streamStroke != null) {
+            pinchPending = gesture
+        } else {
+            val acc = MyAccessibilityService.instance
+            if (acc != null) acc.dispatchGesture(gesture, null, null)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -201,24 +332,80 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         touchLastX = main.first; touchLastY = main.second
                         touchStartTime = event.eventTime
                         touchActive = true
+                        pinchActive = false
+                        pinchPending = null
+                        streamStroke = null
+                        streamLastX = main.first; streamLastY = main.second
+                        streamInFlight = false
+                        streamPendingX = null; streamPendingY = null
+                        streamPendingFinal = false
+                        streamGeneration++
+                        queueStreamSegment(main.first, main.second, false)
+                        true
+                    }
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        if (!touchActive || pinchActive) return@setOnTouchListener true
+                        if (event.pointerCount < 2) return@setOnTouchListener true
+                        val p0 = mirrorViewToMain(event.getX(0), event.getY(0))
+                        val p1 = mirrorViewToMain(event.getX(1), event.getY(1))
+                        if (p0 == null || p1 == null) return@setOnTouchListener true
+                        pinchActive = true
+                        pinchStart1X = p0.first; pinchStart1Y = p0.second
+                        pinchStart2X = p1.first; pinchStart2Y = p1.second
+                        pinchLast1X = p0.first; pinchLast1Y = p0.second
+                        pinchLast2X = p1.first; pinchLast2Y = p1.second
+                        pinchStartTime = event.eventTime
+                        queueStreamSegment(touchLastX, touchLastY, true)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (!touchActive) return@setOnTouchListener false
-                        val main = mirrorViewToMain(event.x, event.y)
-                        if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                        if (pinchActive) {
+                            if (event.pointerCount >= 2) {
+                                val p0 = mirrorViewToMain(event.getX(0), event.getY(0))
+                                val p1 = mirrorViewToMain(event.getX(1), event.getY(1))
+                                if (p0 != null) { pinchLast1X = p0.first; pinchLast1Y = p0.second }
+                                if (p1 != null) { pinchLast2X = p1.first; pinchLast2Y = p1.second }
+                            }
+                            true
+                        } else {
+                            val main = mirrorViewToMain(event.x, event.y)
+                            if (main != null) {
+                                touchLastX = main.first; touchLastY = main.second
+                                queueStreamSegment(main.first, main.second, false)
+                            }
+                            true
+                        }
+                    }
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        if (!pinchActive) return@setOnTouchListener true
+                        pinchActive = false
+                        touchActive = false
+                        val durationMs = (event.eventTime - pinchStartTime).coerceIn(50L, 800L)
+                        endPinch(durationMs)
                         true
                     }
                     MotionEvent.ACTION_UP -> {
                         if (!touchActive) return@setOnTouchListener false
-                        touchActive = false
-                        val main = mirrorViewToMain(event.x, event.y)
-                        if (main != null) { touchLastX = main.first; touchLastY = main.second }
-                        val durationMs = (event.eventTime - touchStartTime).coerceIn(50L, 800L)
-                        dispatchMirrorGesture(durationMs)
+                        if (pinchActive) {
+                            pinchActive = false
+                            touchActive = false
+                            val durationMs = (event.eventTime - pinchStartTime).coerceIn(50L, 800L)
+                            endPinch(durationMs)
+                        } else {
+                            touchActive = false
+                            val main = mirrorViewToMain(event.x, event.y)
+                            if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                            queueStreamSegment(touchLastX, touchLastY, true)
+                        }
                         true
                     }
-                    MotionEvent.ACTION_CANCEL -> { touchActive = false; true }
+                    MotionEvent.ACTION_CANCEL -> {
+                        if (touchActive && !pinchActive) queueStreamSegment(touchLastX, touchLastY, true)
+                        touchActive = false
+                        pinchActive = false
+                        true
+                    }
                     else -> false
                 }
             }
