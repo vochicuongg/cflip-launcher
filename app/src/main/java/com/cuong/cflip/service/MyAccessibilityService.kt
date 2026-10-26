@@ -82,18 +82,29 @@ class MyAccessibilityService : AccessibilityService() {
                         contentResolver.openOutputStream(uri)?.use { out ->
                             copy.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
                         } ?: throw IllegalStateException("Cannot open output stream")
-                        // vc45 screenshot sound: saving via the API
-                        // bypasses SystemUI, so Samsung's shutter
-                        // sound never plays and the shot feels
-                        // silent. Play the system shutter click via
-                        // MediaActionSound (public API, best effort:
-                        // on silent/vibrate it may stay silent, and
-                        // a failure here must never break the save).
+                        // vc46 screenshot sound: vc45 used
+                        // MediaActionSound.SHUTTER_CLICK (camera
+                        // shutter), which Cường reported as very
+                        // loud - that sound is fixed-volume and
+                        // ignores the system volume setting on
+                        // Samsung. vc46 instead plays the CURRENT
+                        // system UI click via AudioManager, scaled
+                        // to the CURRENT STREAM_SYSTEM volume, so
+                        // it follows the volume the user actually
+                        // set, and stays silent when the phone is
+                        // on silent/vibrate. A failure here must
+                        // never break the save.
                         runCatching {
-                            val snd = android.media.MediaActionSound()
-                            snd.play(android.media.MediaActionSound.SHUTTER_CLICK)
-                            android.os.Handler(android.os.Looper.getMainLooper())
-                                .postDelayed({ runCatching { snd.release() } }, 500)
+                            val am = getSystemService(android.content.Context.AUDIO_SERVICE)
+                                as? android.media.AudioManager
+                            if (am != null && am.ringerMode == android.media.AudioManager.RINGER_MODE_NORMAL) {
+                                val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_SYSTEM).coerceAtLeast(1)
+                                val cur = am.getStreamVolume(android.media.AudioManager.STREAM_SYSTEM)
+                                val vol = (cur.toFloat() / max).coerceIn(0f, 1f)
+                                if (vol > 0f) {
+                                    am.playSoundEffect(android.media.AudioManager.FX_KEY_CLICK, vol)
+                                }
+                            }
                         }
                         onDone(true, name)
                     }.onFailure { e ->
