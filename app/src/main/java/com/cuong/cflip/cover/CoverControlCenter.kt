@@ -1526,24 +1526,20 @@ object CoverControlCenterManager {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
                     return@tileRow
                 }
-                // vc67 HOST-BEFORE-DUAL: tile no longer enables
-                // dual itself and no longer waits 2000ms with
-                // nothing alive on the cover in dual mode (the
-                // vc66 repro dead window). MirrorPermissionActivity
-                // is launched immediately on the cover; it enables
-                // dual itself while its own window is alive, waits
-                // for dual to settle, then shows the dialog.
-                // vc62 SECOND-START FIX is kept: CLEAR_TASK forces
-                // a fresh permission activity (mirror taskAffinity
-                // only) on every tap.
-                val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
+                // vc83 HOST-FIRST: tile no longer opens the permission
+                // activity directly. It opens DualHostActivity on the
+                // cover (fresh task, CLEAR_TASK); the host enables dual
+                // only when top-resumed (9Flip order), then opens the
+                // dialog-only permission on the cover. Permission never
+                // enables dual itself any more.
+                val hostIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.DualHostActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                val coverPermOk = runCatching {
+                val coverHostOk = runCatching {
                     val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
-                    ctx.startActivity(permIntent, opts)
+                    ctx.startActivity(hostIntent, opts)
                     true
                 }.getOrDefault(false)
-                if (coverPermOk) {
+                if (coverHostOk) {
                     android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
                     showCoverMessage(ctx, display, "Đã mở xin quyền trên màn phụ - bấm Cho phép")
                 } else {
@@ -1551,7 +1547,7 @@ object CoverControlCenterManager {
                         ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
                         android.widget.Toast.LENGTH_LONG).show()
                     showCoverMessage(ctx, display, "Mở máy ra để đồng ý phản chiếu màn hình")
-                    runCatching { ctx.applicationContext.startActivity(permIntent) }
+                    runCatching { ctx.applicationContext.startActivity(hostIntent) }
                 }
             }
         }
