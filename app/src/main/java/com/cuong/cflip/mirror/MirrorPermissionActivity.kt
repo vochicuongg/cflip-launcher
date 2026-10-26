@@ -56,8 +56,14 @@ class MirrorPermissionActivity : ComponentActivity() {
             // lost with the activity.
             Toast.makeText(this, "Đang phản chiếu lên cover", Toast.LENGTH_SHORT).show()
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                ContextCompat.startForegroundService(this, start)
-                finishAndRemoveTask()
+                // vc68: if the user backed out during this 2s
+                // delay, do not start a service they no longer
+                // want (onDestroy below already turned dual off).
+                if (!isFinishing) {
+                    serviceStarted = true
+                    ContextCompat.startForegroundService(this, start)
+                    finishAndRemoveTask()
+                }
             }, 2000)
         } else {
             Toast.makeText(this, "Bạn chưa đồng ý phản chiếu màn hình", Toast.LENGTH_SHORT).show()
@@ -75,6 +81,11 @@ class MirrorPermissionActivity : ComponentActivity() {
     // onNewIntent arriving while the first settle delay is still
     // pending) from scheduling a duplicate capture dialog.
     private var dualCaptureScheduled = false
+    // vc68: true only after the grant branch actually starts
+    // the mirror service. onDestroy uses it to tell "user
+    // backed out, turn dual off" apart from "mirror just
+    // started, do NOT turn dual off".
+    private var serviceStarted = false
 
     // vc67 HOST-BEFORE-DUAL (9Flip decompile, architecture only,
     // no copied code): 9Flip toggles dual INSIDE a 1x1
@@ -125,6 +136,28 @@ class MirrorPermissionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableDualThenCapture()
+    }
+
+    // vc68 SEPARATION: this activity is the only place that
+    // enables dual in the vc67 flow. If it dies without
+    // starting the service (back press, system destroy,
+    // swipe-away) and without an explicit decline (which
+    // already disables dual), dual would stay ON with no
+    // service and no activity, and cover overlays (panel +
+    // widget) stay hidden in dual mode - that is how a mirror
+    // attempt can "break" widget without touching any widget
+    // code. onDestroy turns dual off in exactly that case.
+    // Grant path sets serviceStarted=true before starting the
+    // service, so a just-started mirror is NOT killed by its
+    // own activity finishing. Decline already disabled dual,
+    // so a second disable here is idempotent. Config-change
+    // recreation is safe: the new instance re-enables dual
+    // ("dual already on" -> brief settle -> dialog).
+    override fun onDestroy() {
+        if (!serviceStarted) {
+            runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
+        }
+        super.onDestroy()
     }
 
     private fun launchCapture() {
