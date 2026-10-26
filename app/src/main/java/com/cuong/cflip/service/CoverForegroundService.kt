@@ -279,6 +279,22 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 return
             }
             if (settings.assistiveTouchEnabled) {
+                // vc99: try the 2032 overlay bubble FIRST.
+                // If it shows, lock info stays (overlay,
+                // not an Activity) and UnlockActivity is
+                // NOT launched at all - it only appears
+                // when the user taps the bubble on lock
+                // (see CoverAssistiveTouchManager lock
+                // tap). Only if the overlay fails do we
+                // fall back to the vc95-vc98 Activity path.
+                val overlayOk = com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary).isSuccess &&
+                    com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()
+                if (overlayOk) {
+                    assistiveTouchDisplayId = secondary.displayId
+                    Log.i(TAG, "Lock bubble via overlay (2032 try), UnlockActivity not launched (vc99)")
+                    return
+                }
+                Log.w(TAG, "Lock overlay bubble failed, falling back to UnlockActivity (vc99)")
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 assistiveTouchDisplayId = -1
                 val now = android.os.SystemClock.uptimeMillis()

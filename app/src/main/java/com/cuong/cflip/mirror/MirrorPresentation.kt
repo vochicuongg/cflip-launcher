@@ -186,6 +186,33 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // 1px threshold), they never become segments.
     private val moveChunkPoints = ArrayDeque<Pair<Float, Float>>()
     private val gestureHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // vc99 TOUCH (9Flip u2, decompiled with --show-bad-code
+    // 27/10, now readable): u2 does NOT only live-stream.
+    // It keeps a full point list (cap 96, remove index 1
+    // when full so index 0 - the DOWN point - is never
+    // lost), total movement in VIEW coordinates, and a
+    // slop test. On UP, if no live stream is active, it
+    // does NOT drop the gesture: tap (total <= slop) is
+    // one 42ms gesture (f4.v: moveTo only, 42ms), drag
+    // (list >= 2) is ONE Path gesture from the whole
+    // list, duration clamp(totalDistance/2.4, 120, 650)ms
+    // (f4.u + u2 UP branch: velocity ~2.4 px/ms). CFlip
+    // vc88-vc98 had NO such fallback: if the live stream
+    // was never started (service null at DOWN, dispatch
+    // rejected, stream cancelled when mirror exits) the
+    // whole touch was lost, feeling like "khong theo
+    // tuong tac". vc99 keeps the vc98 live chunk stream
+    // as the primary path, and adds u2's UP fallback
+    // only when live is NOT active, so it never doubles
+    // a drag that already went live.
+    private val touchPointList = ArrayList<Pair<Float, Float>>()
+    private var touchDownViewX = 0f
+    private var touchDownViewY = 0f
+    private var touchLastViewX = 0f
+    private var touchLastViewY = 0f
+    private var touchTotalViewMove = 0f
+    private var touchLiveStarted = false
+    private var touchLastUpMs = 0L
     // vc97 TOUCH REVERT (vc96 queue made it WORSE):
     // vc96 queued up to 12 points and dispatched them in
     // order, each 52ms + callback, so a fast swipe lagged
@@ -392,6 +419,43 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         }
     }
 
+    private fun dispatchU2Fallback() {
+        val acc = MyAccessibilityService.instance ?: return
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+        // Tap: total view movement <= slop, single
+        // 42ms moveTo gesture (f4.v).
+        if (touchTotalViewMove <= slop || touchPointList.size < 2) {
+            val pt = touchPointList.lastOrNull() ?: return
+            val path = Path()
+            path.moveTo(pt.first, pt.second)
+            val gesture = GestureDescription.Builder().setDisplayId(0)
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                .build()
+            acc.dispatchGesture(gesture, null, gestureHandler)
+            return
+        }
+        // Drag/swipe: one Path from the whole list,
+        // duration by distance / 2.4 px/ms, clamped
+        // 120..650ms (u2 UP branch).
+        var dist = 0.0
+        for (i in 1 until touchPointList.size) {
+            val a = touchPointList[i - 1]; val b = touchPointList[i]
+            dist += kotlin.math.hypot(b.first - a.first, b.second - a.second)
+        }
+        val duration = dist.toLong().let { (it / 2.4).toLong() }.coerceIn(120L, 650L)
+        val path = Path()
+        val first = touchPointList.first()
+        path.moveTo(first.first, first.second)
+        for (i in 1 until touchPointList.size) {
+            val pt = touchPointList[i]
+            path.lineTo(pt.first, pt.second)
+        }
+        val gesture = GestureDescription.Builder().setDisplayId(0)
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
+            .build()
+        acc.dispatchGesture(gesture, null, gestureHandler)
+    }
+
     private fun buildPinchGesture(durationMs: Long): GestureDescription {
         val path1 = Path()
         path1.moveTo(pinchStart1X, pinchStart1Y)
@@ -486,6 +550,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         touchStartX = main.first; touchStartY = main.second
                         touchLastX = main.first; touchLastY = main.second
                         touchStartTime = event.eventTime
+                        touchDownViewX = event.x; touchDownViewY = event.y
+                        touchLastViewX = event.x; touchLastViewY = event.y
+                        touchTotalViewMove = 0f
+                        touchLiveStarted = false
+                        touchPointList.clear()
+                        touchPointList.add(Pair(main.first, main.second))
                         touchActive = true
                         pinchActive = false
                         pinchPending = null
@@ -526,9 +596,19 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             }
                             true
                         } else {
+                            // u2: total movement in VIEW
+                            // coordinates, accumulated, not
+                            // per-event main distance.
+                            touchTotalViewMove += kotlin.math.hypot(event.x - touchLastViewX, event.y - touchLastViewY)
+                            touchLastViewX = event.x; touchLastViewY = event.y
                             val main = mirrorViewToMain(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
+                                // List cap 96, remove index 1
+                                // (keep DOWN point at 0, like u2).
+                                if (touchPointList.size >= 96) touchPointList.removeAt(1)
+                                touchPointList.add(Pair(main.first, main.second))
+                                touchLiveStarted = true
                                 queueStreamSegment(main.first, main.second, false)
                             }
                             true
@@ -552,15 +632,30 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         } else {
                             touchActive = false
                             val main = mirrorViewToMain(event.x, event.y)
-                            if (main != null) { touchLastX = main.first; touchLastY = main.second }
-                            queueStreamSegment(touchLastX, touchLastY, true)
+                            if (main != null) {
+                                touchLastX = main.first; touchLastY = main.second
+                                if (touchPointList.size >= 96) touchPointList.removeAt(1)
+                                touchPointList.add(Pair(main.first, main.second))
+                            }
+                            if (!touchLiveStarted) {
+                                // u2 UP fallback: live never
+                                // started, so deliver the
+                                // whole touch as one gesture.
+                                dispatchU2Fallback()
+                            } else {
+                                queueStreamSegment(touchLastX, touchLastY, true)
+                            }
+                            touchLastUpMs = event.eventTime
                         }
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
-                        if (touchActive && !pinchActive) queueStreamSegment(touchLastX, touchLastY, true)
+                        if (touchActive && !pinchActive) {
+                            if (touchLiveStarted) queueStreamSegment(touchLastX, touchLastY, true)
+                        }
                         touchActive = false
                         pinchActive = false
+                        touchPointList.clear()
                         true
                     }
                     else -> false

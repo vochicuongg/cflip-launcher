@@ -92,8 +92,25 @@ object CoverAssistiveTouchManager {
             throw IllegalArgumentException("AssistiveTouch is cover-only, refusing default display")
         }
         hide()
-        val displayContext = appContext.createDisplayContext(display)
-        val manager = displayContext.getSystemService(WindowManager::class.java)
+        // vc99 LOCK BUBBLE TYPE (9Flip ub.java: type =
+        // a11y != null ? 2032 : fallback): CFlip's bubble
+        // used 2038 (TYPE_APPLICATION_OVERLAY) + SHOW_WHEN
+        // _LOCKED, which Samsung hides over a secure
+        // keyguard (vc91 proof) - so vc95-vc98 had to use
+        // an Activity on lock, and an Activity displaces
+        // Samsung's lock UI (clock/calendar) even when
+        // its window is bubble-sized (vc97-vc98 proof:
+        // info still missing). A 2032 overlay window,
+        // like RotateHost vc96, survives lock WITHOUT
+        // being an Activity, so it should sit on lock
+        // WITHOUT displacing lock info. Try 2032 via
+        // the accessibility service display context
+        // first; if the system rejects it, fall back to
+        // 2038 in the same call (never worse than vc98).
+        val a11ySvc = MyAccessibilityService.instance
+        val displayContext = if (a11ySvc != null) a11ySvc.createDisplayContext(display) else appContext.createDisplayContext(display)
+        val bubbleType = if (a11ySvc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        var manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val density = displayContext.resources.displayMetrics.density
@@ -125,7 +142,7 @@ object CoverAssistiveTouchManager {
         // SHOW_WHEN_LOCKED the keyguard hides this overlay.
         val params = WindowManager.LayoutParams(
             size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            bubbleType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
@@ -198,6 +215,15 @@ object CoverAssistiveTouchManager {
                         pendingSingleTap = false
                         singleTapRunnable?.let { handler.removeCallbacks(it) }
                         singleTapRunnable = null
+                        // vc99: on lock, double-tap must
+                        // NOT open the panel (panel is an
+                        // overlay, hidden/displacing on
+                        // lock). Go to unlock instead.
+                        if (isKeyguardLocked(appContext)) {
+                            launchUnlockActivity(appContext, display.displayId)
+                            scheduleDim()
+                            return@setOnTouchListener true
+                        }
                         doubleTapOpened = true
                         downX = e.rawX; downY = e.rawY
                         paramsX = params.x; paramsY = params.y
@@ -294,6 +320,16 @@ object CoverAssistiveTouchManager {
                         return@setOnTouchListener true
                     }
                     if (longPressed) { scheduleDim(); return@setOnTouchListener true }
+                    // vc99: on lock, a tap must NOT fire
+                    // Home/Menu (both blocked on lock).
+                    // It asks the system to dismiss the
+                    // keyguard via UnlockActivity, exactly
+                    // like 9Flip's transient unlock flow.
+                    if (isKeyguardLocked(appContext)) {
+                        launchUnlockActivity(appContext, display.displayId)
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
                     if (pendingSingleTap) {
                         // Second tap inside the double-tap window -> Menu.
                         pendingSingleTap = false
@@ -328,7 +364,18 @@ object CoverAssistiveTouchManager {
             btn.systemGestureExclusionRects = listOf(
                 android.graphics.Rect(0, 0, size, size))
         }
-        manager.addView(btn, params)
+        try {
+            manager.addView(btn, params)
+        } catch (e: Exception) {
+            Log.w(TAG, "Bubble type $bubbleType rejected, falling back to 2038", e)
+            val fallbackCtx = appContext.createDisplayContext(display)
+            val fallbackMgr = fallbackCtx.getSystemService(WindowManager::class.java)
+                ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
+            params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            fallbackMgr.addView(btn, params)
+            manager = fallbackMgr
+        }
+        Log.i(TAG, "Bubble type=${params.type} (a11yAlive=${a11ySvc != null})")
         wm = manager; button = btn; bubbleParams = params; displayId = display.displayId
         // Apply the saved cover brightness immediately, not only after
         // the panel is opened once.
@@ -354,6 +401,20 @@ object CoverAssistiveTouchManager {
             button = null; wm = null; bubbleParams = null; displayId = -1
             Log.i(TAG, "AssistiveTouch hidden")
         }
+    }
+
+    private fun isKeyguardLocked(context: Context): Boolean {
+        val km = context.getSystemService(android.app.KeyguardManager::class.java) ?: return false
+        return km.isKeyguardLocked
+    }
+
+    private fun launchUnlockActivity(context: Context, displayId: Int) {
+        runCatching {
+            val intent = Intent(context, CoverUnlockActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
+            context.startActivity(intent, opts.toBundle())
+        }.onFailure { Log.w(TAG, "Lock bubble unlock launch failed", it) }
     }
 
     private fun doHome(context: Context, displayId: Int) {
