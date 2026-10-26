@@ -380,6 +380,11 @@ object CoverControlCenterManager {
         // cost. Now the apps grid builds only on first switch to tab 2.
         var buildAppsTab: (() -> Unit)? = null
         var buildNotifTab: (() -> Unit)? = null
+        // vc46 record help card: set by the control tab after the
+        // tile card, shown (instead of a 3.5s toast) when the
+        // recorder cannot be opened directly, so the user can
+        // actually read the cover-QS steps before hiding the panel.
+        var recordHelpCard: LinearLayout? = null
         fun selectTab(i: Int) {
             if (i == 1) buildNotifTab?.invoke()
             if (i == 2) buildAppsTab?.invoke()
@@ -1408,7 +1413,10 @@ object CoverControlCenterManager {
             if (svc == null) {
                 android.widget.Toast.makeText(ctx, "Quay màn hình không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
             } else {
-                hide()
+                // vc46: do NOT hide() up front any more - hiding
+                // first is why the help card could never be seen.
+                // Success path hides below; failure path leaves
+                // the panel open with the help card visible.
                 var openedRecorder = false
                 val recPkgs = listOf("com.samsung.android.app.screenrecorder", "com.sec.app.screenrecorder")
                 for (pkg in recPkgs) {
@@ -1444,9 +1452,26 @@ object CoverControlCenterManager {
                     }
                 }
                 if (openedRecorder) {
+                    hide()
                     android.widget.Toast.makeText(ctx, "Đã mở app quay của Samsung trên màn phụ", android.widget.Toast.LENGTH_SHORT).show()
                 } else {
-                    android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Dùng trên màn phụ: 1) Panel đã ẩn, 2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ, 3) Bấm tile Quay màn hình, 4) Chọn âm thanh rồi Bắt đầu. Video lưu vào Gallery.", android.widget.Toast.LENGTH_LONG).show()
+                    // vc46: do NOT hide the panel into a disappearing
+                    // toast any more - vc45's long toast was gone in
+                    // ~3.5s, before the user could read 4 steps, so
+                    // record felt "still unusable". Show the steps
+                    // as a card that stays in the panel; the user
+                    // reads it, then taps its button to hide the
+                    // panel and swipe down on the cover. If the card
+                    // somehow is not built yet (should not happen -
+                    // it is built with the control tab), fall back
+                    // to the old toast so the user still gets steps.
+                    val card = recordHelpCard
+                    if (card != null) {
+                        card.visibility = View.VISIBLE
+                        android.widget.Toast.makeText(ctx, "Không mở được app quay trực tiếp - xem thẻ hướng dẫn trong panel", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(ctx, "Quay màn hình của Samsung không mở được từ app thứ ba. Dùng trên màn phụ: 1) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ, 2) Bấm tile Quay màn hình, 3) Chọn âm thanh rồi Bắt đầu. Video lưu vào Gallery.", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -1500,17 +1525,30 @@ object CoverControlCenterManager {
                 android.widget.Toast.makeText(ctx, "Đã dừng phản chiếu, AssistiveTouch sẽ hiện lại", android.widget.Toast.LENGTH_SHORT).show()
                 hide()
             } else {
-                // vc32: previously this tile only stopped or toasted.
-                // Now it starts the permission flow (like 9Flip's
-                // MirrorPermissionActivity): the system capture dialog
-                // appears on the main display, so unfold to approve.
+                // vc46: vc45 always launched the permission activity
+                // on the main display, so a folded user saw nothing
+                // happen except "mở máy ra" - and if they did not
+                // unfold, mirror looked dead. Now try the permission
+                // activity ON THE COVER first (same activity, cover
+                // displayId); only if the system refuses a cover
+                // activity (Samsung blocks some cover activities)
+                // fall back to main + the unfold toast.
                 hide()
-                android.widget.Toast.makeText(
-                    ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
-                    android.widget.Toast.LENGTH_LONG).show()
-                ctx.applicationContext.startActivity(
-                    Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY))
+                val permIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.MirrorPermissionActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_NO_HISTORY)
+                val coverPermOk = runCatching {
+                    val opts = ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle()
+                    ctx.startActivity(permIntent, opts)
+                    true
+                }.getOrDefault(false)
+                if (coverPermOk) {
+                    android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
+                } else {
+                    android.widget.Toast.makeText(
+                        ctx, "Mở máy ra để đồng ý phản chiếu màn hình",
+                        android.widget.Toast.LENGTH_LONG).show()
+                    runCatching { ctx.applicationContext.startActivity(permIntent) }
+                }
             }
         }
         // vc35 missing system tiles from 9Flip (f0/u list).
@@ -1584,7 +1622,15 @@ object CoverControlCenterManager {
                     }
                     android.widget.Toast.makeText(ctx, "Cài đặt Tiết kiệm pin không mở được trên màn phụ, đã mở trên màn chính - mở máy ra để bật/tắt", android.widget.Toast.LENGTH_LONG).show()
                 } else {
-                    android.widget.Toast.makeText(ctx, "Đã mở Cài đặt Tiết kiệm pin trên màn phụ - bật/tắt ở đó, mở lại panel để thấy trạng thái mới", android.widget.Toast.LENGTH_SHORT).show()
+                    // vc46 honesty fix: startActivity succeeding
+                    // does NOT prove Settings actually appeared on
+                    // the cover - the system may silently redirect
+                    // Settings to the main display. vc45's toast
+                    // claimed cover success and misled when that
+                    // redirect happened. Now the toast says what is
+                    // verifiable: the request was sent, and what to
+                    // do if nothing appears on the cover.
+                    android.widget.Toast.makeText(ctx, "Đã gửi yêu cầu mở Cài đặt Tiết kiệm pin. Nếu vài giây nữa không thấy trên màn phụ thì hệ thống đã chuyển sang màn chính - mở máy ra để bật/tắt, mở lại panel để thấy trạng thái mới.", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1629,6 +1675,28 @@ object CoverControlCenterManager {
             gravity = Gravity.CENTER_HORIZONTAL
         })
         controlContent.addView(tileCard)
+        // vc46 record help card (initially GONE, shown by the
+        // record tile on failure, see above). Steps are Samsung's
+        // cover-QS path: cover Quick Settings lists Screen
+        // recorder as a built-in tile, so this path exists even
+        // though no app can start the recorder directly.
+        run {
+            val help = card()
+            help.visibility = View.GONE
+            help.addView(title("Quay màn hình"))
+            help.addView(TextView(ctx).apply {
+                text = "App quay của Samsung không mở được trực tiếp từ app thứ ba. Dùng trên màn phụ theo các bước:\n1) Bấm nút bên dưới để ẩn panel.\n2) Vuốt xuống từ mép trên màn phụ để mở Cài đặt nhanh màn phụ.\n3) Bấm tile Quay màn hình.\n4) Chọn âm thanh rồi bấm Bắt đầu.\nVideo lưu vào Gallery."
+                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+            })
+            help.addView(modernButton("Ẩn panel để vuốt Cài đặt nhanh màn phụ", true).apply {
+                setOnClickListener {
+                    help.visibility = View.GONE
+                    hide()
+                }
+            })
+            recordHelpCard = help
+            controlContent.addView(help)
+        }
         // 3.6.0 order: Media first, Brightness second, Function island
         // third, Widget last. Widget was built first but is added here.
         widgetCardDeferred?.let { controlContent.addView(it) }
