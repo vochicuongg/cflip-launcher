@@ -163,6 +163,29 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var streamPendingX: Float? = null
     private var streamPendingY: Float? = null
     private var streamPendingFinal = false
+    // vc98 CHUNKED LIVE TOUCH (9Flip f4.c + u2, decompiled
+    // 27/10): vc88-vc97 dispatched ONE segment per MOVE
+    // point and waited for its callback before the next
+    // point. Each dispatch has system + callback overhead,
+    // so between segments main saw the finger STOP, then
+    // JUMP to the next point - scroll momentum broke and
+    // the feed felt "delay, khong theo tuong tac" even
+    // though each segment was only 16ms. 9Flip batches
+    // MOVE points into ONE Path (c(): up to 8 points,
+    // duration clamp(n*22,120,220)ms) so the system plays
+    // a continuous path with no gaps, and only the
+    // completion of that chunk triggers the next chunk.
+    // vc98 does the same for MOVE only: DOWN stays a
+    // single 16ms segment (tap must land instantly),
+    // UP stays a single final segment, MOVE points are
+    // accumulated and dispatched as chunks of up to 8.
+    // A chunk of 1 point keeps 16ms/1ms (no 120ms stall
+    // for a slow drag), a chunk of 8 plays at ~22ms per
+    // point, matching finger speed. Points <1px from the
+    // last queued point are dropped as noise (9Flip d()
+    // 1px threshold), they never become segments.
+    private val moveChunkPoints = ArrayDeque<Pair<Float, Float>>()
+    private val gestureHandler = android.os.Handler(android.os.Looper.getMainLooper())
     // vc97 TOUCH REVERT (vc96 queue made it WORSE):
     // vc96 queued up to 12 points and dispatched them in
     // order, each 52ms + callback, so a fast swipe lagged
@@ -228,66 +251,63 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     }
 
     private fun dispatchStreamSegment(toX: Float, toY: Float, willContinue: Boolean) {
+        dispatchStreamChunk(listOf(Pair(toX, toY)), willContinue)
+    }
+
+    private fun dispatchStreamChunk(points: List<Pair<Float, Float>>, willContinue: Boolean) {
+        if (points.isEmpty()) return
         val acc = MyAccessibilityService.instance
         if (acc == null) {
             // vc90 TOUCH DIAGNOSTIC: never fail silently again.
-            // If the service is not bound, the user sees WHY on
-            // the feed itself instead of "cham khong an" with no
-            // reason. The vc90 config fix (canPerformGestures)
-            // needs a re-bind: toggle Accessibility off/on once.
             setStatus("Cảm ứng cần bật Accessibility cho CFlip (Cài đặt > Trợ năng, tắt/bật lại 1 lần)")
             return
         }
-        // vc94 TOUCH (9Flip f4.d/e, decompiled 27/10):
-        // CFlip used a flat 50ms per segment, so a tap cost
-        // DOWN 50ms + UP 50ms + two callback round-trips,
-        // and every MOVE dispatched even when the point had
-        // not moved 1px. 9Flip uses 16ms for a new stroke,
-        // 52ms for a moved continuation, and 1ms for an
-        // unmoved/final continuation, with a 1px movement
-        // threshold. Tap now costs ~17ms instead of ~100ms.
-        // vc97: 9Flip d() - 16ms for new or moved,
-        // 1ms for unmoved/final. The vc94 52ms for moved
-        // came from f4.e() (a different, non-live path)
-        // and tripled live-touch latency vs 16ms.
-        val moved = kotlin.math.hypot(toX - streamLastX, toY - streamLastY) >= 1f
+        // vc98: one Path for the whole chunk, not one
+        // segment per point. First point of the chunk
+        // continues from streamLast; every later point is
+        // a lineTo in the same stroke, so the system plays
+        // them continuously with no callback gaps.
+        val first = points.first()
+        val moved = kotlin.math.hypot(first.first - streamLastX, first.second - streamLastY) >= 1f
         val segDuration = when {
             streamStroke == null -> 16L
+            points.size > 1 -> points.size.toLong() * 22L
             !moved -> 1L
             else -> 16L
-        }
+        }.coerceIn(1L, 220L)
         val path = Path()
         path.moveTo(streamLastX, streamLastY)
-        if (toX != streamLastX || toY != streamLastY) path.lineTo(toX, toY)
+        for (pt in points) {
+            if (pt.first != streamLastX || pt.second != streamLastY) path.lineTo(pt.first, pt.second)
+        }
+        val last = points.last()
         val stroke = if (streamStroke == null) {
             GestureDescription.StrokeDescription(path, 0L, segDuration, willContinue)
         } else {
             streamStroke!!.continueStroke(path, 0L, segDuration, willContinue)
         }
         streamStroke = stroke
-        streamLastX = toX
-        streamLastY = toY
+        streamLastX = last.first
+        streamLastY = last.second
         streamInFlight = true
         val gen = streamGeneration
         val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
-        hideStatus()
+        // vc98: 9Flip f4.i() passes an explicit main-looper
+        // handler to dispatchGesture; CFlip passed null.
+        // Explicit handler matches 9Flip and avoids the
+        // callback landing on an arbitrary thread.
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
                 if (gen != streamGeneration) return
                 streamInFlight = false
-                // vc89 TOUCH BUG (vc88 test: touches did nothing):
-                // the final segment's completion must NOT call
-                // onStreamSegmentDone, or the final point queued
-                // by UP would be discarded and the finger would
-                // stay down on main forever (tap never lands).
                 if (isFinalSegment) {
                     streamStroke = null
                     val pinch = pinchPending
                     pinchPending = null
                     if (pinch != null) {
                         val a2 = MyAccessibilityService.instance
-                        if (a2 != null) a2.dispatchGesture(pinch, null, null)
+                        if (a2 != null) a2.dispatchGesture(pinch, null, gestureHandler)
                     }
                     return
                 }
@@ -302,9 +322,10 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 streamPendingX = null
                 streamPendingY = null
                 streamPendingFinal = false
+                moveChunkPoints.clear()
                 pinchPending = null
             }
-        }, null)
+        }, gestureHandler)
         if (!ok) {
             android.util.Log.w("CFlipMirror", "dispatchGesture rejected, touch stream dropped")
             streamInFlight = false
@@ -313,45 +334,61 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             streamPendingX = null
             streamPendingY = null
             streamPendingFinal = false
+            moveChunkPoints.clear()
         }
     }
 
-    private fun onStreamSegmentDone() {
-        if (streamPendingFinal) {
-            val px = streamPendingX
-            val py = streamPendingY
-            streamPendingFinal = false
-            streamPendingX = null
-            streamPendingY = null
-            if (px != null && py != null) {
-                dispatchStreamSegment(px, py, false)
-            } else {
-                streamStroke = null
+    private fun dispatchNextChunk() {
+        // Take up to 8 accumulated MOVE points (9Flip c()
+        // chunk size). If none remain, a queued UP final
+        // is dispatched at the last touch point.
+        if (moveChunkPoints.isEmpty()) {
+            if (streamPendingFinal) {
+                streamPendingFinal = false
+                dispatchStreamSegment(touchLastX, touchLastY, false)
             }
             return
         }
-        val px = streamPendingX
-        val py = streamPendingY
-        if (px != null && py != null) {
-            streamPendingX = null
-            streamPendingY = null
-            dispatchStreamSegment(px, py, true)
+        val chunk = mutableListOf<Pair<Float, Float>>()
+        while (chunk.size < 8 && moveChunkPoints.isNotEmpty()) {
+            chunk.add(moveChunkPoints.removeFirst())
         }
+        val isFinal = streamPendingFinal && moveChunkPoints.isEmpty()
+        if (isFinal) streamPendingFinal = false
+        dispatchStreamChunk(chunk, !isFinal)
+    }
+
+    private fun onStreamSegmentDone() {
+        dispatchNextChunk()
     }
 
     private fun queueStreamSegment(toX: Float, toY: Float, final: Boolean) {
         if (final) streamPendingFinal = true
         streamPendingX = toX
         streamPendingY = toY
+        if (!final) {
+            // 1px noise filter (9Flip d() threshold):
+            // drop points that did not move from the last
+            // queued point, they would only become 1ms
+            // noise segments and callback churn.
+            val lastQueued = moveChunkPoints.lastOrNull()
+            val refX = lastQueued?.first ?: streamLastX
+            val refY = lastQueued?.second ?: streamLastY
+            if (kotlin.math.hypot(toX - refX, toY - refY) < 1f && moveChunkPoints.isNotEmpty()) {
+                // Still update touchLast in the caller; do
+                // not queue a noise point.
+            } else {
+                moveChunkPoints.addLast(Pair(toX, toY))
+            }
+        } else {
+            // Final point always queued, even if unmoved
+            // (a tap's UP must land as a final segment).
+            if (moveChunkPoints.isEmpty() || moveChunkPoints.last() != Pair(toX, toY)) {
+                moveChunkPoints.addLast(Pair(toX, toY))
+            }
+        }
         if (!streamInFlight) {
-            val px = streamPendingX
-            val py = streamPendingY
-            if (px == null || py == null) return
-            streamPendingX = null
-            streamPendingY = null
-            val isFinal = streamPendingFinal
-            if (isFinal) streamPendingFinal = false
-            dispatchStreamSegment(px, py, !isFinal)
+            dispatchNextChunk()
         }
     }
 
@@ -374,7 +411,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             pinchPending = gesture
         } else {
             val acc = MyAccessibilityService.instance
-            if (acc != null) acc.dispatchGesture(gesture, null, null)
+            if (acc != null) acc.dispatchGesture(gesture, null, gestureHandler)
         }
     }
 
@@ -457,7 +494,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         streamInFlight = false
                         streamPendingX = null; streamPendingY = null
                         streamPendingFinal = false
+                        moveChunkPoints.clear()
                         streamGeneration++
+                        hideStatus()
                         queueStreamSegment(main.first, main.second, false)
                         true
                     }

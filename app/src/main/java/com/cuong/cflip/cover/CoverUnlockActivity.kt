@@ -81,11 +81,24 @@ class CoverUnlockActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Activity setters (not deprecated window flags):
-        // this window is allowed over the keyguard and wakes
-        // the cover, exactly like 9Flip's UnlockActivity.
+        // vc98 AUTO-WAKE FIX (vc97 test: screen lights
+        // itself after locking, "do AssistiveTouch"):
+        // setTurnScreenOn(true) here was the wake source.
+        // The foreground service launches this activity on
+        // every display change while locked - including
+        // the change that turns the cover OFF after lock -
+        // so TurnScreenOn woke the cover right back up,
+        // again and again. 9Flip's UnlockActivity is only
+        // launched when the user CALLS the menu while
+        // locked, never automatically on lock, so it never
+        // wakes a screen that just turned off. CFlip's
+        // lock bubble must NOT wake anything: it only
+        // appears when the cover is ALREADY on (see the
+        // STATE_ON gate in CoverForegroundService), on top
+        // of Samsung's own lock UI. showWhenLocked stays
+        // (bubble must be visible over lock), TurnScreenOn
+        // goes.
         setShowWhenLocked(true)
-        setTurnScreenOn(true)
         setFinishOnTouchOutside(false)
         window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)

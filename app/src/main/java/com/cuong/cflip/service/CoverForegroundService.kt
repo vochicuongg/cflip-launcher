@@ -208,7 +208,27 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // vc81: capture the host Result (before, it was ignored, so a failed
         // add silently left rotation dead). On success, clear any pending
         // retry; on failure, schedule a bounded retry (see fields above).
-        val hostResult = if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
+        // vc98 LOCK INFO FIX (vc97 test: lock rotated
+        // but clock/calendar vanished): follow() keeps a
+        // FULL_SENSOR host alive continuously, so while
+        // locked the cover orientation keeps being
+        // re-forced as the sensor fluctuates, and Samsung's
+        // cover lock UI (which owns its own orientation)
+        // is repeatedly displaced - its widgets do not
+        // settle. 9Flip's host is a STATIC orientation
+        // (a() takes one orientation value; FULL_SENSOR
+        // is only a 220ms pulse, h()), not a continuous
+        // sensor host. So while locked, CFlip now uses
+        // lock() - one fixed orientation, the current
+        // display rotation - so the lock UI stays put
+        // with its clock/calendar, and rotation is still
+        // correct (it just does not flip on lock).
+        // Unlocked, follow/lock follow settings as before.
+        val kmForHost = getSystemService(android.app.KeyguardManager::class.java)
+        val lockedForHost = kmForHost != null && kmForHost.isKeyguardLocked
+        val hostResult = if (lockedForHost) {
+            com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
+        } else if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
             com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
         } else {
             com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
@@ -242,6 +262,22 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // isShown guard, not after it.
         val kmEarly = getSystemService(android.app.KeyguardManager::class.java)
         if (kmEarly != null && kmEarly.isKeyguardLocked) {
+            // vc98 AUTO-WAKE GATE: only launch the lock
+            // bubble when the cover display is already
+            // ON. If it is OFF (just locked, screen
+            // timed out, folded shut), launching anything
+            // here would wake it - that was the vc97
+            // auto-wake bug, together with TurnScreenOn
+            // in UnlockActivity (removed in vc98).
+            // Skipping here does NOT lose the bubble:
+            // the next display change that turns the
+            // cover ON (user folds, taps cover) runs
+            // tryShow again and launches it then, on
+            // top of Samsung's lock UI.
+            if (secondary.state != android.view.Display.STATE_ON) {
+                Log.i(TAG, "Locked but cover display not ON (state=${secondary.state}), not launching lock bubble")
+                return
+            }
             if (settings.assistiveTouchEnabled) {
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 assistiveTouchDisplayId = -1
