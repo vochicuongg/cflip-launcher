@@ -283,7 +283,24 @@ class ScreenMirrorService : Service() {
             pres.isShowing
         }.getOrDefault(false)
         if (presTried) {
-            Log.i(TAG, "Mirror Presentation shown on cover display ${secondary.displayId}, overlay skipped")
+            Log.i(TAG, "Mirror Presentation shown on cover display ${secondary.displayId}, overlay skipped for now")
+            // vc59 AUTO-FALLBACK: vc58 left the user stuck on a
+            // black Presentation if its window showed but its
+            // surface never attached (surface ready never fires,
+            // no feed, no overlay). If after 3s no surface is
+            // ready and the Presentation is still showing, drop
+            // it and try the overlay path instead - mirror
+            // self-heals instead of hanging. If surface became
+            // ready, or the service was stopped (cleanup clears
+            // mirrorPresentation), this does nothing.
+            handler.postDelayed({
+                if (mirrorSurface == null && mirrorPresentation?.isShowing == true) {
+                    Log.i(TAG, "Mirror Presentation surface not ready in 3s, falling back to overlay")
+                    runCatching { mirrorPresentation?.dismiss() }
+                    mirrorPresentation = null
+                    createOverlayMirror(proj, secondary, coverCtx)
+                }
+            }, 3000)
             return
         }
         Log.i(TAG, "Mirror Presentation not shown, falling back to overlay")
@@ -291,6 +308,17 @@ class ScreenMirrorService : Service() {
         // (same route as bubble/panel, which Samsung DOES show
         // on this cover). The TextureView fills the cover; its
         // buffer is the main size, TextureView scales it down.
+        createOverlayMirror(proj, secondary, coverCtx)
+    }
+
+    // vc59 OVERLAY HELPER: extracted from startMirroring so
+    // both the immediate fallback (Presentation not shown)
+    // and the delayed fallback (Presentation shown but
+    // surface never ready in 3s) can use the same overlay
+    // path without duplicating the block. Params are the
+    // projection, cover display and its display context;
+    // main size / handler / mirror state are fields.
+    private fun createOverlayMirror(proj: MediaProjection, secondary: Display, coverCtx: Context) {
         val wm = coverCtx.getSystemService(WindowManager::class.java)
         if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); stopSelf(); return }
         val root = FrameLayout(coverCtx)
