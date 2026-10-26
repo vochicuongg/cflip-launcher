@@ -75,11 +75,18 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         Log.i(TAG, "Displays now: ${DisplayRepository(this).listDisplays()}")
         when (intent?.action) {
             ACTION_HIDE_COVER -> {
+                // vc78 DECOUPLE (user principle, 9Flip Application
+                // pattern): hiding the bubble must NOT kill features.
+                // RotateHost is a feature (like 9Flip's Application
+                // singleton, independent of floating menu visibility),
+                // not part of the bubble. Hide bubble + panel ONLY,
+                // keep RotateHost so rotation still works with the
+                // bubble hidden. Host is removed only in onDestroy
+                // (service stopped entirely), not on bubble hide.
                 assistiveTouchDisplayId = -1
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 com.cuong.cflip.cover.CoverControlCenterManager.hide()
-                com.cuong.cflip.cover.CoverRotateHostManager.remove()
-                Log.i(TAG, "Cover AssistiveTouch hidden on request")
+                Log.i(TAG, "Cover AssistiveTouch hidden on request (RotateHost kept)")
             }
             ACTION_ROTATION_CHANGED -> {
                 tryShowOnSecondary()
@@ -121,25 +128,34 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     }
 
     private fun tryShowOnSecondary() {
-        if (com.cuong.cflip.mirror.MirrorState.active) {
-            Log.i(TAG, "Mirror is active - leaving the cover display to ScreenMirrorService")
-            return
-        }
         val secondary = DisplayRepository(this).secondaryDisplay() ?: return
-        if (assistiveTouchDisplayId == secondary.displayId &&
-            com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
+        // vc78 DECOUPLE (user principle, 9Flip Application pattern):
+        // RotateHost is ensured ALWAYS, even when mirror is active
+        // or bubble is hidden. Previously, mirror active returned
+        // early here, so if dual detached the host view, it was
+        // never re-added during mirror (mirror service's own rotate
+        // view was the only replacement, and it failed in dual).
+        // Now every display change re-adds the host after dual
+        // settles (display added/changed fires after reparent),
+        // which is more likely to succeed than the service's
+        // immediate add during dual transition. Bubble is shown
+        // only after this, and only if mirror is NOT active.
         // 3.0.0: NO Presentation, NO full-screen overlay launcher.
         // Only the rotate host + the AssistiveTouch button. The panel
         // (Widget) opens from the button's double-tap.
         // 3.3.0 rotate modes: FOLLOW = persistent FULL_SENSOR host,
         // LOCK = fixed-orientation host at current rotation.
-        // vc31: rotateMode 2 = SYSTEM (no host). The old else->lock
-        // branch would have locked the cover even in SYSTEM mode.
-        when (com.cuong.cflip.data.SettingsStore(this).load().rotateMode) {
-            0 -> com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
-            1 -> com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
-            else -> com.cuong.cflip.cover.CoverRotateHostManager.remove()
+        if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
+            com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
+        } else {
+            com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
         }
+        if (com.cuong.cflip.mirror.MirrorState.active) {
+            Log.i(TAG, "Mirror is active - leaving bubble to ScreenMirrorService (host kept)")
+            return
+        }
+        if (assistiveTouchDisplayId == secondary.displayId &&
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
         if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
                 .onSuccess { assistiveTouchDisplayId = secondary.displayId }
