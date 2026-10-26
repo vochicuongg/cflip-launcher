@@ -5,7 +5,7 @@ import android.content.Context
 import android.graphics.Matrix
 import android.graphics.Path
 import android.view.MotionEvent
-import android.view.accessibility.GestureDescription
+import android.accessibilityservice.GestureDescription
 import com.cuong.cflip.service.MyAccessibilityService
 import android.graphics.SurfaceTexture
 import android.os.Bundle
@@ -99,7 +99,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             path.lineTo(touchLastX, touchLastY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
         acc.dispatchGesture(gesture, null, null)
     }
 

@@ -25,7 +25,7 @@ import android.app.PendingIntent
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.view.MotionEvent
-import android.view.accessibility.GestureDescription
+import android.accessibilityservice.GestureDescription
 import android.graphics.Point
 import android.view.Display
 import android.view.Gravity
@@ -462,7 +462,7 @@ class ScreenMirrorService : Service() {
             path.lineTo(touchLastX, touchLastY)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
         acc.dispatchGesture(gesture, null, null)
     }
 
