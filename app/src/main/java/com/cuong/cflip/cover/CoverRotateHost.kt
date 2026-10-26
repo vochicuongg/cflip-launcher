@@ -60,6 +60,7 @@ object CoverRotateHostManager {
     private var wm: WindowManager? = null
     private var view: View? = null
     private var currentOrientation: Int? = null
+    private var hostDisplayId: Int = -1
     private val handler = Handler(Looper.getMainLooper())
 
     fun isShown(): Boolean = view != null
@@ -84,9 +85,23 @@ object CoverRotateHostManager {
         }
     }
 
-    private fun addHost(appContext: Context, display: Display, orientation: Int): Result<Unit> = runCatching {
+    // vc81 IDEMPOTENT (normal-mode loop fix): tryShow runs on EVERY display
+    // change, and before vc81 every call did remove() + addView() even when
+    // the host was already on the same display with the same orientation.
+    // That remove gap let Samsung Flex Window / the sensor move the display,
+    // then lock() re-locked to the NEW (wrong) rotation, so the cover kept
+    // flipping and only settled when tilted back to the system direction.
+    // Now a call with the same display + orientation is a no-op (no gap, no
+    // flicker). A stale view (display removed/re-added with a new ID) still
+    // re-adds, because hostDisplayId differs. pulse() forces a real re-add
+    // to preserve its original one-time-snap behaviour.
+    private fun addHost(appContext: Context, display: Display, orientation: Int, force: Boolean = false): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Rotate host is cover-only, refusing default display")
+        }
+        if (!force && view != null && currentOrientation == orientation && hostDisplayId == display.displayId) {
+            Log.i(TAG, "Rotate host already on display ${display.displayId} orientation=$orientation, skipping re-add (vc81 idempotent)")
+            return@runCatching Unit
         }
         val displayContext = displayContextFor(appContext, display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
@@ -104,7 +119,7 @@ object CoverRotateHostManager {
             screenOrientation = orientation
         }
         manager.addView(v, params)
-        wm = manager; view = v; currentOrientation = orientation
+        wm = manager; view = v; currentOrientation = orientation; hostDisplayId = display.displayId
         Log.i(TAG, "Rotate host on display ${display.displayId}: orientation=$orientation")
         Unit
     }.onFailure { Log.w(TAG, "Rotate host addView failed", it) }
@@ -143,7 +158,7 @@ object CoverRotateHostManager {
 
     /** Sensor pulse: FULL_SENSOR for 220ms, then remove (9Flip's h()). */
     fun pulse(appContext: Context, display: Display): Result<Unit> = runCatching {
-        val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR)
+        val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR, force = true)
         handler.postDelayed({ remove() }, 220L)
         r.getOrThrow(); Unit
     }.onFailure { Log.w(TAG, "Rotate pulse failed", it) }
@@ -167,5 +182,6 @@ object CoverRotateHostManager {
             runCatching { wm?.removeView(v) }
             view = null; wm = null; currentOrientation = null
         }
+        hostDisplayId = -1
     }
 }

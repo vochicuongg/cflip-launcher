@@ -30,6 +30,20 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
 
     private var assistiveTouchDisplayId: Int = -1
     private var lastHingeBucket = -1 // 0 = folded, 1 = in-between, 2 = flat/open
+    // vc81 host retry: if addHost fails transiently during fold (display not
+    // ready yet), tryShow used to give up until the NEXT display event — which
+    // may never come if Samsung locks the cover orientation, so the host stayed
+    // dead and rotation looked "off". That is fatal when the bubble is hidden
+    // (AssistiveTouch toggle OFF), because the panel rotation tile — the manual
+    // retry — is unreachable without the bubble. Retry up to 3 times, 500ms
+    // apart, bounded; a fresh display event resets the budget.
+    private val hostHandler = Handler(Looper.getMainLooper())
+    private var hostRetryAttempts = 0
+    private var hostRetryPending = false
+    private val hostRetryRunnable = Runnable {
+        hostRetryPending = false
+        tryShowOnSecondary(isRetry = true)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -97,6 +111,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     }
 
     override fun onDestroy() {
+        hostHandler.removeCallbacks(hostRetryRunnable)
         getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(this)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(this)
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
@@ -127,8 +142,9 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         tryShowOnSecondary()
     }
 
-    private fun tryShowOnSecondary() {
+    private fun tryShowOnSecondary(isRetry: Boolean = false) {
         val secondary = DisplayRepository(this).secondaryDisplay() ?: return
+        if (!isRetry) hostRetryAttempts = 0
         // vc78 DECOUPLE (user principle, 9Flip Application pattern):
         // RotateHost is ensured ALWAYS, even when mirror is active
         // or bubble is hidden. Previously, mirror active returned
@@ -145,10 +161,26 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // (Widget) opens from the button's double-tap.
         // 3.3.0 rotate modes: FOLLOW = persistent FULL_SENSOR host,
         // LOCK = fixed-orientation host at current rotation.
-        if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
+        // vc81: capture the host Result (before, it was ignored, so a failed
+        // add silently left rotation dead). On success, clear any pending
+        // retry; on failure, schedule a bounded retry (see fields above).
+        val hostResult = if (com.cuong.cflip.data.SettingsStore(this).load().rotateMode == 0) {
             com.cuong.cflip.cover.CoverRotateHostManager.follow(this, secondary)
         } else {
             com.cuong.cflip.cover.CoverRotateHostManager.lock(this, secondary)
+        }
+        if (hostResult.isSuccess) {
+            hostRetryAttempts = 0
+            hostRetryPending = false
+            hostHandler.removeCallbacks(hostRetryRunnable)
+        } else if (hostRetryAttempts < 3) {
+            hostRetryAttempts++
+            hostRetryPending = true
+            Log.w(TAG, "Rotate host failed, retry $hostRetryAttempts/3 in 500ms")
+            hostHandler.postDelayed(hostRetryRunnable, 500L)
+        } else {
+            hostRetryPending = false
+            Log.w(TAG, "Rotate host failed after retries, giving up until next display event")
         }
         if (com.cuong.cflip.mirror.MirrorState.active) {
             Log.i(TAG, "Mirror is active - leaving bubble to ScreenMirrorService (host kept)")
