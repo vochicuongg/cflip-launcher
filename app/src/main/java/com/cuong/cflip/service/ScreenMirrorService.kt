@@ -96,6 +96,18 @@ class ScreenMirrorService : Service() {
     // (Presentation + overlay). Set in startMirroring before any
     // mirror window is created; UNSPECIFIED means "not set yet".
     private var mirrorWinOrient: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    // vc79 POWERFLIP CONTENT ROTATION: degrees to rotate the
+    // mirror CONTENT (not the display) so the feed looks upright
+    // even when dual snaps the cover back to 0°. Computed in
+    // startMirroring as (desired - actual) mod 360, where desired
+    // comes from mirrorWinOrient and actual from secondary.rotation.
+    // 0 means "display already where the user wants it, no content
+    // rotation". Kept (not removed) alongside vc72 window flags:
+    // those flags are ignored in dual (vc72-vc74 proof), so the
+    // content rotation is the mechanism that actually corrects
+    // the feed; if the flags ever do take effect after start,
+    // the feed may double-rotate and vc80 must make this dynamic.
+    private var mirrorContentDeg: Int = 0
     // vc73: mirror's own rotate host view (1x1 overlay). Removed
     // in cleanupSession. See startMirroring for why it exists.
     private var mirrorRotateView: View? = null
@@ -322,6 +334,38 @@ class ScreenMirrorService : Service() {
             android.view.Surface.ROTATION_270 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
             else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+        // vc79 CONTENT ROTATION (PowerFlip lesson, own code):
+        // PowerFlip does not force the display at all; it rotates
+        // the mirror content (View.setRotation, default 180°) and
+        // freezes rotation during mirror. CFlip vc72-vc74 proved
+        // display forcing is ignored in dual, so rotate content
+        // instead. Desired degrees are the inverse of the vc72
+        // fallback mapping above (PORTRAIT 0, LANDSCAPE 90,
+        // REVERSE_PORTRAIT 180, REVERSE_LANDSCAPE 270); unknown
+        // orientations (UNSPECIFIED, FULL_SENSOR, ...) mean "no
+        // known desired angle" so content rotation stays 0.
+        // Example: user wants 180°, dual snaps display to 0°,
+        // content rotates 180° and the feed looks upright anyway.
+        // If display already matches desired, diff is 0, no
+        // double-rotate. Applied to Presentation (applyRotation)
+        // and to the overlay fallback (applyFitTransform) below.
+        mirrorContentDeg = run {
+            val desiredDeg = when (mirrorWinOrient) {
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> 0
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> 90
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT -> 180
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE -> 270
+                else -> -1
+            }
+            val actualDeg = when (secondary.rotation) {
+                android.view.Surface.ROTATION_90 -> 90
+                android.view.Surface.ROTATION_180 -> 180
+                android.view.Surface.ROTATION_270 -> 270
+                else -> 0
+            }
+            if (desiredDeg < 0) 0 else ((desiredDeg - actualDeg) % 360 + 360) % 360
+        }
+        Log.i(TAG, "vc79 mirror content rotation ${mirrorContentDeg}deg (desired orient $mirrorWinOrient, actual rotation ${secondary.rotation})")
         // vc73 ROTATE HOST RE-APPLY: vc72 window flags were
         // IGNORED in dual mode (user confirms cover still snaps
         // 180° in vc72). RotateHost's own mechanism (1x1 overlay
@@ -386,6 +430,11 @@ class ScreenMirrorService : Service() {
                     virtualDisplay?.release(); virtualDisplay = null
                 }
             }
+            // vc79: rotate CONTENT by the diff computed above.
+            // Before show() the TextureView is not initialized yet,
+            // so applyRotation only stores rotationDeg; the fit
+            // transform applies it once the surface is available.
+            pres.applyRotation(mirrorContentDeg)
             pres.show()
             mirrorPresentation = pres
             MirrorState.active = true
@@ -551,9 +600,26 @@ class ScreenMirrorService : Service() {
         val dy = (vh - vh * sy) / 2f
         val scaledW = vw * sx
         val scaledH = vh * sy
-        if (viewX < dx || viewX > dx + scaledW || viewY < dy || viewY > dy + scaledH) return null
-        val mainX = ((viewX - dx) / fMin).coerceIn(0f, (mainWidth - 1).toFloat())
-        val mainY = ((viewY - dy) / fMin).coerceIn(0f, (mainHeight - 1).toFloat())
+        // vc79 TOUCH INVERSE: applyFitTransform rotates content
+        // clockwise by mirrorContentDeg around the view center,
+        // so a tap must be inverse-rotated back to unrotated fit
+        // space before the fit check/mapping. 0° is unchanged
+        // (exact old behavior); other angles fall back to
+        // unrotated mapping (should not happen: service only
+        // sets 0/90/180/270). 180° keeps the centered fit rect
+        // intact; 90°/270° use the inverse-rotated point for the
+        // rect check, which is the correct test.
+        val cx = vw / 2f
+        val cy = vh / 2f
+        val (ux, uy) = when (mirrorContentDeg) {
+            90 -> Pair(cx + (viewY - cy), cy - (viewX - cx))
+            180 -> Pair(2f * cx - viewX, 2f * cy - viewY)
+            270 -> Pair(cx - (viewY - cy), cy + (viewX - cx))
+            else -> Pair(viewX, viewY)
+        }
+        if (ux < dx || ux > dx + scaledW || uy < dy || uy > dy + scaledH) return null
+        val mainX = ((ux - dx) / fMin).coerceIn(0f, (mainWidth - 1).toFloat())
+        val mainY = ((uy - dy) / fMin).coerceIn(0f, (mainHeight - 1).toFloat())
         return Pair(mainX, mainY)
     }
 
@@ -592,16 +658,28 @@ class ScreenMirrorService : Service() {
         val m = android.graphics.Matrix()
         m.setScale(sx, sy)
         m.postTranslate(dx, dy)
+        // vc79: same content rotation as Presentation, so the
+        // fallback overlay does not show an unrotated feed when
+        // the Presentation path falls back to it. 180° preserves
+        // the centered fit exactly; 90°/270° may crop a few px
+        // on the near-square cover (rotated fit is slightly wider
+        // than the view), which is still far better than sideways.
+        if (mirrorContentDeg != 0) {
+            m.postRotate(mirrorContentDeg.toFloat(), viewW / 2f, viewH / 2f)
+        }
         tv.setTransform(m)
     }
 
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         virtualDisplay = proj.createVirtualDisplay(
             "CFlipMirror", mainWidth, mainHeight, mainDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            // vc79 POWERFLIP FLAGS: PowerFlip uses 17 = PUBLIC (1)
+            // + AUTO_MIRROR (16); CFlip used AUTO_MIRROR (16) only.
+            // PUBLIC is a one-line change with no other code impact.
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler,
         )
-        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size)")
+        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size, flags PUBLIC+AUTO_MIRROR=17)")
     }
 
     // vc66 FAILURE PILL: post-gate failures used to stopSelf()
