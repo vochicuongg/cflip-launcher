@@ -388,6 +388,20 @@ object DualDisplayHelper {
 
     fun enable(): Result<String> = runCatching {
         if (token != null) return@runCatching "dual already on"
+        // vc57 9FLIP ORDER: 9Flip h() calls SemWindowManager
+        // .getInstance() and checks it is non-null BEFORE
+        // transact 3. CFlip vc51-vc56 went straight to transact,
+        // so a missing/blocked SemWindowManager could leave
+        // transact silently ignored while enable() still
+        // reported success, and the mirror then failed later
+        // at the service gate with no clear cause. Now a null
+        // SemWindowManager fails visibly here, in the panel
+        // toast, instead of pretending dual is on.
+        runCatching {
+            val semCls = Class.forName("com.samsung.android.view.SemWindowManager")
+            val semInst = semCls.getMethod("getInstance").invoke(null)
+                ?: throw IllegalStateException("SemWindowManager.getInstance() returned null")
+        }.getOrThrow()
         val smClass = Class.forName("android.os.ServiceManager")
         val getService = smClass.getMethod("getService", String::class.java)
         val binder = getService.invoke(null, "device_state") as? IBinder

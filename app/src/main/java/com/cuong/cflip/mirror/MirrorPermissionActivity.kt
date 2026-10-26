@@ -41,16 +41,34 @@ class MirrorPermissionActivity : ComponentActivity() {
                 putExtra(ScreenMirrorService.EXTRA_RESULT_CODE, result.resultCode)
                 putExtra(ScreenMirrorService.EXTRA_RESULT_DATA, data)
             }
-            ContextCompat.startForegroundService(this, start)
+            // vc57 DUAL SETTLE: 9Flip does not start its projection
+            // service the instant permission is granted - its dual
+            // host waits for display reparenting (up to 2s) first.
+            // CFlip vc51-vc56 started the service immediately on
+            // approve, so the service gate could check main display
+            // state before dual had finished powering it on, and
+            // refuse a mirror that would have worked a second
+            // later. Wait 2000ms after grant before starting the
+            // service (panel already waited ~2000ms before the
+            // dialog, so total settle is ~4-5s including dialog
+            // time). Do NOT finish the activity until after the
+            // delayed start, or the delayed runnable could be
+            // lost with the activity.
             Toast.makeText(this, "Đang phản chiếu lên cover", Toast.LENGTH_SHORT).show()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                ContextCompat.startForegroundService(this, start)
+                finishAndRemoveTask()
+            }, 2000)
         } else {
             Toast.makeText(this, "Bạn chưa đồng ý phản chiếu màn hình", Toast.LENGTH_SHORT).show()
             // vc51: user declined capture - turn dual back off, do not leave system in dual mode.
             runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
+            // vc34: remove the task entirely, so this never looks like
+            // re-entering the CFlip app in recents / task stack.
+            // Grant path finishes inside its delayed block (vc57),
+            // not here, so the delayed service start is not lost.
+            finishAndRemoveTask()
         }
-        // vc34: remove the task entirely, so this never looks like
-        // re-entering the CFlip app in recents / task stack.
-        finishAndRemoveTask()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
