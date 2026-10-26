@@ -44,6 +44,11 @@ class MirrorPermissionActivity : ComponentActivity() {
     private var captureLaunched = false
     private var serviceStarted = false
     private var relaunchingOnCover = false
+    // vc85 BRIDGE: handler + poller that keeps this cover window
+    // alive after grant until the service's feed window takes over.
+    private val bridgeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var bridgeRunnable: Runnable? = null
+    private var bridgeAttempts = 0
 
     private val captureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -58,13 +63,35 @@ class MirrorPermissionActivity : ComponentActivity() {
                 putExtra(ScreenMirrorService.EXTRA_RESULT_DATA, data)
             }
             ContextCompat.startForegroundService(this, start)
-            finishAndRemoveTask()
+            // vc85 BRIDGE (vc84 lock gap): vc84 finished this activity
+            // the instant grant arrived, leaving a windowless gap on
+            // the cover between dialog dismiss and Presentation.show()
+            // — the cover fell back to lock in that gap. This window
+            // (now TURN_SCREEN_ON + SHOW_WHEN_LOCKED) stays alive
+            // until the service sets MirrorState.active (Presentation
+            // shown) or 16 x 300ms ~= 4.8s timeout, whichever first.
+            // Gate failure never sets active, so the timeout still
+            // finishes and service cleanup owns dual/bubble after that.
+            startBridgeAndFinish()
         } else {
             Toast.makeText(this, "Bạn chưa đồng ý phản chiếu màn hình", Toast.LENGTH_SHORT).show()
             runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
             restoreBubble()
             finishAndRemoveTask()
         }
+    }
+
+    private fun startBridgeAndFinish() {
+        bridgeAttempts = 0
+        bridgeRunnable = Runnable {
+            if (MirrorState.active || bridgeAttempts >= 16 || isFinishing) {
+                finishAndRemoveTask()
+            } else {
+                bridgeAttempts++
+                bridgeRunnable?.let { bridgeHandler.postDelayed(it, 300L) }
+            }
+        }
+        bridgeRunnable?.let { bridgeHandler.post(it) }
     }
 
     private fun restoreBubble() {
@@ -96,6 +123,13 @@ class MirrorPermissionActivity : ComponentActivity() {
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // vc85 LOCK FIX: wake the cover and allow this window over
+        // lock, so the dialog/bridge window cannot be swallowed by
+        // the cover lock screen between dialog dismiss and feed show.
+        window?.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
         // Dual must already be ON (DualHostActivity enabled it).
@@ -148,6 +182,7 @@ class MirrorPermissionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        bridgeRunnable?.let { bridgeHandler.removeCallbacks(it) }
         // Only the dialog instance may disable dual, and only when
         // no mirror started (back-press / destroy mid-setup).
         // Grant sets serviceStarted=true first, so a just-started

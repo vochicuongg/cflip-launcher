@@ -168,6 +168,13 @@ class DualHostActivity : Activity() {
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // vc85 LOCK FIX: wake the cover and allow this window over
+        // lock, so the dialog/bridge window cannot be swallowed by
+        // the cover lock screen between dialog dismiss and feed show.
+        window?.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
         window?.setLayout(1, 1)
         window?.setGravity(Gravity.TOP or Gravity.START)
         window?.attributes?.dimAmount = 0f
