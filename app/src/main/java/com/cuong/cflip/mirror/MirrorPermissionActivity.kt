@@ -11,49 +11,45 @@ import androidx.core.content.ContextCompat
 import com.cuong.cflip.service.ScreenMirrorService
 
 /**
- * vc83 DIALOG-ONLY permission activity (9Flip host-first flow, own code).
- * vc67-vc82 made this activity do everything: enable dual itself in
- * onCreate (before top-resumed), settle, relaunch on reparent, delay
- * 2s after grant, bridge 4s, and act as the main-side host (hostOnly,
- * mainHostLaunched, relaunchingOnCover, dualCaptureScheduled). That
- * overload is why dual kept dying before the service gate (vc81 pill
- * dualOn=false: a host instance's onDestroy disabled dual).
+ * vc84 DIALOG-ONLY permission activity (vc83 split + cover-dialog fixes).
+ * vc83 test (27/10): NO permission dialog on the cover, only the
+ * 180-degree rotation, then nothing. User requirement for vc84: the
+ * dialog MUST appear on the cover (màn phụ); the user will not
+ * unfold to check the main display.
  *
- * vc83 split (like 9Flip): DualHostActivity owns dual (enables it
- * only when top-resumed, polls it, never disables it on death).
- * This activity owns ONLY the system capture dialog:
- *   onCreate: dual OFF -> toast + finish (never enable dual here);
- *             dual ON  -> launchCapture() immediately.
- *   grant: start ScreenMirrorService IMMEDIATELY (no 2s delay, no
- *          4s bridge, no main-host launch), then finish.
- *   decline: disable dual + tell CoverForegroundService to restore
- *            the bubble, then finish.
- *   onDestroy: if service was NOT started and dual is still ON and
- *              mirror is not active, disable dual + restore bubble
- *              (covers back-press / system destroy mid-setup, the
- *              vc68 widget-break case). Grant path sets
- *              serviceStarted=true first, so a just-started mirror
- *              is never killed by its own activity finishing.
- * Window flags are kept from vc69/vc70: 1x1 transparent
- * NOT_TOUCH_MODAL + KEEP_SCREEN_ON, so this window never blocks
- * cover touches while the dialog is pending.
+ * vc84 changes in this file only (host changes are in
+ * DualHostActivity; no service, RotateHost, widget or foreground change):
+ * 1. Dialog launched from onResume, NOT onCreate. vc83 launched the
+ *    capture intent in onCreate, before the activity was foreground;
+ *    a system dialog requested from a not-yet-resumed 1x1 activity
+ *    is the prime suspect for "dialog never appears". onResume is
+ *    guarded by captureLaunched (restored across recreation via
+ *    savedInstanceState), so a config-change recreation cannot show
+ *    a second dialog.
+ * 2. Cover-display guard in onResume: if this instance ended up on
+ *    the MAIN display (dual reparent, vc69 pattern) instead of the
+ *    cover, it does NOT show the dialog on main. It hands over ONCE
+ *    to a fresh instance explicitly launched on the cover
+ *    (NEW_TASK | CLEAR_TASK + setLaunchDisplayId(cover), extra
+ *    "cflip_relaunched_once" so the new instance never relaunches
+ *    again and cannot loop). If that handover itself lands on main,
+ *    the dialog is shown there as a last resort rather than looping.
+ * 3. Dual check stays in onCreate (dual OFF -> toast + finish, never
+ *    enable dual here — DualHostActivity owns dual).
+ * Grant still starts ScreenMirrorService IMMEDIATELY (no delay, no
+ * bridge, no main host); decline still disables dual + restores the
+ * bubble; onDestroy still only disables dual when no mirror started.
  */
 class MirrorPermissionActivity : ComponentActivity() {
     private var captureLaunched = false
     private var serviceStarted = false
+    private var relaunchingOnCover = false
 
     private val captureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            // vc83: NO delay, NO bridge, NO main host. 9Flip starts
-            // its projection service immediately on grant, and the
-            // feed appears at once because its Presentation already
-            // exists; CFlip's service creates its Presentation right
-            // after start, so the only correct move here is to start
-            // now and get out of the way. DualHostActivity stays
-            // alive (polling dual) as the keep-alive host.
             Toast.makeText(this, "Đang phản chiếu lên cover", Toast.LENGTH_SHORT).show()
             serviceStarted = true
             val start = Intent(this, ScreenMirrorService::class.java).apply {
@@ -87,13 +83,14 @@ class MirrorPermissionActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // singleTop reuse (vc83 manifest): do not launch a second
-        // dialog if one is already pending.
-        if (!captureLaunched && !serviceStarted) launchCapture()
+        // singleTop reuse: do not launch a second dialog if one is
+        // already pending; onResume below handles the cover guard.
+        if (!captureLaunched && !serviceStarted) launchCaptureIfOnCover()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureLaunched = savedInstanceState?.getBoolean("cflip_capture_launched") ?: false
         setFinishOnTouchOutside(false)
         window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(0))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -101,12 +98,49 @@ class MirrorPermissionActivity : ComponentActivity() {
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
-        // vc83: dual must already be ON (DualHostActivity enabled it
-        // when top-resumed). If it is OFF, this dialog would be
-        // stale (9Flip refuses with dual_display_off in the same
-        // case) — refuse here, never enable dual from this activity.
+        // Dual must already be ON (DualHostActivity enabled it).
+        // If OFF, this dialog would be stale — refuse, never enable dual here.
         if (!com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
             Toast.makeText(this, "Phản chiếu chưa bật màn hình kép, thử bấm lại", Toast.LENGTH_SHORT).show()
+            finishAndRemoveTask()
+            return
+        }
+        // vc84: do NOT launchCapture() here. onResume below does it,
+        // once the activity is foreground on its display.
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("cflip_capture_launched", captureLaunched)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!captureLaunched && !serviceStarted && !relaunchingOnCover && !isFinishing) {
+            launchCaptureIfOnCover()
+        }
+    }
+
+    /** vc84 cover guard: dialog must be requested from the cover
+     * display. If this instance is on main and it has not already
+     * been relaunched once, hand over to a fresh cover instance
+     * instead of showing the dialog on main (which a folded user
+     * can never see). One handover only — the new instance carries
+     * "cflip_relaunched_once" and launches capture wherever it lands. */
+    private fun launchCaptureIfOnCover() {
+        val cover = runCatching {
+            com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay()
+        }.getOrNull()
+        val myDisplayId = display?.displayId
+        val alreadyRelaunched = intent?.getBooleanExtra("cflip_relaunched_once", false) == true
+        if (cover != null && myDisplayId != null && myDisplayId != cover.displayId && !alreadyRelaunched) {
+            relaunchingOnCover = true
+            val relaunch = Intent(this, MirrorPermissionActivity::class.java)
+                .putExtra("cflip_relaunched_once", true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            val opts = android.app.ActivityOptions.makeBasic()
+                .setLaunchDisplayId(cover.displayId).toBundle()
+            runCatching { startActivity(relaunch, opts) }
             finishAndRemoveTask()
             return
         }
@@ -114,12 +148,14 @@ class MirrorPermissionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        // vc83: only the dialog instance may disable dual, and only
-        // when no mirror started (back-press / destroy mid-setup).
-        // serviceStarted=true (grant) must never reach this branch.
-        // MirrorState.active=true means the service already owns
-        // dual — never touch it here.
-        if (!serviceStarted && !MirrorState.active) {
+        // Only the dialog instance may disable dual, and only when
+        // no mirror started (back-press / destroy mid-setup).
+        // Grant sets serviceStarted=true first, so a just-started
+        // mirror is never killed here. MirrorState.active=true means
+        // the service already owns dual — never touch it here.
+        // A cover handover (relaunchingOnCover) must NOT disable dual
+        // either: the fresh cover instance needs it.
+        if (!serviceStarted && !relaunchingOnCover && !MirrorState.active) {
             if (com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
                 runCatching { com.cuong.cflip.service.DualDisplayHelper.disable() }
                 restoreBubble()

@@ -8,45 +8,41 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
+import android.view.WindowManager
+import android.widget.TextView
 import android.widget.Toast
 
 /**
- * vc83 DEDICATED DUAL HOST (9Flip host-first flow, own code, no copy).
- * 9Flip toggles dual inside a 1x1 transparent host activity that is
- * already on the cover, and only THEN shows its permission dialog
- * (permission itself never touches dual). CFlip vc51-vc82 did the
- * opposite: the permission activity enabled dual itself in onCreate
- * (before it was top-resumed), then had to survive dual reparenting
- * (relaunch), settle delays, a 2s grant delay and a 4s bridge, while
- * a second host instance (permission reused as host) could kill dual
- * from its onDestroy (vc81 pill dualOn=false). That inversion is why
- * mirror kept failing while 9Flip worked with the same transact.
+ * vc84 DEDICATED DUAL HOST (vc83 host-first flow + cover-dialog fixes).
+ * vc83 test (27/10): pull/build/install OK, but NO permission dialog
+ * appeared on the cover — only the 180-degree rotation, then nothing.
+ * User requirement for vc84: the dialog MUST appear on the cover
+ * (màn phụ); the user will not unfold to check the main display.
  *
- * New order (host-first, like 9Flip):
- *   Tile -> this host (cover, 1x1, top-resumed) -> dual ON
- *        -> MirrorPermissionActivity (cover, dialog only)
- *        -> grant -> ScreenMirrorService START immediately -> feed.
- * This host never shows a dialog, never captures, never owns the
- * mirror UI. It only: enables dual once it is top-resumed (Samsung
- * accepts dual toggles from a foreground top-resumed activity, not
- * from onCreate or from a background service), launches permission
- * on the cover once dual is ON (so permission never reparents and
- * never needs relaunch), then stays alive polling dual until mirror
- * stops (service cleanup disables dual, polling sees dual OFF and
- * finishes this host). Host death never disables dual (host is a
- * keep-alive, not the dual owner; only service cleanup and the
- * permission decline branch may disable dual).
- * Window: 1x1 transparent NOT_TOUCH_MODAL, TOP|START, no dim, like
- * 9Flip's dual host. KEEP_SCREEN_ON is kept (deviation from 9Flip,
- * justified: main must stay ON for AUTO_MIRROR to capture while
- * folded; 9Flip relies on short sessions, CFlip keeps main on).
- * No SCREEN_OFF receiver (deviation, justified: CFlip service
- * onStop already handles system stop, and host polling finishes
- * this host when service cleanup disables dual; stopping mirror
- * on every screen-off would change behaviour the user did not ask
- * for). No integrity/generation/request-ID tracking (9Flip internal
- * safety, not needed here: tile launches this host with CLEAR_TASK,
- * so every tap gets a fresh host, no stale-host reuse).
+ * vc84 changes, all in this host + permission (no service, no
+ * RotateHost, no widget, no foreground change):
+ * 1. Fallback enable: vc83 enabled dual ONLY in
+ *    onTopResumedActivityChanged. If that callback never fires for a
+ *    cover activity on this device, dual never enables and nothing
+ *    follows — silently. Now onResume posts a 500ms fallback: if the
+ *    top-resumed path has not enabled dual by then, enable here
+ *    (guarded by dualEnabled, so the normal path still wins first).
+ * 2. Visible pills ON THE COVER (WindowManager overlay on the
+ *    secondary display context, not a Toast that can land on the
+ *    folded main display): "dual ON" and "permission launch failed"
+ *    are no longer silent. A failed startActivity now finishes with
+ *    a visible pill instead of leaving the user at a rotated cover
+ *    with nothing happening.
+ * 3. Panel is hidden by the tile before this host launches (panel
+ *    change in vc84): a full-screen cover overlay must not sit on
+ *    top of the system dialog.
+ * Permission side (vc84, same release): dialog is launched from
+ * onResume (not onCreate, so the activity is foreground when the
+ * system dialog is requested), and if the permission activity
+ * itself ended up on the main display it hands over once to a fresh
+ * instance explicitly on the cover instead of showing the dialog
+ * on main.
+ * Host death still never disables dual (vc82 lesson, structural).
  */
 class DualHostActivity : Activity() {
     companion object {
@@ -61,7 +57,7 @@ class DualHostActivity : Activity() {
     private val pollRunnable = Runnable {
         if (!isFinishing && !pollingStopped) {
             if (!com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
-                Log.i(TAG, "Dual OFF, finishing host (vc83)")
+                Log.i(TAG, "Dual OFF, finishing host (vc84)")
                 finishAndRemoveTask()
             } else {
                 startPolling()
@@ -69,10 +65,66 @@ class DualHostActivity : Activity() {
         }
     }
 
+    private val fallbackRunnable = Runnable {
+        if (!isFinishing && !dualEnabled) {
+            Log.i(TAG, "Top-resumed callback never fired, fallback enable in onResume (vc84)")
+            enableDualAndLaunch()
+        }
+    }
+
     private fun startPolling() {
         if (!pollingStopped && !isFinishing) {
             mainHandler.postDelayed(pollRunnable, 1000L)
         }
+    }
+
+    /** Pill drawn on the COVER display context, so it is visible to a
+     * folded user even if this host was reparented to main. Failures
+     * here are swallowed: a pill must never break the mirror flow. */
+    private fun showCoverPill(text: String) {
+        runCatching {
+            val cover = com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay()
+                ?: return@runCatching
+            val dctx = createDisplayContext(cover)
+            val wm = dctx.getSystemService(WindowManager::class.java) ?: return@runCatching
+            val density = dctx.resources.displayMetrics.density
+            val tv = TextView(dctx).apply {
+                this.text = text
+                textSize = 14f
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(0xE0000000.toInt())
+                setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
+                gravity = Gravity.CENTER
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                android.graphics.PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.CENTER }
+            wm.addView(tv, params)
+            mainHandler.postDelayed({ runCatching { wm.removeView(tv) } }, 2500L)
+        }
+    }
+
+    private fun enableDualAndLaunch() {
+        if (isFinishing || dualEnabled) return
+        val res = com.cuong.cflip.service.DualDisplayHelper.enable()
+        if (res.isFailure) {
+            showCoverPill("Bật màn hình kép thất bại, thử bấm lại")
+            Toast.makeText(
+                this,
+                "Dual display failed: " + (res.exceptionOrNull()?.message ?: "unknown"),
+                Toast.LENGTH_LONG
+            ).show()
+            finishAndRemoveTask()
+            return
+        }
+        dualEnabled = true
+        Log.i(TAG, "Dual enabled, launching permission on cover (vc84)")
+        showCoverPill("Đã bật màn hình kép, đang mở dialog trên màn phụ")
+        launchPermissionOnCover()
     }
 
     private fun launchPermissionOnCover() {
@@ -94,7 +146,14 @@ class DualHostActivity : Activity() {
             )
         val opts = android.app.ActivityOptions.makeBasic()
             .setLaunchDisplayId(cover.displayId).toBundle()
-        runCatching { startActivity(permIntent, opts) }
+        // vc84: a swallowed startActivity failure used to look exactly
+        // like the vc83 symptom (rotated cover, nothing else). Surface it.
+        val ok = runCatching { startActivity(permIntent, opts) }.isSuccess
+        if (!ok) {
+            showCoverPill("Không mở được dialog trên màn phụ, thử bấm lại")
+            finishAndRemoveTask()
+            return
+        }
         // Do NOT finish here: this host must stay alive on its display
         // (it may reparent to main after dual, like 9Flip's host) while
         // permission dialogs and the mirror service runs. Polling below
@@ -104,8 +163,6 @@ class DualHostActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 1x1 transparent host window, like 9Flip's dual host and like
-        // CFlip's old permission host window (same standard flags).
         setFinishOnTouchOutside(false)
         window?.setBackgroundDrawable(ColorDrawable(0))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -115,38 +172,30 @@ class DualHostActivity : Activity() {
         window?.setGravity(Gravity.TOP or Gravity.START)
         window?.attributes?.dimAmount = 0f
         // Do NOT enable dual here (onCreate, before top-resumed).
-        // 9Flip toggles dual only when top-resumed; enabling in
-        // onCreate (old CFlip permission flow) is unreliable.
-        // Enabling happens in onTopResumedActivityChanged below.
+        // Enabling happens in onTopResumedActivityChanged, with an
+        // onResume fallback below for the case that callback never fires.
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // vc84 fallback: top-resumed path normally enables dual within
+        // milliseconds; if it never fires, this 500ms fallback enables
+        // dual instead of leaving a rotated cover with no dialog.
+        mainHandler.removeCallbacks(fallbackRunnable)
+        if (!dualEnabled) mainHandler.postDelayed(fallbackRunnable, 500L)
     }
 
     override fun onTopResumedActivityChanged(isTopResumed: Boolean) {
         super.onTopResumedActivityChanged(isTopResumed)
         if (!isTopResumed || isFinishing || dualEnabled) return
-        // Top-resumed foreground activity: Samsung accepts the toggle.
-        val res = com.cuong.cflip.service.DualDisplayHelper.enable()
-        if (res.isFailure) {
-            Toast.makeText(
-                this,
-                "Dual display failed: " + (res.exceptionOrNull()?.message ?: "unknown"),
-                Toast.LENGTH_LONG
-            ).show()
-            finishAndRemoveTask()
-            return
-        }
-        dualEnabled = true
-        Log.i(TAG, "Dual enabled from top-resumed host, launching permission (vc83)")
-        launchPermissionOnCover()
+        mainHandler.removeCallbacks(fallbackRunnable)
+        enableDualAndLaunch()
     }
 
     override fun onDestroy() {
-        // Host never owns dual: death here must NOT disable dual
-        // (vc82 lesson, now structural: separate host, no shared
-        // onDestroy disable branch at all). Service cleanup owns
-        // dual disable; polling already finished this host when
-        // dual went OFF, so nothing else to clean here.
         pollingStopped = true
         mainHandler.removeCallbacks(pollRunnable)
+        mainHandler.removeCallbacks(fallbackRunnable)
         super.onDestroy()
     }
 }
