@@ -163,7 +163,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var streamPendingX: Float? = null
     private var streamPendingY: Float? = null
     private var streamPendingFinal = false
-    // vc98 CHUNKED LIVE TOUCH (9Flip f4.c + u2, decompiled
+    // vc98 CHUNKED LIVE TOUCH - SUPERSEDED BY vc103
+    // (kept for history; vc103 latest-only below)
+    // vc98 was based on 9Flip f4.c + u2, decompiled
     // 27/10): vc88-vc97 dispatched ONE segment per MOVE
     // point and waited for its callback before the next
     // point. Each dispatch has system + callback overhead,
@@ -425,10 +427,30 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         }
     }
 
+    // vc103 LATEST-ONLY LIVE (decompile both apps,
+    // 27/10): vc98 chunking was the lag source.
+    // 9Flip live (f4.d/o/n) never replays old points:
+    // it keeps ONE pending point (a4.f1239c), and on
+    // completion builds the next segment from that
+    // LATEST point only, duration 16ms if moved >=1px,
+    // 1ms if not moved / final. PowerFlip loop (f4.d)
+    // is the same idea at tick level: each 25ms tick
+    // drains ONLY points since the last tick, never
+    // a backlog. CFlip vc98 did the opposite: up to
+    // 8 points in one Path, duration n*22ms (up to
+    // 220ms), so main played finger positions from
+    // up to 220ms ago while the real finger had
+    // already moved on - smooth, but NOT following
+    // the finger, and NOT "an vao dau thi tuong tac
+    // nhu vay". vc103: dispatchNextChunk takes the
+    // LAST queued point only and discards older
+    // queued points. A single point chunk gives
+    // dispatchStreamChunk duration 16/1ms, exactly
+    // 9Flip d(). Prepared gestures (tap 50ms,
+    // drag path, long-press) do NOT go through here
+    // - they dispatch directly, so they keep their
+    // full point lists.
     private fun dispatchNextChunk() {
-        // Take up to 8 accumulated MOVE points (9Flip c()
-        // chunk size). If none remain, a queued UP final
-        // is dispatched at the last touch point.
         if (moveChunkPoints.isEmpty()) {
             if (streamPendingFinal) {
                 streamPendingFinal = false
@@ -436,13 +458,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             }
             return
         }
-        val chunk = mutableListOf<Pair<Float, Float>>()
-        while (chunk.size < 8 && moveChunkPoints.isNotEmpty()) {
-            chunk.add(moveChunkPoints.removeFirst())
-        }
-        val isFinal = streamPendingFinal && moveChunkPoints.isEmpty()
+        val last = moveChunkPoints.last()
+        moveChunkPoints.clear()
+        val isFinal = streamPendingFinal
         if (isFinal) streamPendingFinal = false
-        dispatchStreamChunk(chunk, !isFinal)
+        dispatchStreamChunk(listOf(last), !isFinal)
     }
 
     private fun onStreamSegmentDone() {
@@ -454,19 +474,26 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         streamPendingX = toX
         streamPendingY = toY
         if (!final) {
-            // 1px noise filter (9Flip d() threshold):
-            // drop points that did not move from the last
-            // queued point, they would only become 1ms
-            // noise segments and callback churn.
-            val lastQueued = moveChunkPoints.lastOrNull()
-            val refX = lastQueued?.first ?: streamLastX
-            val refY = lastQueued?.second ?: streamLastY
-            if (kotlin.math.hypot(toX - refX, toY - refY) < 1f && moveChunkPoints.isNotEmpty()) {
-                // Still update touchLast in the caller; do
-                // not queue a noise point.
-            } else {
-                moveChunkPoints.addLast(Pair(toX, toY))
-            }
+            // vc103 LATEST-ONLY: do NOT append to a
+            // backlog. Overwrite the single queued
+            // point with the latest MOVE point. If a
+            // segment is in flight, this point waits
+            // as pending and is dispatched on
+            // completion (or by the vc101 watchdog
+            // loop if the callback is lost). Older
+            // queued points are discarded, not
+            // replayed - that is 9Flip f4.o and
+            // PowerFlip tick-drain, and it is what
+            // makes main follow the finger instead
+            // of replaying where it was 200ms ago.
+            // 1px noise: if the latest point did not
+            // move >=1px from streamLast, it still
+            // becomes a 1ms hold segment via
+            // dispatchStreamChunk, which is how
+            // 9Flip d() keeps a stream alive during
+            // a pause without jumping.
+            moveChunkPoints.clear()
+            moveChunkPoints.addLast(Pair(toX, toY))
         } else {
             // Final point always queued, even if unmoved
             // (a tap's UP must land as a final segment).

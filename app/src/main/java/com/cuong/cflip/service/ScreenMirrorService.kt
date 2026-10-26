@@ -184,7 +184,24 @@ class ScreenMirrorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> { cleanupAndDisableDual(); stopSelf(); return START_NOT_STICKY }
+            // vc103 STOP -> LOCK (user request 27/10):
+            // neither 9Flip nor PowerFlip locks on
+            // mirror stop in decompile (9Flip: SCREEN_OFF
+            // -> stop, reverse direction; PowerFlip:
+            // stopService + finish, no lock; CFlip
+            // vc94 MainHost comment also says main
+            // only follows its own timeout after stop).
+            // The user wants stop to lock like before,
+            // so explicit user stop (this ACTION_STOP,
+            // from the cover stop column / notification)
+            // now locks the whole device via the
+            // accessibility service's GLOBAL_ACTION_LOCK
+            // _SCREEN - no device-admin lockNow needed.
+            // System stops (projection onStop, failure,
+            // onDestroy) do NOT lock: they are not a
+            // user stop, and locking there would lock
+            // the phone when the user merely unfolded it.
+            ACTION_STOP -> { cleanupAndDisableDual(); lockDeviceOnStop(); stopSelf(); return START_NOT_STICKY }
             ACTION_APPLY_ROTATION -> {
                 // vc47: with the overlay route, rotation is just
                 // a virtual-display recreate on the same surface
@@ -857,6 +874,27 @@ class ScreenMirrorService : Service() {
             startService(Intent(this, CoverForegroundService::class.java).apply {
                 action = CoverForegroundService.ACTION_ROTATION_CHANGED
             })
+        }
+    }
+
+    // vc103: lock via accessibility. Returns
+    // false if the service is not running, in
+    // which case stop falls back to vc94 behaviour
+    // (MainHost finishes, main follows its timeout).
+    private fun lockDeviceOnStop(): Boolean {
+        return try {
+            val acc = MyAccessibilityService.instance
+            if (acc == null) {
+                Log.w(TAG, "Mirror stop lock skipped: accessibility service not running (vc103)")
+                false
+            } else {
+                val ok = acc.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                Log.i(TAG, "Mirror stop lock via accessibility, ok=$ok (vc103)")
+                ok
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Mirror stop lock failed (vc103)", e)
+            false
         }
     }
 
