@@ -45,7 +45,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         tryShowOnSecondary(isRetry = true)
     }
     private var bubbleRetryAttempts = 0
-    private val bubbleRetryRunnable = Runnable {
+    private val bubbleRetryRunnable: Runnable = Runnable {
         if (com.cuong.cflip.mirror.MirrorState.active && bubbleRetryAttempts < 3) {
             bubbleRetryAttempts++
             Log.i(TAG, "Bubble re-show deferred, MirrorState still active, retry $bubbleRetryAttempts/3")
