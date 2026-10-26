@@ -16,18 +16,27 @@ class AppRepository(private val context: Context) {
     fun loadLaunchableApps(includeHidden: Boolean = false): List<AppInfo> {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        // vc71 WIDGET ROOT FIX: the old map called loadLabel()
+        // unprotected. If ANY single app's label load threw (bad
+        // resources, app updating mid-query, restricted profile),
+        // the whole map threw, callers' runCatching turned it into
+        // emptyList, and widget + apps tab both showed zero apps
+        // even though 100+ apps were fine. Now each app falls back
+        // to its package name as label, so one bad app can never
+        // empty the whole list again. Icon was already guarded.
         val apps = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
             .map { ri ->
+                val pkg = ri.activityInfo.packageName
                 AppInfo(
-                    packageName = ri.activityInfo.packageName,
-                    label = ri.loadLabel(pm).toString(),
+                    packageName = pkg,
+                    label = runCatching { ri.loadLabel(pm).toString() }.getOrDefault(pkg),
                     icon = runCatching { ri.loadIcon(pm) }.getOrNull(),
                 )
             }
             .distinctBy { it.packageName }
             .sortedBy { it.label.lowercase() }
         if (includeHidden) return apps
-        val hidden = HiddenAppsStore(context).getHidden()
+        val hidden = runCatching { HiddenAppsStore(context).getHidden() }.getOrDefault(emptySet())
         if (hidden.isEmpty()) return apps
         return apps.filterNot { it.packageName in hidden }
     }
