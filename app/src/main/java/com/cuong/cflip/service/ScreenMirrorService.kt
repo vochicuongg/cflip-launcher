@@ -366,52 +366,23 @@ class ScreenMirrorService : Service() {
             if (desiredDeg < 0) 0 else ((desiredDeg - actualDeg) % 360 + 360) % 360
         }
         Log.i(TAG, "vc79 mirror content rotation ${mirrorContentDeg}deg (desired orient $mirrorWinOrient, actual rotation ${secondary.rotation})")
-        // vc73 ROTATE HOST RE-APPLY: vc72 window flags were
-        // IGNORED in dual mode (user confirms cover still snaps
-        // 180° in vc72). RotateHost's own mechanism (1x1 overlay
-        // with screenOrientation at addView time) IS proven in
-        // normal mode, but foreground service returns early when
-        // mirror is active, so it never re-adds the host after
-        // dual removes/re-adds the display. Mirror service adds
-        // its own 1x1 rotate view here, with the same orientation,
-        // BEFORE any mirror window shows, so cover never snaps.
-        // Removed in cleanupSession, so normal RotateHost returns
-        // after stop. Same orientation as vc72 flags, so no
-        // conflict if both apply.
-        // vc74 9FLIP TYPE FIX (decompile round 5): vc73 used
-        // service context + TYPE_APPLICATION_OVERLAY (2038),
-        // which dual hides/ignores, so cover still snapped 180°.
-        // 9Flip's rotate host (ROTATE-SUMMARY, function l()) uses
-        // AccessibilityService display context + type 2032, and
-        // STOPS if that service is not running (no fallback).
-        // 2032 is TYPE_ACCESSIBILITY_OVERLAY (public SDK, API 26+),
-        // used by ALL 9Flip cover windows, not 2038. Try 2032 +
-        // accessibility first; fall back to 2038 + service context
-        // only if accessibility is not running, so mirror still
-        // tries instead of crashing (but orientation preserve will
-        // not hold in dual without accessibility - see reply).
-        runCatching {
-            if (mirrorWinOrient != android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
-                val acc = MyAccessibilityService.instance
-                val rotCtx = if (acc != null) acc.createDisplayContext(secondary) else createDisplayContext(secondary)
-                val rotType = if (acc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                val rotWm = rotCtx.getSystemService(WindowManager::class.java)
-                if (rotWm != null) {
-                    val rotView = View(rotCtx)
-                    val rotParams = WindowManager.LayoutParams(
-                        1, 1,
-                        rotType,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                        PixelFormat.TRANSLUCENT,
-                    ).apply {
-                        gravity = Gravity.TOP or Gravity.START
-                        screenOrientation = mirrorWinOrient
-                    }
-                    rotWm.addView(rotView, rotParams)
-                    mirrorRotateView = rotView; mirrorRotateWm = rotWm
-                }
-            }
-        }
+        // vc80 REMOVE MIRROR ROTATE VIEW (vc79 regression):
+        // vc73/vc74 added a second 1x1 rotate host here (fixed to
+        // mirrorWinOrient), while vc78 foreground tryShow ALSO
+        // ensures RotateHost during mirror (follow/lock by
+        // rotateMode). Two hosts with different orientations
+        // fight on every display change: display oscillates,
+        // user sees rotation flip opposite and loop until tilt
+        // matches the fixed host, Presentation surface is
+        // destroyed/recreated repeatedly (mirror disconnects),
+        // and the second attempt hits corrupted state (crash).
+        // Fix: mirror service adds NO rotate host at all.
+        // Foreground host (vc78) is now the SOLE host during
+        // mirror, so no fighting. Snap is handled by vc79
+        // content rotation (mirrorContentDeg above), not by
+        // forcing display. Fields mirrorRotateView/mirrorRotateWm
+        // and their cleanup removal are kept (null-safe) so
+        // cleanupSession needs no change; they simply stay null.
         val presTried = runCatching {
             val acc = MyAccessibilityService.instance
             val presCtx = if (acc != null) acc.createDisplayContext(secondary) else coverCtx
@@ -673,13 +644,18 @@ class ScreenMirrorService : Service() {
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         virtualDisplay = proj.createVirtualDisplay(
             "CFlipMirror", mainWidth, mainHeight, mainDpi,
-            // vc79 POWERFLIP FLAGS: PowerFlip uses 17 = PUBLIC (1)
-            // + AUTO_MIRROR (16); CFlip used AUTO_MIRROR (16) only.
-            // PUBLIC is a one-line change with no other code impact.
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
+            // correlated with vc79 mirror disconnect + second-attempt
+            // crash, and PowerFlip's 17 is proven only from an
+            // Activity context, not from a service. Back to the
+            // vc62-proven AUTO_MIRROR (16) only, which did show a
+            // feed. Content rotation (vc79) is kept; only the
+            // unproven flag is removed, so vc80 isolates the fix
+            // to the fighting-hosts root cause.
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             surface, null, handler,
         )
-        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size, flags PUBLIC+AUTO_MIRROR=17)")
+        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size, flags AUTO_MIRROR=16)")
     }
 
     // vc66 FAILURE PILL: post-gate failures used to stopSelf()
