@@ -97,8 +97,17 @@ class ScreenMirrorService : Service() {
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.i(TAG, "Projection stopped by system/user")
+            // vc66: was silent stopSelf, user saw "ok then
+            // disconnected, nothing shown". Cleanup first
+            // (bubble returns in normal mode), then show the
+            // reason on the cover for 5s via the helper.
             cleanupAndDisableDual()
-            stopSelf()
+            val sec = DisplayRepository(this@ScreenMirrorService).secondaryDisplay()
+            if (sec != null) {
+                this@ScreenMirrorService.showFailurePillAndStop(sec, "Mirror stopped by system (projection onStop)")
+            } else {
+                stopSelf()
+            }
         }
     }
 
@@ -244,7 +253,7 @@ class ScreenMirrorService : Service() {
         val mpm = getSystemService(MediaProjectionManager::class.java)
         projection = mpm?.getMediaProjection(resultCode, resultData)
         val proj = projection
-        if (proj == null) { Log.w(TAG, "getMediaProjection returned null"); stopSelf(); return }
+        if (proj == null) { Log.w(TAG, "getMediaProjection returned null"); showFailurePillAndStop(secondary, "Mirror failed: projection null"); return }
         proj.registerCallback(projectionCallback, handler)
 
         // vc47 source size (9Flip approach): the virtual
@@ -347,7 +356,7 @@ class ScreenMirrorService : Service() {
     // main size / handler / mirror state are fields.
     private fun createOverlayMirror(proj: MediaProjection, secondary: Display, coverCtx: Context) {
         val wm = coverCtx.getSystemService(WindowManager::class.java)
-        if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); stopSelf(); return }
+        if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); showFailurePillAndStop(secondary, "Mirror failed: no WindowManager for cover"); return }
         val root = FrameLayout(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
         val tv = TextureView(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
         root.addView(tv, FrameLayout.LayoutParams(
@@ -430,10 +439,14 @@ class ScreenMirrorService : Service() {
             }
             override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
         }
+        // vc66: overlay had no KEEP_SCREEN_ON (Presentation
+        // has it), so screen timeout could turn the cover off
+        // and kill an overlay-path mirror. Keep it on like
+        // the Presentation path.
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
         runCatching { wm.addView(root, params) }
             .onSuccess {
@@ -442,7 +455,7 @@ class ScreenMirrorService : Service() {
                 statusView.text = "Mirror: overlay OK, waiting surface..."
                 Log.i(TAG, "Mirror overlay added on cover display ${secondary.displayId}")
             }
-            .onFailure { Log.w(TAG, "System refused mirror overlay on cover", it); stopSelf() }
+            .onFailure { e -> Log.w(TAG, "System refused mirror overlay on cover", e); showFailurePillAndStop(secondary, "Mirror failed: overlay refused: " + (e.message ?: "unknown")) }
     }
 
     private fun overlayViewToMain(viewX: Float, viewY: Float, tv: TextureView): Pair<Float, Float>? {
@@ -509,6 +522,37 @@ class ScreenMirrorService : Service() {
             surface, null, handler,
         )
         Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size)")
+    }
+
+    // vc66 FAILURE PILL: post-gate failures used to stopSelf()
+    // silently (log only), so a folded user saw "activating
+    // ok, then disconnected, nothing shown" with no reason.
+    // Disable dual first (pill shows in normal cover mode,
+    // where overlays work, not hidden dual mode), show the
+    // exact reason on the cover for 5s, then stop. If the pill
+    // cannot be added, stop immediately.
+    private fun showFailurePillAndStop(secondary: Display, reason: String) {
+        runCatching { DualDisplayHelper.disable() }
+        val added = runCatching {
+            val pillCtx = createDisplayContext(secondary)
+            val pillWm = pillCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
+            val pill = android.widget.TextView(pillCtx).apply {
+                this.text = reason
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundColor(android.graphics.Color.BLACK)
+                textSize = 14f
+                setPadding(24, 24, 24, 24)
+            }
+            val pillParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
+            pillWm.addView(pill, pillParams)
+            handler.postDelayed({ runCatching { pillWm.removeView(pill) }; stopSelf() }, 5000)
+            true
+        }.getOrDefault(false)
+        if (!added) { stopSelf() }
     }
 
     private fun cleanupSession() {
