@@ -144,6 +144,19 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
 
     private fun tryShowOnSecondary(isRetry: Boolean = false) {
         val secondary = DisplayRepository(this).secondaryDisplay() ?: return
+        // vc83 MIRROR OVERRIDE of vc78 (deliberate, mirror only):
+        // when mirror is active, do NOT rebuild the RotateHost here.
+        // User confirmed 27/10: 180-degree cover rotation during a
+        // mirror attempt is NORMAL 9Flip behaviour, not a bug, and
+        // the foreground FOLLOW host (FULL_SENSOR) fighting the
+        // mirror session is not wanted during mirror. Rotation in
+        // normal (non-mirror) mode is untouched — vc81 fix intact.
+        // Bubble behaviour is unchanged: mirror active still returns
+        // here without showing the bubble.
+        if (com.cuong.cflip.mirror.MirrorState.active) {
+            Log.i(TAG, "Mirror active - foreground host left alone (vc83)")
+            return
+        }
         if (!isRetry) hostRetryAttempts = 0
         // vc78 DECOUPLE (user principle, 9Flip Application pattern):
         // RotateHost is ensured ALWAYS, even when mirror is active

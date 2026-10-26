@@ -50,10 +50,25 @@
             android:name=".mirror.MirrorPermissionActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:launchMode="standard"
+            android:launchMode="singleTop"
             android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
             android:resizeableActivity="true"
             android:taskAffinity="com.cuong.cflip.mirror"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- vc83: dedicated dual host (9Flip host-first flow, own code).
+             Tile opens this on the cover; it enables dual only when
+             top-resumed, then launches MirrorPermissionActivity on the
+             cover. It never shows a dialog and never disables dual
+             on death; service cleanup owns dual disable. -->
+        <activity
+            android:name=".mirror.DualHostActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.dualhost"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Keeps cover-related work alive while the phone is folded -->
