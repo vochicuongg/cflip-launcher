@@ -853,6 +853,10 @@ object CoverControlCenterManager {
         val mediaProgress = MediaProgressBar(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(16))
+            // vc105: wave pattern seed = song title
+            // hash, so the same song keeps the same
+            // wave (decorative, not real audio data).
+            waveformSeed = mediaInfo?.title?.hashCode() ?: 0
             if (mediaInfo != null && mediaInfo.durationMs > 0) {
                 progress = mediaInfo.positionMs.toFloat() / mediaInfo.durationMs
             }
@@ -923,6 +927,7 @@ object CoverControlCenterManager {
             mediaElapsed.text = fmtTime(cur.positionMs)
             mediaTotal.text = fmtTime(cur.durationMs)
             mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
+            mediaProgress.waveformSeed = cur.title.hashCode()
             mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
             // vc40: swap album art when the track changes (reference
             // comparison avoids re-setting the same bitmap every second).
@@ -1054,8 +1059,15 @@ object CoverControlCenterManager {
         // sliders cannot stick out of the rounded corners, and
         // centred vertically so the two sliders sit balanced against
         // the taller media island instead of hugging its top.
+        // vc105: sliders are VERTICAL only when
+        // media is PLAYING (mediaInfo at panel open).
+        // Not playing / no session = horizontal, as
+        // before. Vertical = two vertical NineFlip
+        // sliders side by side in a horizontal column,
+        // matching the media card's height.
+        val slidersVertical = mediaInfo?.isPlaying == true
         val sliderColumn = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = if (slidersVertical) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             background = rounded(cardColor, 16)
             clipToOutline = true
             gravity = Gravity.CENTER_VERTICAL
@@ -1074,7 +1086,9 @@ object CoverControlCenterManager {
             volSlider2?.setValue(if (m > 0) v.toFloat() / m else 0f, animate = false)
         }
         brightSlider2 = NineFlipSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+            if (slidersVertical) setVertical(true)
+            layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_brightness)
             setRightIcon(R.drawable.ic_cflip_auto)
             minValue = 0.05f
@@ -1102,9 +1116,14 @@ object CoverControlCenterManager {
             }
         }
         sliderColumn.addView(brightSlider2)
-        sliderColumn.addView(View(ctx).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
+        sliderColumn.addView(View(ctx).apply {
+            layoutParams = if (slidersVertical) LinearLayout.LayoutParams(dp(8), LinearLayout.LayoutParams.MATCH_PARENT)
+                else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12))
+        })
         volSlider2 = NineFlipSlider(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
+            if (slidersVertical) setVertical(true)
+            layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_volume)
             setRightIcon(R.drawable.ic_sec_mute)
             minValue = 0f
@@ -1212,8 +1231,10 @@ object CoverControlCenterManager {
         combinedRow.addView(sliderColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2f).apply {
             setMargins(dp(8), 0, 0, 0)
         })
-        controlContent.addView(combinedRow)
-
+        // vc105: combinedRow is NOT added here.
+        // It is added after tileCard below, in an
+        // order that depends on playing state (see
+        // the block after tileCard is built).
         val tileCard = card()
         // vc42 right-edge fix: card() pads 12dp each side; the tile
         // card gets 8dp horizontally so the grid has room to fit.
@@ -1633,7 +1654,39 @@ object CoverControlCenterManager {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
-        controlContent.addView(tileCard)
+        // vc105 MEDIA CARD POSITION (user, 27/10):
+        // playing -> as before: combinedRow
+        // (media card + vertical sliders) above
+        // Function, then Function, then Widget.
+        // NOT playing -> media card moves BELOW
+        // Function: combinedRow without the media
+        // card (sliders only, horizontal, full
+        // width) above Function, then Function,
+        // then the media card, then Widget. When
+        // there is no session at all the media
+        // card is GONE, so adding it below Function
+        // changes nothing visible, and Play last
+        // pill (added earlier, above combinedRow)
+        // stays as the no-session control.
+        // Layout is decided at panel open, from
+        // mediaInfo at that moment - like the rest
+        // of this panel, which builds once and only
+        // ticks text/progress while open. If media
+        // starts/stops while the panel is open,
+        // close and reopen to get the new layout.
+        if (mediaInfo?.isPlaying == true) {
+            controlContent.addView(combinedRow)
+            controlContent.addView(tileCard)
+        } else {
+            combinedRow.removeView(mediaCard)
+            controlContent.addView(combinedRow)
+            controlContent.addView(tileCard)
+            mediaCard.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+            controlContent.addView(mediaCard)
+        }
         // 3.6.0 order: Media first, Brightness second, Function island
         // third, Widget last. Widget was built first but is added here.
         widgetCardDeferred?.let { controlContent.addView(it) }

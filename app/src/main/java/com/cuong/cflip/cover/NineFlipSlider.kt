@@ -50,6 +50,50 @@ class NineFlipSlider @JvmOverloads constructor(
     // brightness slider's sun icon would also become clickable and
     // block drags starting on it. Only the volume slider opts in.
     private var onLeftClick: (() -> Unit)? = null
+    // vc105 VERTICAL MODE: when the panel shows media
+    // (playing), brightness + volume become vertical
+    // bars side by side, instead of horizontal bars
+    // stacked. Vertical geometry is the horizontal
+    // geometry with axes swapped: fill grows from
+    // the BOTTOM, left icon sits at the bottom,
+    // right icon at the top, drag is vertical
+    // (up = increase). Set BEFORE first layout
+    // (panel builds sliders, calls setVertical,
+    // then adds them) so icon/fill params are
+    // correct on first draw. Horizontal behaviour
+    // is unchanged when vertical == false.
+    var vertical: Boolean = false
+        private set
+    fun setVertical(v: Boolean) {
+        if (vertical == v) return
+        vertical = v
+        if (v) {
+            fillView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, thumbSize).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
+            leftIcon.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(40)).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            }
+            rightIcon.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(40)).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            }
+            minimumWidth = dp(48)
+            minimumHeight = 0
+        } else {
+            fillView.layoutParams = LayoutParams(thumbSize, LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            }
+            leftIcon.layoutParams = LayoutParams(dp(40), LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            }
+            rightIcon.layoutParams = LayoutParams(dp(40), LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            }
+            minimumHeight = dp(48)
+        }
+        updateFill()
+        requestLayout()
+    }
     fun setLeftClickListener(action: (() -> Unit)?) {
         onLeftClick = action
         if (action != null) {
@@ -147,6 +191,20 @@ class NineFlipSlider @JvmOverloads constructor(
     }
 
     private fun updateFill() {
+        if (vertical) {
+            val h = height
+            if (h <= 0) {
+                post { updateFill() }
+                return
+            }
+            val fillHeight = (thumbSize + (h - thumbSize) * value).toInt()
+            val params = fillView.layoutParams as LayoutParams
+            if (params.height != fillHeight) {
+                params.height = fillHeight
+                fillView.layoutParams = params
+            }
+            return
+        }
         val w = width
         if (w <= 0) {
             post { updateFill() }
@@ -178,24 +236,55 @@ class NineFlipSlider @JvmOverloads constructor(
                 val dx = event.x - downX
                 val dy = event.y - downY
                 if (!dragging) {
-                    // 9Flip p6.e(): horizontal only, 0.7 * slop, horizontal > vertical * 1.1
-                    if (kotlin.math.abs(dx) > touchSlop * 0.7f && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.1f) {
-                        dragging = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                    } else if (kotlin.math.abs(dy) > touchSlop) {
-                        return false
+                    if (vertical) {
+                        // Vertical mirror of 9Flip p6.e():
+                        // vertical only, 0.7 * slop,
+                        // vertical > horizontal * 1.1,
+                        // otherwise the parent
+                        // ScrollView keeps the gesture.
+                        if (kotlin.math.abs(dy) > touchSlop * 0.7f && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.1f) {
+                            dragging = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                        } else if (kotlin.math.abs(dx) > touchSlop) {
+                            return false
+                        } else {
+                            return true
+                        }
                     } else {
-                        return true
+                        // 9Flip p6.e(): horizontal only, 0.7 * slop, horizontal > vertical * 1.1
+                        if (kotlin.math.abs(dx) > touchSlop * 0.7f && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.1f) {
+                            dragging = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                        } else if (kotlin.math.abs(dy) > touchSlop) {
+                            return false
+                        } else {
+                            return true
+                        }
                     }
                 }
                 if (dragging) {
-                    val w = width
-                    if (w > thumbSize) {
-                        val v = ((event.x - thumbSize / 2f) / (w - thumbSize)).coerceIn(minValue, 1.0f)
-                        if (v != value) {
-                            value = v
-                            updateFill()
-                            onValueChanged?.invoke(v)
+                    if (vertical) {
+                        val h = height
+                        if (h > thumbSize) {
+                            // Fill from bottom: y at top
+                            // (thumb/2) = max, y at bottom
+                            // (h - thumb/2) = min.
+                            val v = (1f - (event.y - thumbSize / 2f) / (h - thumbSize)).coerceIn(minValue, 1.0f)
+                            if (v != value) {
+                                value = v
+                                updateFill()
+                                onValueChanged?.invoke(v)
+                            }
+                        }
+                    } else {
+                        val w = width
+                        if (w > thumbSize) {
+                            val v = ((event.x - thumbSize / 2f) / (w - thumbSize)).coerceIn(minValue, 1.0f)
+                            if (v != value) {
+                                value = v
+                                updateFill()
+                                onValueChanged?.invoke(v)
+                            }
                         }
                     }
                     return true
