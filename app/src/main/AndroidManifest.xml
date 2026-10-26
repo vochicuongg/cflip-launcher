@@ -71,6 +71,24 @@
             android:taskAffinity="com.cuong.cflip.dualhost"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- vc95: lock bubble activity (9Flip UnlockActivity pattern,
+             own code). An Activity window with setShowWhenLocked,
+             so it is visible over the secure keyguard where the
+             overlay bubble is hidden. Launched on the cover by
+             CoverForegroundService only while locked; tap asks
+             the system to dismiss the keyguard, then the normal
+             overlay bubble returns. Never exported, never in
+             recents, singleTop so relaunches reuse it. -->
+        <activity
+            android:name=".cover.CoverUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.unlock"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- vc86: main-side host for mirror (9Flip host-on-main pattern).
              Launched by MirrorPermissionActivity on display 0 right
              after grant; keeps the folded main display awake for

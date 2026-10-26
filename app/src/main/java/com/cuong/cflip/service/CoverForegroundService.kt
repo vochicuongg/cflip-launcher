@@ -40,6 +40,10 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     private val hostHandler = Handler(Looper.getMainLooper())
     private var hostRetryAttempts = 0
     private var hostRetryPending = false
+    // vc95: throttle lock-bubble launches (display changes
+    // fire in bursts while locked; without this, tryShow
+    // would relaunch the UnlockActivity every burst).
+    private var lastUnlockLaunchMs = 0L
     private val hostRetryRunnable = Runnable {
         hostRetryPending = false
         tryShowOnSecondary(isRetry = true)
@@ -228,13 +232,47 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         }
         if (assistiveTouchDisplayId == secondary.displayId &&
             com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
-        if (com.cuong.cflip.data.SettingsStore(this).load().assistiveTouchEnabled) {
-            com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
-                .onSuccess { assistiveTouchDisplayId = secondary.displayId }
-                .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }
-        } else {
+        val settings = com.cuong.cflip.data.SettingsStore(this).load()
+        if (!settings.assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            return
         }
+        // vc95 LOCK BUBBLE: over a secure keyguard the overlay
+        // bubble is hidden by the system (vc91 flag proved
+        // this), so showing it here would be invisible work.
+        // While locked, show the lock Activity instead (it
+        // is a real window over lock, like 9Flip's
+        // UnlockActivity); after unlock, finish it and show
+        // the normal overlay bubble below.
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        if (km != null && km.isKeyguardLocked) {
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            assistiveTouchDisplayId = -1
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastUnlockLaunchMs > 2000L) {
+                lastUnlockLaunchMs = now
+                runCatching {
+                    val unlock = android.content.Intent(
+                        this, com.cuong.cflip.cover.CoverUnlockActivity::class.java
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    val opts = android.app.ActivityOptions.makeBasic()
+                        .setLaunchDisplayId(secondary.displayId).toBundle()
+                    startActivity(unlock, opts)
+                    Log.i(TAG, "Lock bubble launched on cover (keyguard locked)")
+                }.onFailure { Log.w(TAG, "Lock bubble launch failed", it) }
+            }
+            return
+        }
+        // Unlocked: make sure a lingering lock bubble goes
+        // away (user unlocked via main, not via the bubble),
+        // then show the normal overlay bubble.
+        runCatching {
+            sendBroadcast(android.content.Intent(
+                com.cuong.cflip.cover.CoverUnlockActivity.ACTION_FINISH_UNLOCK))
+        }
+        com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
+            .onSuccess { assistiveTouchDisplayId = secondary.displayId }
+            .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
