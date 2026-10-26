@@ -1521,6 +1521,12 @@ object CoverControlCenterManager {
                 // are suppressed or the permission dialog ends up
                 // on main.
                 showCoverMessage(ctx, display, "Đã bấm Phản chiếu - đang mở xin quyền...")
+                // vc84 COVER DIALOG: hide the full-screen panel overlay
+                // BEFORE launching the host, so no cover overlay can sit
+                // on top of the system permission dialog (vc83: dialog
+                // never appeared on cover, only rotation). The pill above
+                // is a separate view and survives hide().
+                hide()
                 val mainDisplay = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)
                 if (mainDisplay == null) {
                     android.widget.Toast.makeText(ctx, "Ph\u1ea3n chi\u1ebfu ch\u1ec9 d\u00f9ng \u0111\u01b0\u1ee3c khi M\u1ede M\u00e1y", android.widget.Toast.LENGTH_LONG).show()
