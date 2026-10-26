@@ -22,7 +22,10 @@ import com.cuong.cflip.CFlipApp
 import com.cuong.cflip.R
 import com.cuong.cflip.display.DisplayRepository
 import android.app.PendingIntent
+import android.graphics.Path
 import android.graphics.PixelFormat
+import android.view.MotionEvent
+import android.view.accessibility.GestureDescription
 import android.graphics.Point
 import android.view.Display
 import android.view.Gravity
@@ -76,6 +79,16 @@ class ScreenMirrorService : Service() {
     private var mirrorPresentation: com.cuong.cflip.mirror.MirrorPresentation? = null
     private var mirrorTexture: TextureView? = null
     private var mirrorSurface: Surface? = null
+    // vc63 TOUCH: cover -> main forwarding state for the overlay
+    // path (Presentation path has its own copy in
+    // MirrorPresentation). Same tap/swipe dispatch via
+    // MyAccessibilityService.dispatchGesture.
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+    private var touchLastX = 0f
+    private var touchLastY = 0f
+    private var touchStartTime = 0L
+    private var touchActive = false
     private var mainWidth: Int = 0
     private var mainHeight: Int = 0
     private var mainDpi: Int = 0
@@ -322,8 +335,8 @@ class ScreenMirrorService : Service() {
     private fun createOverlayMirror(proj: MediaProjection, secondary: Display, coverCtx: Context) {
         val wm = coverCtx.getSystemService(WindowManager::class.java)
         if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); stopSelf(); return }
-        val root = FrameLayout(coverCtx)
-        val tv = TextureView(coverCtx)
+        val root = FrameLayout(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
+        val tv = TextureView(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
         root.addView(tv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         // vc55 STATUS TEXT (temporary diagnostic, top-left over
@@ -353,6 +366,37 @@ class ScreenMirrorService : Service() {
             gravity = Gravity.TOP or Gravity.END
             setMargins(12, 12, 12, 12)
         })
+        // vc63 TOUCH: forward overlay touches to main. Stop button
+        // sits above this TextureView, so its taps still stop.
+        tv.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val main = overlayViewToMain(event.x, event.y, tv) ?: return@setOnTouchListener false
+                    touchStartX = main.first; touchStartY = main.second
+                    touchLastX = main.first; touchLastY = main.second
+                    touchStartTime = event.eventTime
+                    touchActive = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!touchActive) return@setOnTouchListener false
+                    val main = overlayViewToMain(event.x, event.y, tv)
+                    if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!touchActive) return@setOnTouchListener false
+                    touchActive = false
+                    val main = overlayViewToMain(event.x, event.y, tv)
+                    if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                    val durationMs = (event.eventTime - touchStartTime).coerceIn(50L, 800L)
+                    dispatchOverlayGesture(durationMs)
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> { touchActive = false; true }
+                else -> false
+            }
+        }
         tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                 st.setDefaultBufferSize(mainWidth, mainHeight)
@@ -388,17 +432,59 @@ class ScreenMirrorService : Service() {
             .onFailure { Log.w(TAG, "System refused mirror overlay on cover", it); stopSelf() }
     }
 
+    private fun overlayViewToMain(viewX: Float, viewY: Float, tv: TextureView): Pair<Float, Float>? {
+        val vw = tv.width.toFloat()
+        val vh = tv.height.toFloat()
+        if (vw <= 0f || vh <= 0f || mainWidth <= 0 || mainHeight <= 0) return null
+        val f10 = vw / mainWidth
+        val f12 = vh / mainHeight
+        val fMin = kotlin.math.min(f10, f12)
+        val sx = fMin / f10
+        val sy = fMin / f12
+        val dx = (vw - vw * sx) / 2f
+        val dy = (vh - vh * sy) / 2f
+        val scaledW = vw * sx
+        val scaledH = vh * sy
+        if (viewX < dx || viewX > dx + scaledW || viewY < dy || viewY > dy + scaledH) return null
+        val mainX = ((viewX - dx) / fMin).coerceIn(0f, (mainWidth - 1).toFloat())
+        val mainY = ((viewY - dy) / fMin).coerceIn(0f, (mainHeight - 1).toFloat())
+        return Pair(mainX, mainY)
+    }
+
+    private fun dispatchOverlayGesture(durationMs: Long) {
+        val acc = MyAccessibilityService.instance ?: return
+        val path = Path()
+        path.moveTo(touchStartX, touchStartY)
+        val dist = kotlin.math.hypot(touchLastX - touchStartX, touchLastY - touchStartY)
+        if (dist < 1f) {
+            path.lineTo(touchStartX + 1f, touchStartY)
+        } else {
+            path.lineTo(touchLastX, touchLastY)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        acc.dispatchGesture(gesture, null, null)
+    }
+
     // vc62 DISPLAY LAYER (9Flip i4.a fit mode, same math as
     // MirrorPresentation.applyTransform, for the overlay path):
     // Old overlay had NO transform, so it stretched like the
     // old Presentation. Fit preserves aspect with black bars.
     private fun applyFitTransform(tv: TextureView, viewW: Int, viewH: Int) {
         if (viewW <= 0 || viewH <= 0 || mainWidth <= 0 || mainHeight <= 0) return
-        val scale = kotlin.math.min(viewW.toFloat() / mainWidth, viewH.toFloat() / mainHeight)
-        val dx = (viewW - mainWidth * scale) / 2f
-        val dy = (viewH - mainHeight * scale) / 2f
+        // vc63 FIT FIX (same as Presentation): view-space scale,
+        // not buffer-space scale. See MirrorPresentation for the
+        // full explanation - vc62 used 0.283 directly and got a
+        // 204x211 feed at the top.
+        val f10 = viewW.toFloat() / mainWidth
+        val f12 = viewH.toFloat() / mainHeight
+        val fMin = kotlin.math.min(f10, f12)
+        val sx = fMin / f10
+        val sy = fMin / f12
+        val dx = (viewW - viewW * sx) / 2f
+        val dy = (viewH - viewH * sy) / 2f
         val m = android.graphics.Matrix()
-        m.setScale(scale, scale)
+        m.setScale(sx, sy)
         m.postTranslate(dx, dy)
         tv.setTransform(m)
     }
@@ -453,8 +539,14 @@ class ScreenMirrorService : Service() {
     }
 
     private fun cleanupAndDisableDual() {
-        cleanupSession()
+        // vc63 STOP ORDER: vc62 did cleanup (which re-shows the
+        // bubble) BEFORE disabling dual, so the bubble re-show ran
+        // while dual was still ON, when cover overlays are hidden
+        // in dual mode, and the bubble never came back until the
+        // user restarted AssistiveTouch. Disable dual first, then
+        // cleanup re-shows the bubble in normal mode.
         runCatching { DualDisplayHelper.disable() }
+        cleanupSession()
     }
 
     override fun onDestroy() { cleanupAndDisableDual(); super.onDestroy() }

@@ -3,6 +3,10 @@ package com.cuong.cflip.mirror
 import android.app.Presentation
 import android.content.Context
 import android.graphics.Matrix
+import android.graphics.Path
+import android.view.MotionEvent
+import android.view.accessibility.GestureDescription
+import com.cuong.cflip.service.MyAccessibilityService
 import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.view.Display
@@ -49,6 +53,56 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     var rotationDeg: Int = 0
         private set
 
+    // vc63 TOUCH: state for cover -> main forwarding (9Flip
+    // trackpad idea, own implementation via AccessibilityService
+    // dispatchGesture). DOWN stores the mapped main point, MOVE
+    // updates it, UP dispatches a tap (small move) or swipe.
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+    private var touchLastX = 0f
+    private var touchLastY = 0f
+    private var touchStartTime = 0L
+    private var touchActive = false
+
+    // Map a cover view point to main coords via the inverse of
+    // the fit transform (view = main*fMin + offset). Returns null
+    // for touches in the black bars, which have no main point.
+    private fun mirrorViewToMain(viewX: Float, viewY: Float): Pair<Float, Float>? {
+        if (!::textureView.isInitialized) return null
+        val vw = textureView.width.toFloat()
+        val vh = textureView.height.toFloat()
+        val sw = sourceW; val sh = sourceH
+        if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
+        val f10 = vw / sw
+        val f12 = vh / sh
+        val fMin = min(f10, f12)
+        val sx = fMin / f10
+        val sy = fMin / f12
+        val dx = (vw - vw * sx) / 2f
+        val dy = (vh - vh * sy) / 2f
+        val scaledW = vw * sx
+        val scaledH = vh * sy
+        if (viewX < dx || viewX > dx + scaledW || viewY < dy || viewY > dy + scaledH) return null
+        val mainX = ((viewX - dx) / fMin).coerceIn(0f, (sw - 1).toFloat())
+        val mainY = ((viewY - dy) / fMin).coerceIn(0f, (sh - 1).toFloat())
+        return Pair(mainX, mainY)
+    }
+
+    private fun dispatchMirrorGesture(durationMs: Long) {
+        val acc = MyAccessibilityService.instance ?: return
+        val path = Path()
+        path.moveTo(touchStartX, touchStartY)
+        val dist = kotlin.math.hypot(touchLastX - touchStartX, touchLastY - touchStartY)
+        if (dist < 1f) {
+            path.lineTo(touchStartX + 1f, touchStartY)
+        } else {
+            path.lineTo(touchLastX, touchLastY)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        acc.dispatchGesture(gesture, null, null)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -59,7 +113,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // chiếu" button sits top-right as the always-visible exit.
         // Tapping it stops ScreenMirrorService, which restores the
         // AssistiveTouch bubble (see its cleanup()).
-        val root = android.widget.FrameLayout(context)
+        val root = android.widget.FrameLayout(context).apply { setBackgroundColor(0xFF000000.toInt()) }
         textureView = TextureView(context).apply {
             setBackgroundColor(0xFF000000.toInt())
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -80,6 +134,38 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                     onSurfaceGone?.invoke(); return true
                 }
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) { /* no-op */ }
+            }
+            // vc63 TOUCH: forward cover touches to main. Stop button
+            // and status views sit above this TextureView, so taps
+            // on them still go to the button, not to main.
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val main = mirrorViewToMain(event.x, event.y) ?: return@setOnTouchListener false
+                        touchStartX = main.first; touchStartY = main.second
+                        touchLastX = main.first; touchLastY = main.second
+                        touchStartTime = event.eventTime
+                        touchActive = true
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (!touchActive) return@setOnTouchListener false
+                        val main = mirrorViewToMain(event.x, event.y)
+                        if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!touchActive) return@setOnTouchListener false
+                        touchActive = false
+                        val main = mirrorViewToMain(event.x, event.y)
+                        if (main != null) { touchLastX = main.first; touchLastY = main.second }
+                        val durationMs = (event.eventTime - touchStartTime).coerceIn(50L, 800L)
+                        dispatchMirrorGesture(durationMs)
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> { touchActive = false; true }
+                    else -> false
+                }
             }
         }
         root.addView(textureView, android.widget.FrameLayout.LayoutParams(
@@ -173,11 +259,26 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             tv.setTransform(m0)
             return
         }
-        val scale = min(tv.width.toFloat() / sw, tv.height.toFloat() / sh)
-        val dx = (tv.width - sw * scale) / 2f
-        val dy = (tv.height - sh * scale) / 2f
+        // vc63 FIT FIX: vc62 used buffer-space scale (0.283)
+        // directly as the TextureView transform, but
+        // TextureView.setTransform is applied AFTER the default
+        // fill stretch (viewW/sourceW, viewH/sourceH). Total
+        // scale became 0.667*0.283=0.189 by 0.283*0.283=0.080,
+        // so the feed came out 204x211 at the top - exactly the
+        // vc62 "very small at top" report. 9Flip i4.a uses
+        // view-space scale: f10=viewW/sourceW, f12=viewH/sourceH,
+        // fMin=min(f10,f12), sx=fMin/f10, sy=fMin/f12, then
+        // scaledW=viewW*sx, scaledH=viewH*sy, centered. Total
+        // scale is then f10*sx=fMin by f12*sy=fMin, uniform fit.
+        val f10 = tv.width.toFloat() / sw
+        val f12 = tv.height.toFloat() / sh
+        val fMin = min(f10, f12)
+        val sx = fMin / f10
+        val sy = fMin / f12
+        val dx = (tv.width - tv.width * sx) / 2f
+        val dy = (tv.height - tv.height * sy) / 2f
         val m = Matrix()
-        m.setScale(scale, scale)
+        m.setScale(sx, sy)
         m.postTranslate(dx, dy)
         if (rotationDeg != 0) {
             m.postRotate(rotationDeg.toFloat(), tv.width / 2f, tv.height / 2f)
