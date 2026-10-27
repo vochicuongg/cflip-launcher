@@ -261,12 +261,21 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // vc33: cancel long-press on ANY move, not only after
-                    // slop. A slow swipe that paused under slop used to
-                    // fire Recents mid-drag and kill the drag.
+                    // vc117 LONG-PRESS FIX: vc33 cancelled
+                    // long-press on ANY move, so a finger
+                    // trembling by 1px while holding still
+                    // cancelled the hold before the timeout
+                    // fired - long-press looked dead. Now
+                    // cancel only past HALF the touch slop:
+                    // tiny tremor survives, a real drag
+                    // still cancels before it starts (moved
+                    // is set at full slop below).
                     if (longPressRunnable != null) {
-                        handler.removeCallbacks(longPressRunnable!!)
-                        longPressRunnable = null
+                        val mdx = e.rawX - downX; val mdy = e.rawY - downY
+                        if (kotlin.math.hypot(mdx, mdy) > touchSlop / 2f) {
+                            handler.removeCallbacks(longPressRunnable!!)
+                            longPressRunnable = null
+                        }
                     }
                     // vc32: Euclidean distance (like 9Flip c1 hypot),
                     // not Manhattan; keep float until the final round.

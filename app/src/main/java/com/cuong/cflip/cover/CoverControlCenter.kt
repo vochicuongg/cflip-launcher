@@ -123,11 +123,14 @@ object CoverControlCenterManager {
     private var cachedAppListVersion: Int = -1
     private var cachedFavoritesKey: String = ""
     private var cachedHiddenKey: String = ""
-    // vc115: panel cache must not mix Quick
-    // Panel roots (no tab bar) with Full Panel
-    // roots (tab bar). Mode is part of validity.
-    private var cachedQuickPanel: Boolean = false
-    private var panelQuickMode: Boolean = false
+    // vc117 QUICK BAR state: the horizontal
+    // quick strip (see showQuickBar), separate
+    // from the full panel and its cache. The
+    // bar never hides the bubble - it coexists
+    // with AssistiveTouch, unlike the full panel.
+    private var quickBarView: View? = null
+    private var quickBarWm: WindowManager? = null
+    private var quickBarDismissRunnable: Runnable? = null
     private var cachedReopen: ((Int) -> Unit)? = null
     private var forceFreshShow: Boolean = false
     private fun clearPanelCache() {
@@ -141,8 +144,7 @@ object CoverControlCenterManager {
         cachedSettingsKey = ""
         cachedAppListVersion = -1
         cachedFavoritesKey = ""
-        cachedHiddenKey = ""
-        cachedQuickPanel = false
+        cachedHiddenKey = "
     }
     private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
         return listOf(
@@ -216,20 +218,25 @@ object CoverControlCenterManager {
             .start()
     }
 
-    // vc115 QUICK PANEL: quickPanel = true shows
-    // only the Control content, with a compact
-    // header (label + close) instead of the 4-tab
-    // bar. Same tiles, sliders and media as the
-    // Control tab, no Notifications / Apps / CFlip
-    // tabs reachable (they are built but hidden
-    // behind the missing tab bar). Defaults keep
-    // the old full panel behaviour exactly.
+    // vc117 QUICK PANEL = HORIZONTAL BAR: a bubble
+    // action for Quick Panel lands here with
+    // quickPanel = true. It now routes to
+    // showQuickBar (a bottom strip that coexists
+    // with AssistiveTouch), NOT to a tab-less
+    // panel - vc115's tab-less panel is replaced.
+    // Defaults keep the old full panel behaviour.
     fun show(appContext: Context, display: Display, initialTab: Int = 0, quickPanel: Boolean = false): Result<Unit> = runCatching {
-        val effectiveInitialTab = if (quickPanel) 0 else initialTab
+        if (quickPanel) {
+            showQuickBar(appContext, display).getOrThrow()
+            return@runCatching Unit
+        }
+        val effectiveInitialTab = initialTab
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
         hidePanelOnly()
+        // vc117: full panel and quick bar never stack.
+        hideQuickBar()
         if (forceFreshShow) {
             forceFreshShow = false
             clearPanelCache()
@@ -272,7 +279,6 @@ object CoverControlCenterManager {
                 curAppListVersion == cachedAppListVersion &&
                 curFavoritesKey == cachedFavoritesKey &&
                 curHiddenKey == cachedHiddenKey &&
-                cachedQuickPanel == quickPanel &&
                 metrics.widthPixels == cachedPanelDisplayW &&
                 metrics.heightPixels == cachedPanelDisplayH
             if (cacheValid) {
@@ -285,7 +291,6 @@ object CoverControlCenterManager {
                         PixelFormat.TRANSLUCENT,
                     ).apply { gravity = Gravity.TOP or Gravity.START }
                     cachedPanelRoot = null
-                    panelQuickMode = quickPanel
                     cachedRoot.keepScreenOn = true
                     manager.addView(cachedRoot, params)
                     view = cachedRoot; panelParams = params; wm = manager
@@ -362,8 +367,7 @@ object CoverControlCenterManager {
         val r = Runnable {
             loadingRunnable = null
             runCatching {
-                panelQuickMode = quickPanel
-                val root = buildPanel(displayContext, display, effectiveInitialTab, quickPanel)
+                val root = buildPanel(displayContext, display, effectiveInitialTab)
                 val params = WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
@@ -437,7 +441,235 @@ object CoverControlCenterManager {
     // new widget / retry would never appear.
     fun showFresh(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> {
         forceFreshShow = true
-        return show(appContext, display, initialTab, panelQuickMode)
+        return show(appContext, display, initialTab)
+    }
+
+    // vc117 QUICK BAR: 9Flip's Quick Panel, as the
+    // user clarified 27/10, is a horizontal strip
+    // that coexists with AssistiveTouch, not a
+    // vertical panel. Decompile note: 9Flip's own
+    // Quick Panel is Samsung's system Quick Panel
+    // (TileService / accessibility inspection of its
+    // tiles, f5/*), not a custom vertical list, so
+    // CFlip cannot copy that system panel directly.
+    // Clean-room equivalent here: a bottom strip
+    // on the cover, one horizontal row - C (opens
+    // the Full Panel), Flashlight, Sound mode,
+    // Rotate, Media Prev / Play / Next, Close.
+    // The bubble stays visible while the bar is
+    // open; opening the Full Panel hides the bar.
+    // Auto-dismiss 60s, reset on every bar tap.
+    fun showQuickBar(appContext: Context, display: Display): Result<Unit> = runCatching {
+        if (display.displayId == Display.DEFAULT_DISPLAY) {
+            throw IllegalArgumentException("Quick Bar is cover-only, refusing default display")
+        }
+        hidePanelOnly()
+        hideQuickBar()
+        val displayContext = appContext.createDisplayContext(display)
+        val manager = displayContext.getSystemService(WindowManager::class.java)
+            ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
+        val density = displayContext.resources.displayMetrics.density
+        val dp = { v: Int -> (v * density).toInt() }
+        val store = SettingsStore(appContext)
+        fun ovalDark(): android.graphics.drawable.GradientDrawable =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xFF23262B.toInt())
+            }
+        fun barButton(iconRes: Int, onClick: () -> Unit): ImageButton {
+            return ImageButton(displayContext).apply {
+                setImageResource(iconRes)
+                setColorFilter(0xFFFFFFFF.toInt())
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                background = ovalDark()
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                    setMargins(dp(2), 0, dp(2), 0)
+                }
+                setOnClickListener { resetQuickBarTimer(); onClick() }
+            }
+        }
+        fun barSoundMode(): Int {
+            val am = displayContext.getSystemService(android.media.AudioManager::class.java)
+            val nm = displayContext.getSystemService(android.app.NotificationManager::class.java)
+            return when {
+                nm != null && nm.isNotificationPolicyAccessGranted &&
+                    nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_NONE -> 2
+                am?.ringerMode == android.media.AudioManager.RINGER_MODE_SILENT -> 2
+                am?.ringerMode == android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
+                else -> 0
+            }
+        }
+        val bar = LinearLayout(displayContext).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(0xE01A1D20.toInt())
+            }
+        }
+        // C: AssistiveTouch in the bar - opens Full Panel.
+        bar.addView(TextView(displayContext).apply {
+            text = "C"; textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(0xFF7FE3C0.toInt())
+            gravity = Gravity.CENTER
+            background = ovalDark()
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                setMargins(dp(2), 0, dp(2), 0)
+            }
+            setOnClickListener { resetQuickBarTimer(); hideQuickBar(); show(appContext, display, 0, false) }
+        })
+        // Flashlight: same toggle as the Control tile.
+        var flashBtn: ImageButton? = null
+        val flash = barButton(R.drawable.ic_sec_flashlight) {
+            val nextOn = !QuickControls.torchOn
+            QuickControls.setTorch(displayContext, nextOn)
+            val nowOn = QuickControls.torchOn
+            flashBtn?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+            (flashBtn?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+        }
+        flashBtn = flash
+        if (QuickControls.torchOn) {
+            flash.setColorFilter(0xFF000000.toInt())
+            (flash.background as? android.graphics.drawable.GradientDrawable)?.setColor(0xFF7FE3C0.toInt())
+        }
+        bar.addView(flash)
+        // Sound mode: same cycle as the Control slider
+        // (vc115 icon fix: icon from the mode just
+        // selected, re-read after 1s as a correction).
+        var soundBtn: ImageButton? = null
+        fun setBarSoundIcon(mode: Int) {
+            soundBtn?.setImageResource(when (mode) {
+                1 -> R.drawable.ic_cflip_vibrate
+                2 -> R.drawable.ic_cflip_dnd
+                else -> R.drawable.ic_sec_volume
+            })
+        }
+        val sound = barButton(R.drawable.ic_sec_volume) {
+            val am = displayContext.getSystemService(android.media.AudioManager::class.java)
+            val nm = displayContext.getSystemService(android.app.NotificationManager::class.java)
+            val next = (barSoundMode() + 1) % 3
+            when (next) {
+                0 -> {
+                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+                    }
+                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_NORMAL
+                    android.widget.Toast.makeText(displayContext, "Đã bật Âm thanh", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                1 -> {
+                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+                    }
+                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
+                    android.widget.Toast.makeText(displayContext, "Đã bật Rung", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                else -> {
+                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_NONE)
+                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
+                        android.widget.Toast.makeText(displayContext, "Đã bật Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
+                        android.widget.Toast.makeText(displayContext, "Đã bật Im lặng (cần quyền Không làm phiền để bật DND đầy đủ)", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            setBarSoundIcon(next)
+            handler.postDelayed({ setBarSoundIcon(barSoundMode()) }, 1000)
+        }
+        soundBtn = sound
+        setBarSoundIcon(barSoundMode())
+        bar.addView(sound)
+        // Rotate: same FOLLOW -> LOCK -> SYSTEM cycle
+        // as the Control tile, icon updated in place.
+        var rotBtn: ImageButton? = null
+        val rot = barButton(if (store.load().rotateMode == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate) {
+            val curMode = store.load().rotateMode
+            val next = when (curMode) { 0 -> 1; 1 -> 2; else -> 0 }
+            store.save(store.load().copy(rotateMode = next))
+            CoverRotateState.contentFallback = false
+            when (next) {
+                0 -> {
+                    val svcOn = MyAccessibilityService.instance != null
+                    CoverRotateHostManager.follow(appContext.applicationContext, display)
+                    android.widget.Toast.makeText(displayContext,
+                        if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
+                        else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
+                        android.widget.Toast.LENGTH_LONG).show()
+                }
+                1 -> {
+                    CoverRotateHostManager.lock(appContext.applicationContext, display)
+                    android.widget.Toast.makeText(displayContext, "Đã khóa xoay màn phụ ở hướng hiện tại.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                else -> {
+                    CoverRotateHostManager.remove()
+                    android.widget.Toast.makeText(displayContext, "Đã về xoay mặc định hệ thống — gỡ host xoay.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            val active = next != 2
+            rotBtn?.setImageResource(if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate)
+            rotBtn?.setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+            (rotBtn?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
+        }
+        rotBtn = rot
+        if (store.load().rotateMode != 2) {
+            rot.setColorFilter(0xFF000000.toInt())
+            (rot.background as? android.graphics.drawable.GradientDrawable)?.setColor(0xFF7FE3C0.toInt())
+        }
+        bar.addView(rot)
+        // Media: same session actions as the panel row.
+        val mediaRepo = MediaControllerRepository(displayContext)
+        runCatching { mediaRepo.refresh() }
+        val playing = MediaState.current.value?.isPlaying == true
+        bar.addView(barButton(R.drawable.ic_cflip_media_prev) { mediaRepo.previous() })
+        var playBtn: ImageButton? = null
+        val play = barButton(if (playing) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play) {
+            mediaRepo.playPause()
+            handler.postDelayed({
+                val p = MediaState.current.value?.isPlaying == true
+                playBtn?.setImageResource(if (p) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
+            }, 500)
+        }
+        playBtn = play
+        bar.addView(play)
+        bar.addView(barButton(R.drawable.ic_cflip_media_next) { mediaRepo.next() })
+        // Close: bar never hides the bubble, so closing
+        // the bar simply leaves the bubble where it was.
+        bar.addView(barButton(R.drawable.ic_sec_close) { hideQuickBar() })
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(16)
+        }
+        manager.addView(bar, params)
+        quickBarView = bar; quickBarWm = manager
+        resetQuickBarTimer()
+    }
+
+    private fun resetQuickBarTimer() {
+        quickBarDismissRunnable?.let { handler.removeCallbacks(it) }
+        val r = Runnable { hideQuickBar() }
+        quickBarDismissRunnable = r
+        handler.postDelayed(r, 60000)
+    }
+
+    fun hideQuickBar() {
+        quickBarDismissRunnable?.let { handler.removeCallbacks(it) }
+        quickBarDismissRunnable = null
+        runCatching {
+            val v = quickBarView; val w = quickBarWm
+            if (v != null && w != null) w.removeView(v)
+        }
+        quickBarView = null; quickBarWm = null
     }
 
     // vc109: service hide-all paths (cover hidden,
@@ -448,6 +680,7 @@ object CoverControlCenterManager {
     fun hideWithoutBubbleRestore() {
         bubbleHiddenForPanel = false
         hidePanelOnly()
+        hideQuickBar()
         clearPanelCache()
     }
 
@@ -540,7 +773,7 @@ object CoverControlCenterManager {
     // - Ứng dụng: full app grid on the cover display.
     // - CFlip: opens CFlip itself on the MAIN display for settings/custom,
     //   plus permission shortcuts. It never opens an external cover app.
-    private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0, quickPanel: Boolean = false): View {
+    private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0): View {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
@@ -734,37 +967,15 @@ object CoverControlCenterManager {
             background = rounded(0xFF23262B.toInt(), 24)
             setTextColor(0xFFFFFFFF.toInt())
         })
-        // vc115 QUICK PANEL header: label + its own
-        // close button, instead of the tab bar.
-        // Without a close button a tab-less panel
-        // would be unclosable, so the header is
-        // not decorative - it is the only way out
-        // besides the 60s auto-dismiss.
-        if (quickPanel) {
-            val quickHeader = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                addView(TextView(ctx).apply {
-                    text = "Quick Panel"; textSize = 14f
-                    setTextColor(0xFF7FE3C0.toInt())
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                addView(Button(ctx).apply {
-                    text = "✕"; setOnClickListener { hide() }
-                    background = rounded(0xFF23262B.toInt(), 24)
-                    setTextColor(0xFFFFFFFF.toInt())
-                })
-            }
-            outer.addView(quickHeader)
-        } else {
-            outer.addView(tabBar)
-        }
+        // vc117: full panel always has its tab bar.
+        // Quick Panel is now the horizontal bar
+        // (showQuickBar), not a tab-less panel.
+        outer.addView(tabBar)
         outer.addView(scroll)
         // 3.2.0: no content rotation here. Rotation is the display-level
         // host (FOLLOW pulse / LOCK remove), never a single View's
         // rotation, so the panel cannot rotate alone like in 2.7.0.
-        selectTab(if (quickPanel) 0 else initialTab.coerceIn(0, 3))
+        selectTab(initialTab.coerceIn(0, 3))
 
         // ---- User-added Widgets (3.1.0, NOT forced) ----
         // Decompile truth: 9Flip's widgets are standard AppWidgetProviders
@@ -2236,7 +2447,6 @@ object CoverControlCenterManager {
         cachedMediaExists = mediaInfo != null
         cachedMediaPlaying = mediaInfo?.isPlaying == true
         cachedSettingsKey = settingsKeyFor(store.load())
-        cachedQuickPanel = quickPanel
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")

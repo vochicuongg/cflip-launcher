@@ -31,6 +31,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -335,35 +337,34 @@ fun MainScreen(
                     HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
                         settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
                     }
-                    // vc115 CUSTOM TOUCHES (user, 27/10):
-                    // each row cycles to the next action
-                    // on tap (same tap-to-cycle pattern as
-                    // the sort/size rows above). Defaults:
+                    // vc117 DROPDOWN (user, 27/10):
+                    // tap-to-cycle rows were easy to
+                    // overshoot (e.g. cycling past to
+                    // NONE, then long-press looked dead).
+                    // Each row now opens a dropdown with
+                    // all 6 actions, so the choice is
+                    // visible before it is made. Defaults:
                     // tap = Home, double-tap = Full panel,
-                    // long-press = Recents. Quick Panel here
-                    // is the compact Control-only panel
-                    // (no tab bar, header + close only).
-                    Text("Thao tác chạm AssistiveTouch (chạm để đổi):",
+                    // long-press = Recents. Quick Panel
+                    // here is the horizontal bar (vc117).
+                    Text("Thao tác chạm AssistiveTouch (chạm vào hàng để chọn):",
                         fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                    run {
-                        val actions = com.cuong.cflip.data.BubbleActions.all
-                        fun nextAction(cur: Int): Int {
-                            val idx = actions.indexOf(cur).takeIf { it >= 0 } ?: 0
-                            return actions[(idx + 1) % actions.size]
-                        }
-                        BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction) {
-                            val n = nextAction(settings.bubbleTapAction)
-                            settings = settings.copy(bubbleTapAction = n); settingsStore.save(settings)
-                        }
-                        BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction) {
-                            val n = nextAction(settings.bubbleDoubleTapAction)
-                            settings = settings.copy(bubbleDoubleTapAction = n); settingsStore.save(settings)
-                        }
-                        BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction) {
-                            val n = nextAction(settings.bubbleLongPressAction)
-                            settings = settings.copy(bubbleLongPressAction = n); settingsStore.save(settings)
-                        }
-                    }
+                    var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
+                    BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                        expanded = bubbleMenuExpanded == "tap",
+                        onExpand = { bubbleMenuExpanded = "tap" },
+                        onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                    BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                        expanded = bubbleMenuExpanded == "double",
+                        onExpand = { bubbleMenuExpanded = "double" },
+                        onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                    BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                        expanded = bubbleMenuExpanded == "long",
+                        onExpand = { bubbleMenuExpanded = "long" },
+                        onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                     TextButton(onClick = {
                         context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
                             .edit().clear().apply()
@@ -605,22 +606,31 @@ private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
     }
 }
 
-// vc115: one bubble-action row (top-level @Composable,
-// like HubSwitch - a local fun calling Row/Text would
-// not compile, because composables may only be called
-// from composable functions).
+// vc117: one bubble-action row with a dropdown
+// menu (top-level @Composable, like HubSwitch).
 @Composable
-private fun BubbleActionRow(label: String, cur: Int, onNext: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-        .background(CFlipColors.Bg)
-        .clickable { onNext() }
-        .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
-            modifier = Modifier.weight(1f))
-        Text(com.cuong.cflip.data.BubbleActions.label(cur),
-            fontSize = 13.sp, fontWeight = FontWeight.Medium,
-            color = CFlipColors.Accent)
+private fun BubbleActionRow(label: String, cur: Int, expanded: Boolean, onExpand: () -> Unit, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(CFlipColors.Bg)
+            .clickable { onExpand() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
+                modifier = Modifier.weight(1f))
+            Text(com.cuong.cflip.data.BubbleActions.label(cur),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                color = CFlipColors.Accent)
+            Text("  \u25BE", fontSize = 13.sp, color = CFlipColors.TextSecondary)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+            com.cuong.cflip.data.BubbleActions.all.forEach { action ->
+                DropdownMenuItem(
+                    text = { Text(com.cuong.cflip.data.BubbleActions.label(action)) },
+                    onClick = { onSelect(action); onDismiss() }
+                )
+            }
+        }
     }
 }
 

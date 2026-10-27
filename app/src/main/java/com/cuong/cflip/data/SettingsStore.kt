@@ -24,7 +24,7 @@ object BubbleActions {
         HOME -> "Mở màn hình chính"
         RECENTS -> "Mở Gần đây"
         FULL_PANEL -> "Mở panel đầy đủ (4 tab)"
-        QUICK_PANEL -> "Mở Quick Panel"
+        QUICK_PANEL -> "Mở Quick Panel (thanh ngang)"
         LOCK -> "Khóa màn hình"
         else -> "Không làm gì"
     }

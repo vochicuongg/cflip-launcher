@@ -60,7 +60,7 @@ import android.view.View
  * - BEAT STRONGER, a bit: alternating layer
  *   beat factor goes from 0.925 +/- 0.075
  *   (0.85..1.0) to 0.90 +/- 0.10 (0.80..1.0),
- *   same 2400ms alternating cycle, same order
+ *   same 1600ms alternating cycle, same order
  *   0 -> 1 -> 2 -> 3 -> 0. Stronger, but still
  *   spread across layers, not a simultaneous
  *   pump like vc112.
@@ -79,7 +79,7 @@ import android.view.View
  *   own beat factor, 0.85..1.0, with peaks
  *   staggered by a quarter cycle, in fixed
  *   order layer 0 -> 1 -> 2 -> 3 -> 0, repeating
- *   on a definite 2400ms loop (peak moves every
+ *   on a definite 1600ms loop (peak moves every
  *   600ms). So at any moment one layer is at
  *   its peak while the others are lower, and
  *   prominence rolls through the layers instead
@@ -102,16 +102,16 @@ import android.view.View
  * - FASTER BEAT, One UI 9 feel: HONEST NOTE -
  *   there is no decompiled One UI 9 SystemUI
  *   waveform tempo to copy exactly, so the
- *   2400ms layer cycle is a chosen middle
+ *   1600ms layer cycle is a chosen middle
  *   ground, not a claimed One UI 9 value: faster
  *   and livelier than vc113's beatless wave,
  *   but gentler than vc112's simultaneous 2Hz
  *   pulse, because the beat is spread across
  *   layers instead of pumping the whole wave.
  *   If it still feels slow / fast, the cycle is
- *   one number (2400ms) and can be retuned in
+ *   one number (1600ms) and can be retuned in
  *   one line - tell me and I will shorten it
- *   (e.g. 1600ms) or lengthen it (e.g. 3200ms).
+ *   (e.g. 1200ms) or lengthen it (e.g. 2400ms).
  * vc113 CHANGES (user, 27/10, build vc112
  * already good):
  * - FOUR wave layers, darkest outermost:
@@ -381,7 +381,24 @@ class MediaProgressBar(context: Context) : View(context) {
         if (dom != null) {
             hue = dom.first; sat = dom.second; valFull = dom.third
         } else {
-            hue = ((waveformSeed % 360) + 360).toFloat(); sat = 0.7f; valFull = 0.95f
+            // vc117 SYSTEMUI COLOUR: no art, so
+            // instead of a title-hash hue, try
+            // Android's system accent (Material You,
+            // derived from the wallpaper - the same
+            // dynamic colour SystemUI itself uses
+            // for its UI). If the resource is missing
+            // on this ROM, fall back to the old
+            // title-hash hue.
+            val sys = runCatching {
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(context.getColor(android.R.color.system_accent1_500), hsv)
+                hsv
+            }.getOrNull()
+            if (sys != null && sys[1] > 0.05f) {
+                hue = sys[0]; sat = sys[1].coerceIn(0.35f, 0.98f); valFull = 0.95f
+            } else {
+                hue = ((waveformSeed % 360) + 360).toFloat(); sat = 0.7f; valFull = 0.95f
+            }
         }
         // vc114 BRIGHTER: saturation +10%
         // (capped), value steps raised so the
@@ -552,8 +569,8 @@ class MediaProgressBar(context: Context) : View(context) {
         // each layer's amplitude is multiplied by
         // 0.90 + 0.10 * sin(beat - i * pi/2),
         // so layer peaks follow in fixed order
-        // 0 -> 1 -> 2 -> 3 -> 0 on a 2400ms loop
-        // (peak moves every 600ms). The beat is
+        // 0 -> 1 -> 2 -> 3 -> 0 on a 1600ms loop
+        // (peak moves every 400ms). The beat is
         // spread across layers, not pumped into
         // all layers at once, so the wave rolls
         // instead of thumping. Opaque (255),
@@ -564,7 +581,7 @@ class MediaProgressBar(context: Context) : View(context) {
             val waveAlpha = (220f * waveVisible).toInt().coerceIn(0, 220)
             val ampSteps = floatArrayOf(1.0f, 0.85f, 0.70f, 0.55f)
             val offsets = floatArrayOf(0f, 0.8f, 1.6f, 2.4f)
-            val beatCycle = (System.currentTimeMillis() % 2400L).toFloat() / 2400f * 6.2831855f
+            val beatCycle = (System.currentTimeMillis() % 1600L).toFloat() / 1600f * 6.2831855f
             for (i in 0 until 4) {
                 val beatFactor = 0.90f + 0.10f * kotlin.math.sin(beatCycle - i * 1.5707963f)
                 buildWavePath(wavePaths[i], left, progressX, centerY, pillBottom, amp * ampSteps[i] * beatFactor, wavePhase, offsets[i])
