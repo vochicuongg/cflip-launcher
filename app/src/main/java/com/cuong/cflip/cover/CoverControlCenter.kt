@@ -1131,12 +1131,14 @@ object CoverControlCenterManager {
         val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaProgress = MediaProgressBar(ctx).apply {
-            // vc112: 36dp (was 28dp in vc107) so
-            // the stronger, symmetric wave below
-            // has room above AND below the centre
-            // line without clipping at the top.
+            // vc113: back to 28dp (9Flip height).
+            // vc112's 36dp was for the symmetric
+            // wave above AND below the centre;
+            // vc113's wave is above the timeline
+            // only, so 36dp would leave a large
+            // empty gap below the pill.
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(36))
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(28))
             // vc105: wave pattern seed = song title
             // hash, so the same song keeps the same
             // wave (decorative, not real audio data).
@@ -1149,16 +1151,21 @@ object CoverControlCenterManager {
             if (mediaInfo != null && mediaInfo.durationMs > 0) {
                 progress = mediaInfo.positionMs.toFloat() / mediaInfo.durationMs
             }
+            // vc113 SEEK: MediaProgressBar now
+            // calls this ONCE on finger-up, not
+            // on every move. Do NOT refresh +
+            // overwrite progress here: the session
+            // updates asynchronously, so an immediate
+            // read gives the OLD position and snaps
+            // the thumb back off the finger. The
+            // thumb already sits at frac, and the
+            // 1s media tick picks up the session's
+            // new position on its next run.
             onSeek = { frac ->
-                if (mediaInfo != null && mediaInfo.durationMs > 0) {
-                    runCatching { mediaRepo.seekTo((frac * mediaInfo.durationMs).toLong()) }
-                    runCatching { mediaRepo.refresh() }
-                    val cur = MediaState.current.value
-                    if (cur != null) {
-                        mediaElapsed.text = fmtTime(cur.positionMs)
-                        mediaTotal.text = fmtTime(cur.durationMs)
-                        progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
-                    }
+                val dur = MediaState.current.value?.durationMs?.takeIf { it > 0 }
+                    ?: mediaInfo?.durationMs?.takeIf { it > 0 }
+                if (dur != null) {
+                    runCatching { mediaRepo.seekTo((frac * dur).toLong()) }
                 }
             }
         }
@@ -1236,9 +1243,17 @@ object CoverControlCenterManager {
             // as they should, because time moves.
             if (mediaTitleView.text.toString() != cur.title) mediaTitleView.text = cur.title
             if (mediaArtistView.text.toString() != cur.artist) mediaArtistView.text = cur.artist
-            mediaElapsed.text = fmtTime(cur.positionMs)
-            mediaTotal.text = fmtTime(cur.durationMs)
-            mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
+            // vc113: while the user is dragging
+            // the timeline, do NOT overwrite
+            // progress / elapsed with the session
+            // position - the finger owns the thumb
+            // until finger-up, then the tick takes
+            // over again (see onSeek above).
+            if (!mediaProgress.isSeeking) {
+                mediaElapsed.text = fmtTime(cur.positionMs)
+                mediaTotal.text = fmtTime(cur.durationMs)
+                mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
+            }
             mediaProgress.waveformSeed = cur.title.hashCode()
             mediaProgress.wavePlaying = cur.isPlaying
             if (lastPlayIconState != cur.isPlaying) {

@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
@@ -54,6 +55,46 @@ import android.view.View
  * BEHAVIOUR (smooth filled wave, pill track,
  * palette, fade-in, slow animation), not real
  * audio analysis, which neither app does here.
+ * vc113 CHANGES (user, 27/10, build vc112
+ * already good):
+ * - FOUR wave layers, darkest outermost:
+ *   layer 0 (largest amp) = dominant hue at
+ *   0.60x value, layer 1 = 0.75x, layer 2 =
+ *   0.90x, layer 3 (smallest amp, innermost) =
+ *   full dominant colour. Same hue family, so
+ *   sweeping inward goes dark -> dominant.
+ * - Wave ONLY ABOVE the timeline: bottom edge
+ *   is flat at the pill bottom, never below it
+ *   (vc112's symmetric ribbon below the centre
+ *   is gone). View height back to 28dp (CC).
+ * - GENTLER, SMOOTHER, 9Flip tempo: phase is
+ *   a 68s linear ValueAnimator (exactly 9Flip
+ *   e4/i: ofFloat(0, 50), 68000ms, Linear,
+ *   repeat), updating at frame rate instead of
+ *   a 100ms tick (10fps was part of the jerk).
+ *   The 2Hz beat pulse from vc112 is REMOVED,
+ *   and the height factor is back to 9Flip's
+ *   gentle 0.14..0.76 (was vc112's full 0..1).
+ * - NO SCALE CHANGE with progress: amplitude
+ *   is constant (no progress factor, no pulse),
+ *   and wavelength is FIXED at 32dp in absolute
+ *   x, not 1 cycle across the played segment.
+ *   So when the played segment is short (near
+ *   the start) or long (near the end), each
+ *   peak stays the same size - only the peak
+ *   COUNT changes. Edge taper is also fixed:
+ *   16dp smoothstep at each end, not a
+ *   sin(pi*t) taper over the whole segment.
+ *   This is a deliberate deviation from 9Flip's
+ *   segment-relative shape, to fix the
+ *   small-scale complaint; tempo (68s linear)
+ *   and fade-in (0.05..0.09) still follow 9Flip.
+ * - SEEK SMOOTHNESS (see onTouchEvent): drag
+ *   updates the UI locally only, and seeks the
+ *   session ONCE on finger-up. Previously every
+ *   MOVE did a full seekTo + refresh + progress
+ *   overwrite with the session's stale position,
+ *   so the thumb fought the finger.
  * vc112 CHANGES (user, 27/10):
  * - Wave DENSE, no transparency: wave alpha
  *   255 (was 128), pill alpha 255 (was 150).
@@ -104,10 +145,20 @@ class MediaProgressBar(context: Context) : View(context) {
     var progress: Float = 0f
         set(v) {
             field = v.coerceIn(0f, 1f)
-            updateWaveTick()
+            updateWaveAnimation()
             invalidate()
         }
     var onSeek: ((Float) -> Unit)? = null
+
+    // vc113 SEEK STATE: true while the finger
+    // is down on the timeline. The panel's
+    // 1s media tick must not overwrite progress
+    // while this is true (that was half the
+    // drag jerk: tick wrote the stale session
+    // position over the finger position).
+    var isSeeking: Boolean = false
+        private set
+    private var dragStartProgress: Float = 0f
 
     var waveformSeed: Int = 0
         set(v) {
@@ -121,7 +172,7 @@ class MediaProgressBar(context: Context) : View(context) {
         set(v) {
             if (field != v) {
                 field = v
-                updateWaveTick()
+                updateWaveAnimation()
                 animateWaveHeight(if (v) 1f else 0f)
             }
         }
@@ -238,14 +289,10 @@ class MediaProgressBar(context: Context) : View(context) {
     private val progressPillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-    private val wavePrimaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
-    private val waveSecondaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
-    private val waveFrontPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
+    // vc113 FOUR layer paints: 0 = outermost
+    // (darkest), 3 = innermost (dominant).
+    private val waveLayerPaints = Array(4) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -257,9 +304,7 @@ class MediaProgressBar(context: Context) : View(context) {
     }
     private val trackRect = RectF()
     private val pillRect = RectF()
-    private val wavePathPrimary = Path()
-    private val wavePathSecondary = Path()
-    private val wavePathFront = Path()
+    private val wavePaths = Array(4) { Path() }
 
     private fun hsv(hue: Float, sat: Float, value: Float): Int {
         return Color.HSVToColor(floatArrayOf(((hue % 360f) + 360f) % 360f, sat, value))
@@ -269,47 +314,69 @@ class MediaProgressBar(context: Context) : View(context) {
         // hue is only the no-art fallback.
         val art = waveArt
         val dom = if (art != null) runCatching { dominantHsv(art) }.getOrNull() else null
-        val primary: Int
-        val secondary: Int
-        val front: Int
+        // vc113: same hue family, value ramps
+        // dark -> dominant. Outermost layer is
+        // darkest, innermost is the full dominant
+        // colour (also the progress pill colour).
+        val hue: Float
+        val sat: Float
+        val valFull: Float
         if (dom != null) {
-            primary = hsv(dom.first, dom.second, dom.third)
-            // vc112: analogous +30, NOT +140 -
-            // +140 turned pink/red art green.
-            secondary = hsv(dom.first + 30f, dom.second, dom.third * 0.92f)
-            front = hsv(dom.first, dom.second * 0.85f, 1.0f)
+            hue = dom.first; sat = dom.second; valFull = dom.third
         } else {
-            val hue = ((waveformSeed % 360) + 360).toFloat()
-            primary = hsv(hue, 0.7f, 0.95f)
-            secondary = hsv(hue + 30f, 0.65f, 0.90f)
-            front = hsv(hue, 0.6f, 1.0f)
+            hue = ((waveformSeed % 360) + 360).toFloat(); sat = 0.7f; valFull = 0.95f
         }
+        val primary = hsv(hue, sat, valFull)
         progressPillPaint.color = primary
-        wavePrimaryPaint.color = primary
-        waveSecondaryPaint.color = secondary
-        waveFrontPaint.color = front
+        val valueSteps = floatArrayOf(0.60f, 0.75f, 0.90f, 1.0f)
+        for (i in 0 until 4) {
+            waveLayerPaints[i].color = hsv(hue, sat, valFull * valueSteps[i])
+        }
     }
 
-    private val waveTickRunnable: Runnable = object : Runnable {
-        override fun run() {
-            if (wavePlaying && progress >= 0.05f && isAttachedToWindow) {
-                invalidate()
-                postDelayed(this, 100)
+    // vc113 9Flip TEMPO, frame-rate smooth:
+    // 9Flip e4/i runs ValueAnimator.ofFloat(0,
+    // 50) over 68000ms, Linear, repeat forever,
+    // invalidating on every animator update
+    // (i.e. at display refresh rate). CFlip's
+    // old 100ms tick was only 10fps, so the
+    // wave stepped visibly. This animator is
+    // the same tempo, at frame rate, and it
+    // only runs while playing, progress >=
+    // 0.05 and attached - the same gate 9Flip
+    // uses (its j() stops the animator below
+    // 0.05). Phase jumps back every 68s, exactly
+    // as 9Flip's repeat does (50 rad is not a
+    // multiple of 2pi, so the jump is small
+    // but real - same as the original).
+    private var wavePhase: Float = 0f
+    private var wavePhaseAnimator: ValueAnimator? = null
+    private fun updateWaveAnimation() {
+        val shouldRun = wavePlaying && progress >= 0.05f && isAttachedToWindow
+        if (shouldRun && wavePhaseAnimator == null) {
+            val anim = ValueAnimator.ofFloat(wavePhase, wavePhase + 50f).apply {
+                duration = 68000L
+                interpolator = LinearInterpolator()
+                repeatCount = ValueAnimator.INFINITE
+                addUpdateListener {
+                    wavePhase = it.animatedValue as Float
+                    invalidate()
+                }
             }
-        }
-    }
-    private fun updateWaveTick() {
-        removeCallbacks(waveTickRunnable)
-        if (wavePlaying && progress >= 0.05f && isAttachedToWindow) {
-            postDelayed(waveTickRunnable, 100)
+            wavePhaseAnimator = anim
+            anim.start()
+        } else if (!shouldRun) {
+            wavePhaseAnimator?.cancel()
+            wavePhaseAnimator = null
         }
     }
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        updateWaveTick()
+        updateWaveAnimation()
     }
     override fun onDetachedFromWindow() {
-        removeCallbacks(waveTickRunnable)
+        wavePhaseAnimator?.cancel()
+        wavePhaseAnimator = null
         waveHeightAnimator?.cancel()
         waveHeightAnimator = null
         super.onDetachedFromWindow()
@@ -319,35 +386,44 @@ class MediaProgressBar(context: Context) : View(context) {
         val c = t.coerceIn(0f, 1f)
         return c * c * (3f - 2f * c)
     }
-    // Wave height factor for point t in 0..1, phase in
-    // 0..50 (9Flip's 68s loop), offset shifts the
-    // second layer. Returns 0..1.
-    private fun waveFactor(t: Float, phase: Float, offset: Float, freq: Float): Float {
-        val main = kotlin.math.sin(t * 6.2831855f * freq + phase + offset)
-        val mod = kotlin.math.sin(t * 6.2831855f * freq * 2.3f + phase * 0.5f + offset)
-        val v = 0.5f + 0.5f * (main * 0.7f + mod * 0.3f)
+    // vc113 WAVE SHAPE: fixed wavelength, above
+    // only, fixed edge taper.
+    // - Wavelength is 32dp in ABSOLUTE x, not
+    //   1 cycle across the played segment, so
+    //   peak size never scales with progress.
+    // - Height factor is 9Flip-gentle 0.14..0.76
+    //   (main sine + small 2nd harmonic), not
+    //   vc112's full 0..1 beat.
+    // - Edge taper is a 16dp smoothstep at each
+    //   end of the played segment, not a
+    //   sin(pi*t) taper over the whole segment,
+    //   so the middle of a long segment is full
+    //   height throughout, not just at its centre.
+    private fun waveFactorAtX(x: Float, left: Float, phase: Float, offset: Float): Float {
+        val waveLen = dp(32)
+        val p = (x - left) / waveLen * 6.2831855f
+        val main = kotlin.math.sin(p + phase + offset)
+        val mod = kotlin.math.sin(p * 2f + phase * 0.5f + offset)
+        val v = ((main * 0.7f + mod * 0.3f + 1f) / 2f * 0.62f + 0.14f)
         return v.coerceIn(0f, 1f)
     }
-    // vc112 SYMMETRIC RIBBON: top edge above the
-    // centre line and bottom edge below it, both
-    // with their own frequency / phase, so the
-    // ribbon thickness beats instead of a flat
-    // bottom at the pill. Top and bottom are each
-    // quadTo-smoothed through midpoints, like
-    // vc107's top edge.
-    private fun buildWavePath(path: Path, left: Float, right: Float, centerY: Float, amp: Float, phase: Float, offset: Float, freq: Float) {
+    // Top edge varies, bottom edge is flat at
+    // pillBottom: wave lives ONLY above the
+    // timeline, never below it.
+    private fun buildWavePath(path: Path, left: Float, right: Float, centerY: Float, pillBottom: Float, amp: Float, phase: Float, offset: Float) {
         path.reset()
         if (right - left <= 1f) return
-        val steps = 64
+        // Sample about every 4dp, so a 32dp peak
+        // gets ~8 points - smooth without waste.
+        val steps = ((right - left) / dp(4)).toInt().coerceIn(16, 128)
         val xs = FloatArray(steps + 1)
         val topYs = FloatArray(steps + 1)
-        val botYs = FloatArray(steps + 1)
+        val taperLen = dp(16)
         for (i in 0..steps) {
-            val tt = i.toFloat() / steps
-            val x = left + (right - left) * tt
-            val envelope = kotlin.math.sin(tt * 3.1415927f).coerceAtLeast(0f)
-            topYs[i] = centerY - amp * envelope * waveFactor(tt, phase, offset, freq)
-            botYs[i] = centerY + amp * envelope * waveFactor(tt, phase, offset + 3.1415927f, freq * 0.85f)
+            val x = left + (right - left) * i.toFloat() / steps
+            val distEdge = kotlin.math.min(x - left, right - x)
+            val taper = smoothstep(distEdge / taperLen)
+            topYs[i] = centerY - amp * taper * waveFactorAtX(x, left, phase, offset)
             xs[i] = x
         }
         path.moveTo(xs[0], topYs[0])
@@ -360,16 +436,8 @@ class MediaProgressBar(context: Context) : View(context) {
             prevX = xs[i]; prevY = topYs[i]
         }
         path.lineTo(xs[steps], topYs[steps])
-        path.lineTo(xs[steps], botYs[steps])
-        prevX = xs[steps]; prevY = botYs[steps]
-        for (i in steps - 1 downTo 0) {
-            val midX = (prevX + xs[i]) / 2f
-            val midY = (prevY + botYs[i]) / 2f
-            path.quadTo(prevX, prevY, midX, midY)
-            prevX = xs[i]; prevY = botYs[i]
-        }
-        path.lineTo(xs[0], botYs[0])
-        path.lineTo(xs[0], topYs[0])
+        path.lineTo(xs[steps], pillBottom)
+        path.lineTo(xs[0], pillBottom)
         path.close()
     }
 
@@ -415,36 +483,28 @@ class MediaProgressBar(context: Context) : View(context) {
             canvas.drawRoundRect(pillRect, radius, radius, progressPillPaint)
             progressPillPaint.alpha = saved
         }
-        // Wave: played segment only, THREE layers,
-        // largest first so each smaller layer peeks
-        // out above / below it. vc112: opaque
-        // (255, was 128), 3 / 4 / 5 cycles across
-        // the segment (was 1 cycle, 2 layers),
-        // faster morph (20s loop, was 68s), and a
-        // 2Hz beat pulse (15% amplitude) so the
-        // wave visibly beats like SystemUI.
+        // Wave: played segment only, FOUR layers,
+        // largest + darkest first, smallest +
+        // dominant last, so the dark outer layer
+        // peeks out above the brighter inner
+        // layers. vc113: opaque (255, kept from
+        // vc112), constant amplitude (no progress
+        // factor, no beat pulse), 9Flip phase
+        // from the frame-rate animator above.
         if (progressX > left + radius && waveVisible > 0.02f) {
-            val nowMs = System.currentTimeMillis()
-            val phase = ((nowMs % 20000L).toFloat() / 20000f) * 50f
-            val pulse = 0.85f + 0.15f * (0.5f + 0.5f * kotlin.math.sin(nowMs.toFloat() * 6.2831855f / 500f))
-            val baseAmp = kotlin.math.min(h * 0.45f, dp(18))
-            val amp = baseAmp * (1f + 0.2f * progress) * waveVisible * pulse
+            val baseAmp = kotlin.math.min(h * 0.5f, dp(14))
+            val amp = baseAmp * waveVisible
             val waveAlpha = (255f * waveVisible).toInt().coerceIn(0, 255)
-            buildWavePath(wavePathSecondary, left, progressX, centerY, amp, phase, 1.2f, 3f)
-            val savedSec = waveSecondaryPaint.alpha
-            waveSecondaryPaint.alpha = waveAlpha
-            canvas.drawPath(wavePathSecondary, waveSecondaryPaint)
-            waveSecondaryPaint.alpha = savedSec
-            buildWavePath(wavePathPrimary, left, progressX, centerY, amp * 0.85f, phase, 0f, 4f)
-            val savedPri = wavePrimaryPaint.alpha
-            wavePrimaryPaint.alpha = waveAlpha
-            canvas.drawPath(wavePathPrimary, wavePrimaryPaint)
-            wavePrimaryPaint.alpha = savedPri
-            buildWavePath(wavePathFront, left, progressX, centerY, amp * 0.7f, phase, 2.0f, 5f)
-            val savedFront = waveFrontPaint.alpha
-            waveFrontPaint.alpha = waveAlpha
-            canvas.drawPath(wavePathFront, waveFrontPaint)
-            waveFrontPaint.alpha = savedFront
+            val ampSteps = floatArrayOf(1.0f, 0.85f, 0.70f, 0.55f)
+            val offsets = floatArrayOf(0f, 0.8f, 1.6f, 2.4f)
+            for (i in 0 until 4) {
+                buildWavePath(wavePaths[i], left, progressX, centerY, pillBottom, amp * ampSteps[i], wavePhase, offsets[i])
+                val paint = waveLayerPaints[i]
+                val saved = paint.alpha
+                paint.alpha = waveAlpha
+                canvas.drawPath(wavePaths[i], paint)
+                paint.alpha = saved
+            }
         }
         // Thumb: shadow + white solid circle, 7dp.
         if (progressX in left..right) {
@@ -453,18 +513,51 @@ class MediaProgressBar(context: Context) : View(context) {
         }
     }
 
+    // vc113 SEEK SMOOTHNESS: drag updates the
+    // UI locally ONLY (thumb + elapsed follow
+    // the finger with no IPC in between), and
+    // the session is seeked ONCE on finger-up.
+    // Old code seeked + refreshed + overwrote
+    // progress on EVERY move, so the thumb
+    // fought the finger between the finger
+    // position and the session's stale position.
+    // CANCEL reverts to the drag-start position
+    // (interrupted drag, not a completed seek).
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+            MotionEvent.ACTION_DOWN -> {
+                isSeeking = true
+                dragStartProgress = progress
+                val inset = dp(8)
+                val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
+                progress = ((e.x - inset) / trackW).coerceIn(0f, 1f)
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isSeeking) {
+                    isSeeking = true
+                    dragStartProgress = progress
+                }
+                val inset = dp(8)
+                val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
+                progress = ((e.x - inset) / trackW).coerceIn(0f, 1f)
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
                 val inset = dp(8)
                 val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
                 val frac = ((e.x - inset) / trackW).coerceIn(0f, 1f)
                 progress = frac
+                isSeeking = false
                 onSeek?.invoke(frac)
-                parent?.requestDisallowInterceptTouchEvent(true)
+                parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_CANCEL -> {
+                isSeeking = false
+                progress = dragStartProgress
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
