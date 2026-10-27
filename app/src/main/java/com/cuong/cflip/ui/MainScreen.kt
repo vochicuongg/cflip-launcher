@@ -605,7 +605,6 @@ private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
     }
 }
 
-@Composable
 // vc115: one bubble-action row (top-level @Composable,
 // like HubSwitch - a local fun calling Row/Text would
 // not compile, because composables may only be called
@@ -625,6 +624,7 @@ private fun BubbleActionRow(label: String, cur: Int, onNext: () -> Unit) {
     }
 }
 
+@Composable
 private fun HubSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 14.sp, color = CFlipColors.TextPrimary, modifier = Modifier.weight(1f))

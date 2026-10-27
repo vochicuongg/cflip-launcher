@@ -127,7 +127,7 @@ object CoverControlCenterManager {
     // Panel roots (no tab bar) with Full Panel
     // roots (tab bar). Mode is part of validity.
     private var cachedQuickPanel: Boolean = false
-    private var panelQuickMode: Boolean = false""
+    private var panelQuickMode: Boolean = false
     private var cachedReopen: ((Int) -> Unit)? = null
     private var forceFreshShow: Boolean = false
     private fun clearPanelCache() {

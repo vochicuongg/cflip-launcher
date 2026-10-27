@@ -487,14 +487,13 @@ object CoverAssistiveTouchManager {
     // activity), exactly as before - this function
     // only dispatches the chosen action.
     private fun performBubbleAction(action: Int, context: Context, displayId: Int) {
-        val a = com.cuong.cflip.data.BubbleActions
         when (action) {
-            a.HOME -> doHome(context, displayId)
-            a.RECENTS -> doRecents(context)
-            a.FULL_PANEL -> doMenu(context, displayId, quickPanel = false)
-            a.QUICK_PANEL -> doMenu(context, displayId, quickPanel = true)
-            a.LOCK -> doLock(context)
-            a.NONE -> { /* deliberately nothing */ }
+            com.cuong.cflip.data.BubbleActions.HOME -> doHome(context, displayId)
+            com.cuong.cflip.data.BubbleActions.RECENTS -> doRecents(context)
+            com.cuong.cflip.data.BubbleActions.FULL_PANEL -> doMenu(context, displayId, quickPanel = false)
+            com.cuong.cflip.data.BubbleActions.QUICK_PANEL -> doMenu(context, displayId, quickPanel = true)
+            com.cuong.cflip.data.BubbleActions.LOCK -> doLock(context)
+            com.cuong.cflip.data.BubbleActions.NONE -> { /* deliberately nothing */ }
             else -> doHome(context, displayId)
         }
     }
