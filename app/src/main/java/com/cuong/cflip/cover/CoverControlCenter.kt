@@ -80,6 +80,58 @@ object CoverControlCenterManager {
     private var bubbleHiddenForPanel = false
     private var lastPanelDisplay: Display? = null
     private var lastPanelAppContext: Context? = null
+    // vc110 PANEL CACHE (user, 27/10: first open
+    // loads, later opens must have NO loading or
+    // loading < 1s): the built panel root is kept
+    // in memory after close, and re-added on the
+    // next open instead of rebuilding ~100 views
+    // + media IPC + settings reads. Reuse is ONLY
+    // allowed when the layout decisions made at
+    // build time are still true: same display +
+    // size, same media existence + playing state
+    // (vc108 card position + vc105 slider
+    // orientation depend on those), and same
+    // layout settings (columns, labels, widgets,
+    // sort, rotate, background). If any of those
+    // changed, the cache is discarded and the
+    // panel rebuilds with loading, like the first
+    // open, so speed never buys a stale layout.
+    // Media text/progress, brightness/volume,
+    // notifications and apps are NOT frozen:
+    // reopen refreshes media + sliders instantly,
+    // and the lazy notif/apps tabs are cleared so
+    // the next tab switch rebuilds them fresh.
+    // Tile mint/dark highlights are the one thing
+    // that stays from the last open until tapped
+    // (tap handlers re-read current state, so
+    // function stays correct, only the highlight
+    // can lag one open).
+    private var cachedPanelRoot: View? = null
+    private var cachedPanelDisplayId: Int = -1
+    private var cachedPanelDisplayW: Int = 0
+    private var cachedPanelDisplayH: Int = 0
+    private var cachedMediaExists: Boolean = false
+    private var cachedMediaPlaying: Boolean = false
+    private var cachedSettingsKey: String = ""
+    private var cachedReopen: ((Int) -> Unit)? = null
+    private var forceFreshShow: Boolean = false
+    private fun clearPanelCache() {
+        cachedPanelRoot = null
+        cachedReopen = null
+        cachedPanelDisplayId = -1
+        cachedPanelDisplayW = 0
+        cachedPanelDisplayH = 0
+        cachedMediaExists = false
+        cachedMediaPlaying = false
+        cachedSettingsKey = ""
+    }
+    private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
+        return listOf(
+            st.columns, st.showLabels, st.backgroundStyle,
+            st.wallpaperUri ?: "", st.favoritesFirst,
+            st.sortMode, st.coverWidgets, st.rotateMode,
+        ).joinToString("|")
+    }
     private fun restoreBubbleIfHiddenForPanel() {
         if (!bubbleHiddenForPanel) return
         bubbleHiddenForPanel = false
@@ -128,6 +180,10 @@ object CoverControlCenterManager {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
         hidePanelOnly()
+        if (forceFreshShow) {
+            forceFreshShow = false
+            clearPanelCache()
+        }
         // vc109: hide the bubble for this panel
         // (see fields above). Stored display /
         // context are what hidePanelOnly uses to
@@ -139,6 +195,55 @@ object CoverControlCenterManager {
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
+        // vc110 FAST PATH: cached panel, no loading
+        // intro at all. Validity is checked here,
+        // before any view is added.
+        val cachedRoot = cachedPanelRoot
+        val cachedReopenFn = cachedReopen
+        if (cachedRoot != null && cachedReopenFn != null &&
+            cachedPanelDisplayId == display.displayId) {
+            runCatching { MediaControllerRepository(displayContext).refresh() }
+            val curMedia = MediaState.current.value
+            val curSettingsKey = runCatching {
+                settingsKeyFor(SettingsStore(appContext).load())
+            }.getOrElse { "" }
+            val metrics = displayContext.resources.displayMetrics
+            val cacheValid = curMedia != null == cachedMediaExists &&
+                (curMedia?.isPlaying == true) == cachedMediaPlaying &&
+                curSettingsKey == cachedSettingsKey &&
+                cachedSettingsKey.isNotEmpty() &&
+                metrics.widthPixels == cachedPanelDisplayW &&
+                metrics.heightPixels == cachedPanelDisplayH
+            if (cacheValid) {
+                try {
+                    val params = WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                        PixelFormat.TRANSLUCENT,
+                    ).apply { gravity = Gravity.TOP or Gravity.START }
+                    cachedPanelRoot = null
+                    cachedRoot.keepScreenOn = true
+                    manager.addView(cachedRoot, params)
+                    view = cachedRoot; panelParams = params; wm = manager
+                    runCatching {
+                        val st = SettingsStore(appContext).load()
+                        params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+                        manager.updateViewLayout(cachedRoot, params)
+                    }
+                    cachedReopenFn(initialTab)
+                    scheduleDismiss()
+                    Log.i(TAG, "Control Center shown from cache on display ${display.displayId}")
+                } catch (e: Exception) {
+                    restoreBubbleIfHiddenForPanel()
+                    throw e
+                }
+                return@runCatching Unit
+            } else {
+                clearPanelCache()
+            }
+        }
         // vc44: show the CFlip Loading intro IMMEDIATELY (one cheap
         // view), then build the heavy panel on the next main-loop
         // turn. Previously buildPanel() ran synchronously inside
@@ -227,6 +332,16 @@ object CoverControlCenterManager {
         hidePanelOnly()
     }
 
+    // vc110: callers inside buildPanel that
+    // refresh the panel on purpose (add/remove
+    // widget, retry a failed list) must rebuild
+    // fresh, not reuse the cache - otherwise the
+    // new widget / retry would never appear.
+    fun showFresh(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> {
+        forceFreshShow = true
+        return show(appContext, display, initialTab)
+    }
+
     // vc109: service hide-all paths (cover hidden,
     // display removed, service destroyed) must NOT
     // restore the bubble - the service is hiding
@@ -235,6 +350,7 @@ object CoverControlCenterManager {
     fun hideWithoutBubbleRestore() {
         bubbleHiddenForPanel = false
         hidePanelOnly()
+        clearPanelCache()
     }
 
     // vc48: transient cover message pill (screenshot feedback).
@@ -293,6 +409,13 @@ object CoverControlCenterManager {
         if (v != null) {
             v.keepScreenOn = false
             runCatching { wm?.removeView(v) }
+            // vc110: keep the root for the next
+            // open, but ONLY if it was built with
+            // a reopen callback (vc110 builds).
+            // Without a callback the root cannot
+            // restart its media tick or reset its
+            // tab, so it must not be reused.
+            cachedPanelRoot = if (cachedReopen != null) v else null
             view = null; wm = null; panelParams = null
             Log.i(TAG, "Control Center hidden")
         }
@@ -560,7 +683,7 @@ object CoverControlCenterManager {
                     // Refresh the panel in place on the cover, so the
                     // new widget card appears here, not on main home.
                     hidePanelOnly()
-                    CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                    CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
                 }
                 widgetCard.addView(modernButton("Thêm Widget Đồng hồ", true).apply {
                     setOnClickListener { addWidgetOnCover("clock", "Đồng hồ") }
@@ -670,7 +793,7 @@ object CoverControlCenterManager {
                         widgetCard.addView(modernButton("Thử lại").apply {
                             setOnClickListener {
                                 hidePanelOnly()
-                                CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                                CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
                             }
                         })
                     } else {
@@ -712,7 +835,7 @@ object CoverControlCenterManager {
                             val next = (cur.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet() + "clock").sorted().joinToString(",")
                             store.save(cur.copy(coverWidgets = next))
                             hidePanelOnly()
-                            CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                            CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
                         }
                     })
                 }
@@ -723,7 +846,7 @@ object CoverControlCenterManager {
                             val next = (cur.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet() + "appgrid").sorted().joinToString(",")
                             store.save(cur.copy(coverWidgets = next))
                             hidePanelOnly()
-                            CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                            CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
                         }
                     })
                 }
@@ -731,7 +854,7 @@ object CoverControlCenterManager {
                     setOnClickListener {
                         store.save(store.load().copy(coverWidgets = ""))
                         hidePanelOnly()
-                        CoverControlCenterManager.show(ctx.applicationContext, display, 0)
+                        CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
                     }
                 })
             }
@@ -1882,6 +2005,33 @@ object CoverControlCenterManager {
             }
         })
 
+        // vc110: capture everything the next
+        // open needs to reuse this root. The
+        // lambda captures buildPanel locals by
+        // reference, so resetting the lazy-tab
+        // flags here really resets the closures
+        // selectTab / buildNotifTab / buildAppsTab
+        // use, and mediaTick really restarts.
+        cachedPanelDisplayId = display.displayId
+        cachedPanelDisplayW = ctx.resources.displayMetrics.widthPixels
+        cachedPanelDisplayH = ctx.resources.displayMetrics.heightPixels
+        cachedMediaExists = mediaInfo != null
+        cachedMediaPlaying = mediaInfo?.isPlaying == true
+        cachedSettingsKey = settingsKeyFor(store.load())
+        cachedReopen = { tab: Int ->
+            notifTabBuilt = false
+            notifContent.removeAllViews()
+            appsTabBuilt = false
+            appsEmptyRetryDone = false
+            appsContent.removeAllViews()
+            refreshBright2()
+            refreshVol2()
+            updateMediaViews()
+            scroll.scrollTo(0, 0)
+            selectTab(tab.coerceIn(0, 3))
+            mediaTickRunnable = mediaTick
+            handler.postDelayed(mediaTick, 1000)
+        }
         if (initialTab == 2) buildAppsTab?.invoke()
         if (initialTab == 1) buildNotifTab?.invoke()
         return outer
