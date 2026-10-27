@@ -144,7 +144,7 @@ object CoverControlCenterManager {
         cachedSettingsKey = ""
         cachedAppListVersion = -1
         cachedFavoritesKey = ""
-        cachedHiddenKey = "
+        cachedHiddenKey = ""
     }
     private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
         return listOf(
