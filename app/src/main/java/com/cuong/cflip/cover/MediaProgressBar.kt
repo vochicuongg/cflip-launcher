@@ -55,6 +55,22 @@ import android.view.View
  * BEHAVIOUR (smooth filled wave, pill track,
  * palette, fade-in, slow animation), not real
  * audio analysis, which neither app does here.
+ * vc115 CHANGES (user, 27/10, build vc114
+ * already very good):
+ * - BEAT STRONGER, a bit: alternating layer
+ *   beat factor goes from 0.925 +/- 0.075
+ *   (0.85..1.0) to 0.90 +/- 0.10 (0.80..1.0),
+ *   same 2400ms alternating cycle, same order
+ *   0 -> 1 -> 2 -> 3 -> 0. Stronger, but still
+ *   spread across layers, not a simultaneous
+ *   pump like vc112.
+ * - BRIGHTER + SLIGHTLY TRANSLUCENT: saturation
+ *   boost 1.10 -> 1.20 (capped 0.98), value steps
+ *   0.75/0.85/0.95/1.0 -> 0.80/0.88/0.95/1.0, and
+ *   wave alpha 255 -> 220 (about 14% transparent,
+ *   "mo mot chut"). The pill stays opaque (255)
+ *   when the wave has collapsed, so the stopped
+ *   timeline stays crisp.
  * vc114 CHANGES (user, 27/10, build vc113
  * already very good):
  * - ALTERNATING LAYER BEAT: layers no longer
@@ -372,10 +388,10 @@ class MediaProgressBar(context: Context) : View(context) {
         // darkest outer layer is still dark but
         // not dull. Hue unchanged, so no unrelated
         // colours appear.
-        val satWave = (sat * 1.10f).coerceAtMost(0.95f)
+        val satWave = (sat * 1.20f).coerceAtMost(0.98f)
         val primary = hsv(hue, satWave, valFull)
         progressPillPaint.color = primary
-        val valueSteps = floatArrayOf(0.75f, 0.85f, 0.95f, 1.0f)
+        val valueSteps = floatArrayOf(0.80f, 0.88f, 0.95f, 1.0f)
         for (i in 0 until 4) {
             waveLayerPaints[i].color = hsv(hue, satWave, valFull * valueSteps[i])
         }
@@ -534,7 +550,7 @@ class MediaProgressBar(context: Context) : View(context) {
         // largest + darkest first, smallest +
         // dominant last. vc114 ALTERNATING BEAT:
         // each layer's amplitude is multiplied by
-        // 0.925 + 0.075 * sin(beat - i * pi/2),
+        // 0.90 + 0.10 * sin(beat - i * pi/2),
         // so layer peaks follow in fixed order
         // 0 -> 1 -> 2 -> 3 -> 0 on a 2400ms loop
         // (peak moves every 600ms). The beat is
@@ -545,12 +561,12 @@ class MediaProgressBar(context: Context) : View(context) {
         if (progressX > left + radius && waveVisible > 0.02f) {
             val baseAmp = kotlin.math.min(h * 0.5f, dp(14))
             val amp = baseAmp * waveVisible
-            val waveAlpha = (255f * waveVisible).toInt().coerceIn(0, 255)
+            val waveAlpha = (220f * waveVisible).toInt().coerceIn(0, 220)
             val ampSteps = floatArrayOf(1.0f, 0.85f, 0.70f, 0.55f)
             val offsets = floatArrayOf(0f, 0.8f, 1.6f, 2.4f)
             val beatCycle = (System.currentTimeMillis() % 2400L).toFloat() / 2400f * 6.2831855f
             for (i in 0 until 4) {
-                val beatFactor = 0.925f + 0.075f * kotlin.math.sin(beatCycle - i * 1.5707963f)
+                val beatFactor = 0.90f + 0.10f * kotlin.math.sin(beatCycle - i * 1.5707963f)
                 buildWavePath(wavePaths[i], left, progressX, centerY, pillBottom, amp * ampSteps[i] * beatFactor, wavePhase, offsets[i])
                 val paint = waveLayerPaints[i]
                 val saved = paint.alpha

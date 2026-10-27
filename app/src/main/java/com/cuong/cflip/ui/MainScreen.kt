@@ -50,6 +50,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,6 +112,27 @@ fun MainScreen(
     }
 
     var statusVersion by remember { mutableStateOf(0) }
+    // vc115 PERMISSIONS LIVE UPDATE (user, 27/10):
+    // permission rows used to refresh only when
+    // the user tapped "Lam moi trang thai" - after
+    // granting a permission in system settings and
+    // returning to CFlip, the rows still showed the
+    // old state. Now ON_RESUME reloads settings
+    // and bumps statusVersion, so every return
+    // from system settings refreshes the rows
+    // immediately, with no manual refresh tap.
+    // (DisposableEffect is already imported.)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                settings = settingsStore.load()
+                statusVersion++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val statuses = remember(statusVersion) {
         MainStatuses(
             notifications = NotificationController.isConnected(),
@@ -310,6 +334,35 @@ fun MainScreen(
                     }
                     HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
                         settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                    }
+                    // vc115 CUSTOM TOUCHES (user, 27/10):
+                    // each row cycles to the next action
+                    // on tap (same tap-to-cycle pattern as
+                    // the sort/size rows above). Defaults:
+                    // tap = Home, double-tap = Full panel,
+                    // long-press = Recents. Quick Panel here
+                    // is the compact Control-only panel
+                    // (no tab bar, header + close only).
+                    Text("Thao tác chạm AssistiveTouch (chạm để đổi):",
+                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                    run {
+                        val actions = com.cuong.cflip.data.BubbleActions.all
+                        fun nextAction(cur: Int): Int {
+                            val idx = actions.indexOf(cur).takeIf { it >= 0 } ?: 0
+                            return actions[(idx + 1) % actions.size]
+                        }
+                        BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction) {
+                            val n = nextAction(settings.bubbleTapAction)
+                            settings = settings.copy(bubbleTapAction = n); settingsStore.save(settings)
+                        }
+                        BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction) {
+                            val n = nextAction(settings.bubbleDoubleTapAction)
+                            settings = settings.copy(bubbleDoubleTapAction = n); settingsStore.save(settings)
+                        }
+                        BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction) {
+                            val n = nextAction(settings.bubbleLongPressAction)
+                            settings = settings.copy(bubbleLongPressAction = n); settingsStore.save(settings)
+                        }
                     }
                     TextButton(onClick = {
                         context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
@@ -553,6 +606,25 @@ private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
 }
 
 @Composable
+// vc115: one bubble-action row (top-level @Composable,
+// like HubSwitch - a local fun calling Row/Text would
+// not compile, because composables may only be called
+// from composable functions).
+@Composable
+private fun BubbleActionRow(label: String, cur: Int, onNext: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        .background(CFlipColors.Bg)
+        .clickable { onNext() }
+        .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
+            modifier = Modifier.weight(1f))
+        Text(com.cuong.cflip.data.BubbleActions.label(cur),
+            fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            color = CFlipColors.Accent)
+    }
+}
+
 private fun HubSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 14.sp, color = CFlipColors.TextPrimary, modifier = Modifier.weight(1f))

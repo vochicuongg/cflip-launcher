@@ -242,7 +242,8 @@ object CoverAssistiveTouchManager {
                         downX = e.rawX; downY = e.rawY
                         paramsX = params.x; paramsY = params.y
                         moved = false; longPressed = false
-                        doMenu(appContext, display.displayId)
+                        val dtAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleDoubleTapAction
+                        performBubbleAction(dtAction, appContext, display.displayId)
                         scheduleDim()
                         return@setOnTouchListener true
                     }
@@ -252,7 +253,8 @@ object CoverAssistiveTouchManager {
                     moved = false; longPressed = false
                     val r = Runnable {
                         longPressed = true
-                        doRecents(appContext)
+                        val action = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleLongPressAction
+                        performBubbleAction(action, appContext, display.displayId)
                     }
                     longPressRunnable = r
                     handler.postDelayed(r, longPressTimeout)
@@ -345,14 +347,16 @@ object CoverAssistiveTouchManager {
                         return@setOnTouchListener true
                     }
                     if (pendingSingleTap) {
-                        // Second tap inside the double-tap window -> Menu.
+                        // Second tap inside the double-tap window -> configured double-tap action.
                         pendingSingleTap = false
-                        doMenu(appContext, display.displayId)
+                        val dtAction2 = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleDoubleTapAction
+                        performBubbleAction(dtAction2, appContext, display.displayId)
                     } else {
                         pendingSingleTap = true
                         val r = Runnable {
                             pendingSingleTap = false
-                            doHome(appContext, display.displayId)
+                            val tapAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleTapAction
+                            performBubbleAction(tapAction, appContext, display.displayId)
                         }
                         singleTapRunnable = r
                         handler.postDelayed(r, doubleTapTimeout)
@@ -470,7 +474,42 @@ object CoverAssistiveTouchManager {
         }
     }
 
-    private fun doMenu(context: Context, displayId: Int) {
+    // vc115 CUSTOM ACTIONS (user, 27/10):
+    // tap / double-tap / long-press are no longer
+    // hard-coded. Each gesture reads its action
+    // from SettingsStore at fire time, so a change
+    // in MainScreen applies to the next touch
+    // without restarting the service. Defaults
+    // (SettingsStore) preserve the old mapping:
+    // tap = Home, double-tap = Full panel,
+    // long-press = Recents. Lock on keyguard is
+    // still handled at the call sites (unlock
+    // activity), exactly as before - this function
+    // only dispatches the chosen action.
+    private fun performBubbleAction(action: Int, context: Context, displayId: Int) {
+        val a = com.cuong.cflip.data.BubbleActions
+        when (action) {
+            a.HOME -> doHome(context, displayId)
+            a.RECENTS -> doRecents(context)
+            a.FULL_PANEL -> doMenu(context, displayId, quickPanel = false)
+            a.QUICK_PANEL -> doMenu(context, displayId, quickPanel = true)
+            a.LOCK -> doLock(context)
+            a.NONE -> { /* deliberately nothing */ }
+            else -> doHome(context, displayId)
+        }
+    }
+
+    private fun doLock(context: Context) {
+        val a11y = MyAccessibilityService.instance
+        if (a11y?.lockScreen() != true) {
+            Log.w(TAG, "Lock failed: no AccessibilityService")
+            android.widget.Toast.makeText(
+                context, "Khóa máy không chạy: cần bật Accessibility cho CFlip",
+                android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun doMenu(context: Context, displayId: Int, quickPanel: Boolean = false) {
         // Menu = CFlip's own Control Center panel, as an overlay on the
         // cover display (2.6.0). It used to launch MainActivity at the
         // Quick tab on the cover display, but that activity route is the
@@ -483,7 +522,7 @@ object CoverAssistiveTouchManager {
                 .getDisplay(displayId)
         }.getOrNull()
         val panelOk = if (display != null) {
-            CoverControlCenterManager.show(context, display).isSuccess
+            CoverControlCenterManager.show(context, display, quickPanel = quickPanel).isSuccess
         } else false
         if (!panelOk) {
             val intent = Intent(context, MainActivity::class.java)

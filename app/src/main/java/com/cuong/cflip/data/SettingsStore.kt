@@ -3,6 +3,34 @@ package com.cuong.cflip.data
 import android.content.Context
 
 /** All personalisation for the cover launcher. No paywall - everything applies instantly. */
+// vc115 BUBBLE ACTIONS (user, 27/10: custom
+// AssistiveTouch touches, like 9Flip's floating
+// menu customisation, clean-room version):
+// tap / double-tap / long-press each pick one
+// action. Defaults preserve the old behaviour
+// exactly: tap = Home, double-tap = Full panel,
+// long-press = Recents. Changing them in
+// MainScreen takes effect on the next touch
+// (AssistiveTouch reads SettingsStore fresh at
+// gesture time, it does not cache actions).
+object BubbleActions {
+    const val HOME = 0
+    const val RECENTS = 1
+    const val FULL_PANEL = 2
+    const val QUICK_PANEL = 3
+    const val LOCK = 4
+    const val NONE = 5
+    fun label(action: Int): String = when (action) {
+        HOME -> "Mở màn hình chính"
+        RECENTS -> "Mở Gần đây"
+        FULL_PANEL -> "Mở panel đầy đủ (4 tab)"
+        QUICK_PANEL -> "Mở Quick Panel"
+        LOCK -> "Khóa màn hình"
+        else -> "Không làm gì"
+    }
+    val all = listOf(HOME, RECENTS, FULL_PANEL, QUICK_PANEL, LOCK, NONE)
+}
+
 data class CoverSettings(
     val columns: Int = 0,               // 0 = adaptive, else 3..6 fixed columns
     val iconSizeDp: Int = 56,
@@ -44,6 +72,9 @@ data class CoverSettings(
     // the cover instead of silently failing on system brightness.
     val panelBrightnessManual: Boolean = false,
     val panelBrightness: Float = 0.72f,
+    val bubbleTapAction: Int = BubbleActions.HOME,
+    val bubbleDoubleTapAction: Int = BubbleActions.FULL_PANEL,
+    val bubbleLongPressAction: Int = BubbleActions.RECENTS,
 )
 
 object BackgroundStyles {
@@ -73,6 +104,9 @@ class SettingsStore(context: Context) {
         rotateMode = prefs.getInt("rotateMode", 1),
         panelBrightnessManual = prefs.getBoolean("panelBrightnessManual", false),
         panelBrightness = prefs.getFloat("panelBrightness", 0.72f),
+        bubbleTapAction = prefs.getInt("bubbleTapAction", BubbleActions.HOME),
+        bubbleDoubleTapAction = prefs.getInt("bubbleDoubleTapAction", BubbleActions.FULL_PANEL),
+        bubbleLongPressAction = prefs.getInt("bubbleLongPressAction", BubbleActions.RECENTS),
     )
 
     fun save(s: CoverSettings) {
@@ -94,6 +128,9 @@ class SettingsStore(context: Context) {
             .putInt("rotateMode", s.rotateMode)
             .putBoolean("panelBrightnessManual", s.panelBrightnessManual)
             .putFloat("panelBrightness", s.panelBrightness)
+            .putInt("bubbleTapAction", s.bubbleTapAction)
+            .putInt("bubbleDoubleTapAction", s.bubbleDoubleTapAction)
+            .putInt("bubbleLongPressAction", s.bubbleLongPressAction)
             .apply()
     }
 }

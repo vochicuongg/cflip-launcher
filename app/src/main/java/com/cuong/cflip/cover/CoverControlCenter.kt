@@ -123,6 +123,11 @@ object CoverControlCenterManager {
     private var cachedAppListVersion: Int = -1
     private var cachedFavoritesKey: String = ""
     private var cachedHiddenKey: String = ""
+    // vc115: panel cache must not mix Quick
+    // Panel roots (no tab bar) with Full Panel
+    // roots (tab bar). Mode is part of validity.
+    private var cachedQuickPanel: Boolean = false
+    private var panelQuickMode: Boolean = false""
     private var cachedReopen: ((Int) -> Unit)? = null
     private var forceFreshShow: Boolean = false
     private fun clearPanelCache() {
@@ -137,6 +142,7 @@ object CoverControlCenterManager {
         cachedAppListVersion = -1
         cachedFavoritesKey = ""
         cachedHiddenKey = ""
+        cachedQuickPanel = false
     }
     private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
         return listOf(
@@ -210,7 +216,16 @@ object CoverControlCenterManager {
             .start()
     }
 
-    fun show(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> = runCatching {
+    // vc115 QUICK PANEL: quickPanel = true shows
+    // only the Control content, with a compact
+    // header (label + close) instead of the 4-tab
+    // bar. Same tiles, sliders and media as the
+    // Control tab, no Notifications / Apps / CFlip
+    // tabs reachable (they are built but hidden
+    // behind the missing tab bar). Defaults keep
+    // the old full panel behaviour exactly.
+    fun show(appContext: Context, display: Display, initialTab: Int = 0, quickPanel: Boolean = false): Result<Unit> = runCatching {
+        val effectiveInitialTab = if (quickPanel) 0 else initialTab
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
@@ -257,6 +272,7 @@ object CoverControlCenterManager {
                 curAppListVersion == cachedAppListVersion &&
                 curFavoritesKey == cachedFavoritesKey &&
                 curHiddenKey == cachedHiddenKey &&
+                cachedQuickPanel == quickPanel &&
                 metrics.widthPixels == cachedPanelDisplayW &&
                 metrics.heightPixels == cachedPanelDisplayH
             if (cacheValid) {
@@ -269,6 +285,7 @@ object CoverControlCenterManager {
                         PixelFormat.TRANSLUCENT,
                     ).apply { gravity = Gravity.TOP or Gravity.START }
                     cachedPanelRoot = null
+                    panelQuickMode = quickPanel
                     cachedRoot.keepScreenOn = true
                     manager.addView(cachedRoot, params)
                     view = cachedRoot; panelParams = params; wm = manager
@@ -277,7 +294,7 @@ object CoverControlCenterManager {
                         params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
                         manager.updateViewLayout(cachedRoot, params)
                     }
-                    cachedReopenFn(initialTab)
+                    cachedReopenFn(effectiveInitialTab)
                     // vc112: cached root may still
                     // carry the exit animation end
                     // values (alpha 0, scale 0.98)
@@ -345,7 +362,8 @@ object CoverControlCenterManager {
         val r = Runnable {
             loadingRunnable = null
             runCatching {
-                val root = buildPanel(displayContext, display, initialTab)
+                panelQuickMode = quickPanel
+                val root = buildPanel(displayContext, display, effectiveInitialTab, quickPanel)
                 val params = WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
@@ -419,7 +437,7 @@ object CoverControlCenterManager {
     // new widget / retry would never appear.
     fun showFresh(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> {
         forceFreshShow = true
-        return show(appContext, display, initialTab)
+        return show(appContext, display, initialTab, panelQuickMode)
     }
 
     // vc109: service hide-all paths (cover hidden,
@@ -522,7 +540,7 @@ object CoverControlCenterManager {
     // - Ứng dụng: full app grid on the cover display.
     // - CFlip: opens CFlip itself on the MAIN display for settings/custom,
     //   plus permission shortcuts. It never opens an external cover app.
-    private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0): View {
+    private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0, quickPanel: Boolean = false): View {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val store = SettingsStore(ctx)
@@ -716,11 +734,37 @@ object CoverControlCenterManager {
             background = rounded(0xFF23262B.toInt(), 24)
             setTextColor(0xFFFFFFFF.toInt())
         })
-        outer.addView(tabBar); outer.addView(scroll)
+        // vc115 QUICK PANEL header: label + its own
+        // close button, instead of the tab bar.
+        // Without a close button a tab-less panel
+        // would be unclosable, so the header is
+        // not decorative - it is the only way out
+        // besides the 60s auto-dismiss.
+        if (quickPanel) {
+            val quickHeader = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(ctx).apply {
+                    text = "Quick Panel"; textSize = 14f
+                    setTextColor(0xFF7FE3C0.toInt())
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(Button(ctx).apply {
+                    text = "✕"; setOnClickListener { hide() }
+                    background = rounded(0xFF23262B.toInt(), 24)
+                    setTextColor(0xFFFFFFFF.toInt())
+                })
+            }
+            outer.addView(quickHeader)
+        } else {
+            outer.addView(tabBar)
+        }
+        outer.addView(scroll)
         // 3.2.0: no content rotation here. Rotation is the display-level
         // host (FOLLOW pulse / LOCK remove), never a single View's
         // rotation, so the panel cannot rotate alone like in 2.7.0.
-        selectTab(initialTab.coerceIn(0, 3))
+        selectTab(if (quickPanel) 0 else initialTab.coerceIn(0, 3))
 
         // ---- User-added Widgets (3.1.0, NOT forced) ----
         // Decompile truth: 9Flip's widgets are standard AppWidgetProviders
@@ -1137,8 +1181,13 @@ object CoverControlCenterManager {
             // vc113's wave is above the timeline
             // only, so 36dp would leave a large
             // empty gap below the pill.
+            // vc115: slight gap above the timeline
+            // so it does not sit tight against the
+            // song title / artist above it.
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(28))
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(28)).apply {
+                topMargin = dp(6)
+            }
             // vc105: wave pattern seed = song title
             // hash, so the same song keeps the same
             // wave (decorative, not real audio data).
@@ -1476,12 +1525,30 @@ object CoverControlCenterManager {
                 else -> 0
             }
         }
-        fun refreshVolModeIcon() {
-            volSlider2?.setIcon(when (soundMode()) {
+        // vc115 SOUND ICON FIX (user, 27/10:
+        // icon must change right after the tap):
+        // refreshVolModeIcon() re-reads the system
+        // state, but NotificationManager's
+        // interruption filter updates asynchronously,
+        // so an immediate re-read still saw the OLD
+        // filter and the icon stayed one step behind
+        // (e.g. tapping Sound while DND was on kept
+        // the DND icon until the panel reopened).
+        // Fix: set the icon from the mode just
+        // selected (next), not from a re-read, and
+        // only re-read after 1s as a correction
+        // (by then the system state has settled, so
+        // a correct icon stays the same, a rejected
+        // change is corrected without flicker).
+        fun setVolModeIcon(mode: Int) {
+            volSlider2?.setIcon(when (mode) {
                 1 -> R.drawable.ic_cflip_vibrate
                 2 -> R.drawable.ic_cflip_dnd
                 else -> R.drawable.ic_sec_volume
             })
+        }
+        fun refreshVolModeIcon() {
+            setVolModeIcon(soundMode())
         }
         refreshVolModeIcon()
         volSlider2?.setLeftClickListener {
@@ -1514,7 +1581,8 @@ object CoverControlCenterManager {
                     }
                 }
             }
-            refreshVolModeIcon(); resetTimer()
+            setVolModeIcon(next); resetTimer()
+            handler.postDelayed({ refreshVolModeIcon() }, 1000)
         }
         refreshBright2(); refreshVol2()
         // Combined row: media frame (weight 3) + slider column (weight 2).
@@ -2168,6 +2236,7 @@ object CoverControlCenterManager {
         cachedMediaExists = mediaInfo != null
         cachedMediaPlaying = mediaInfo?.isPlaying == true
         cachedSettingsKey = settingsKeyFor(store.load())
+        cachedQuickPanel = quickPanel
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")
