@@ -192,6 +192,20 @@ object CoverAssistiveTouchManager {
         }
 
         btn.setOnTouchListener { v, e ->
+            // vc112 PRESS ANIMATION (user, 27/10:
+            // smooth interaction): shrink to 0.9
+            // on DOWN, spring back to 1.0 on UP /
+            // CANCEL. Visual only - drag maths use
+            // rawX/rawY and params, not view scale,
+            // so gestures are untouched.
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
+            if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(150L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
             // 3.3.0: every touch on the cover button resets the cover
             // idle timer via keepScreenOn (see pokeKeepAwake above).
             // vc32: poke only on DOWN, not on every MOVE (handler churn per move event was part of the stutter).
@@ -375,6 +389,16 @@ object CoverAssistiveTouchManager {
             fallbackMgr.addView(btn, params)
             manager = fallbackMgr
         }
+        // vc112 SHOW ANIMATION: fade + scale in
+        // (200ms) instead of popping in, matching
+        // the panel enter animation. scheduleDim
+        // below still dims to 0.4 after idle, so
+        // the end state is unchanged.
+        btn.alpha = 0f
+        btn.scaleX = 0.8f
+        btn.scaleY = 0.8f
+        btn.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         Log.i(TAG, "Bubble type=${params.type} (a11yAlive=${a11ySvc != null})")
         wm = manager; button = btn; bubbleParams = params; displayId = display.displayId
         // Apply the saved cover brightness immediately, not only after

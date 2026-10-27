@@ -188,6 +188,28 @@ object CoverControlCenterManager {
 
     fun isShown(): Boolean = view != null
 
+    // vc112: panel is "active" while its view is
+    // shown OR while the loading intro is up
+    // (view is still null during loading). The
+    // foreground service must not re-show the
+    // bubble while the panel is active - that is
+    // how rotation / screen-on while the panel
+    // is open brought the bubble back inside the
+    // panel, defeating vc109's hide-on-open.
+    fun isPanelActive(): Boolean = view != null || loadingView != null
+    private var panelExiting: Boolean = false
+    private fun animatePanelIn(root: View) {
+        val d = root.resources.displayMetrics.density
+        root.alpha = 0f
+        root.scaleX = 0.98f
+        root.scaleY = 0.98f
+        root.translationY = d * 12f
+        root.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(0f)
+            .setDuration(250L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .start()
+    }
+
     fun show(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
@@ -256,6 +278,15 @@ object CoverControlCenterManager {
                         manager.updateViewLayout(cachedRoot, params)
                     }
                     cachedReopenFn(initialTab)
+                    // vc112: cached root may still
+                    // carry the exit animation end
+                    // values (alpha 0, scale 0.98)
+                    // from the last close - animate
+                    // in resets them and gives the
+                    // same smooth enter as a fresh
+                    // build, instead of a pop-in or
+                    // an invisible panel.
+                    animatePanelIn(cachedRoot)
                     scheduleDismiss()
                     Log.i(TAG, "Control Center shown from cache on display ${display.displayId}")
                 } catch (e: Exception) {
@@ -334,6 +365,10 @@ object CoverControlCenterManager {
                     params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
                     manager.updateViewLayout(root, params)
                 }
+                // vc112: smooth panel enter (fade +
+                // scale + rise), instead of a pop-in
+                // over the loading intro removal.
+                animatePanelIn(root)
                 scheduleDismiss()
                 Log.i(TAG, "Control Center shown on display ${display.displayId}")
             }.onFailure { e ->
@@ -351,8 +386,30 @@ object CoverControlCenterManager {
         Unit
     }.onFailure { Log.w(TAG, "Control Center addView failed", it) }
 
+    // vc112 SMOOTH EXIT: close animates out
+    // (fade + shrink + sink, 200ms) and only
+    // then removes the view and restores the
+    // bubble, so the bubble never overlaps a
+    // fading panel. show() still uses the instant
+    // hidePanelOnly() below, so a reopen does not
+    // wait for the old panel to fade out.
     fun hide() {
-        hidePanelOnly()
+        val v = view
+        if (v == null) {
+            hidePanelOnly()
+            return
+        }
+        if (panelExiting) return
+        panelExiting = true
+        val d = v.resources.displayMetrics.density
+        v.animate().alpha(0f).scaleX(0.98f).scaleY(0.98f).translationY(d * 12f)
+            .setDuration(200L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction {
+                panelExiting = false
+                hidePanelOnly()
+            }
+            .start()
     }
 
     // vc110: callers inside buildPanel that
@@ -417,6 +474,8 @@ object CoverControlCenterManager {
     }
 
     private fun hidePanelOnly() {
+        panelExiting = false
+        view?.animate()?.cancel()
         dismissRunnable?.let { handler.removeCallbacks(it) }
         dismissRunnable = null
         mediaTickRunnable?.let { handler.removeCallbacks(it) }
@@ -629,6 +688,17 @@ object CoverControlCenterManager {
             tabButtons.forEachIndexed { idx, b ->
                 if (idx == i) { b.background = rounded(mint, 24); b.setTextColor(0xFF000000.toInt()) }
                 else { b.background = null; b.setTextColor(0xFFFFFFFF.toInt()) }
+            }
+            // vc112: smooth tab switch - fade the
+            // newly visible tab in (150ms). At
+            // build time view is still null, so
+            // the initial tab does not animate.
+            if (view != null) {
+                val visible = tabContents[i.coerceIn(0, tabContents.size - 1)]
+                visible.alpha = 0f
+                visible.animate().alpha(1f).setDuration(150L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator())
+                    .start()
             }
             resetTimer()
         }
@@ -1061,11 +1131,12 @@ object CoverControlCenterManager {
         val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
         val mediaProgress = MediaProgressBar(ctx).apply {
-            // vc107: 28dp, like 9Flip e4/i onMeasure
-            // (was 16dp in vc105, too short for a
-            // smooth wave with room above/below).
+            // vc112: 36dp (was 28dp in vc107) so
+            // the stronger, symmetric wave below
+            // has room above AND below the centre
+            // line without clipping at the top.
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(28))
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(36))
             // vc105: wave pattern seed = song title
             // hash, so the same song keeps the same
             // wave (decorative, not real audio data).
@@ -1137,6 +1208,7 @@ object CoverControlCenterManager {
         // and rewrites title/artist/progress/elapsed/play icon.
         var mediaPlayButtonRef: ImageButton? = null
         var lastMediaArt: android.graphics.Bitmap? = mediaInfo?.albumArt
+        var lastPlayIconState: Boolean? = null
         fun updateMediaViews() {
             runCatching { mediaRepo.refresh() }
             val cur = MediaState.current.value
@@ -1150,14 +1222,29 @@ object CoverControlCenterManager {
                 mediaProgress.wavePlaying = false
                 return
             }
-            mediaTitleView.text = cur.title
-            mediaArtistView.text = cur.artist
+            // vc112 TITLE MARQUEE FIX (user,
+            // 27/10): updateMediaViews runs every
+            // 1s, and it used to set title/artist
+            // unconditionally. setText() restarts
+            // the marquee even when the text is
+            // identical, so the title restarted its
+            // scroll every second and never
+            // completed a loop. Now title, artist
+            // and the play icon only change when
+            // the value actually changed - elapsed
+            // / progress still update every second,
+            // as they should, because time moves.
+            if (mediaTitleView.text.toString() != cur.title) mediaTitleView.text = cur.title
+            if (mediaArtistView.text.toString() != cur.artist) mediaArtistView.text = cur.artist
             mediaElapsed.text = fmtTime(cur.positionMs)
             mediaTotal.text = fmtTime(cur.durationMs)
             mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
             mediaProgress.waveformSeed = cur.title.hashCode()
             mediaProgress.wavePlaying = cur.isPlaying
-            mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
+            if (lastPlayIconState != cur.isPlaying) {
+                lastPlayIconState = cur.isPlaying
+                mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
+            }
             // vc40: swap album art when the track changes (reference
             // comparison avoids re-setting the same bitmap every second).
             if (cur.albumArt !== lastMediaArt) {

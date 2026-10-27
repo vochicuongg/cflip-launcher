@@ -330,6 +330,26 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             Log.i(TAG, "Locked - bubble hidden, RotateHost kept (vc101)")
             return
         }
+        // vc112 BUBBLE-DURING-PANEL FIX (user,
+        // 27/10: bubble kept appearing when
+        // accessing the panel and when rotating):
+        // vc109 hides the bubble when the panel
+        // opens, but tryShow runs again on every
+        // display change / hinge / screen-on
+        // event, and it saw isShown() == false
+        // (bubble hidden for the panel) and showed
+        // the bubble again OVER the panel. Rotation
+        // is exactly such an event. Fix: while the
+        // panel is active (view OR loading intro),
+        // do NOT show the bubble. RotateHost was
+        // already ensured above, so rotation still
+        // works with the panel open. The locked
+        // branch above still runs first, so lock
+        // still hides the panel + bubble (vc101).
+        if (com.cuong.cflip.cover.CoverControlCenterManager.isPanelActive()) {
+            Log.i(TAG, "Panel active - bubble left hidden (vc112)")
+            return
+        }
         if (assistiveTouchDisplayId == secondary.displayId &&
             com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
         if (!settings.assistiveTouchEnabled) {

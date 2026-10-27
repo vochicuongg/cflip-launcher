@@ -54,6 +54,33 @@ import android.view.View
  * BEHAVIOUR (smooth filled wave, pill track,
  * palette, fade-in, slow animation), not real
  * audio analysis, which neither app does here.
+ * vc112 CHANGES (user, 27/10):
+ * - Wave DENSE, no transparency: wave alpha
+ *   255 (was 128), pill alpha 255 (was 150).
+ * - No unrelated green: secondary is no longer
+ *   hue+140 (that turned a pink/red art into a
+ *   green second layer). Secondary is now hue+30
+ *   (analogous, same colour family as the art),
+ *   front layer is the same hue brighter, so all
+ *   wave layers come from the art's dominant
+ *   colour. Dominant colour also weights central
+ *   pixels more than corners, so the subject
+ *   wins over a saturated background.
+ * - STRONGER, MORE WAVES, like Samsung SystemUI:
+ *   view height 36dp (CC, was 28dp), symmetric
+ *   ribbon (above AND below the centre line, not
+ *   only above the pill), 3 layers at 3 / 4 / 5
+ *   cycles across the played segment (was 1
+ *   cycle, 2 layers), full 0..1 height factor
+ *   (was 0.14..0.76), faster phase morph (20s
+ *   loop, was 68s), plus a 2Hz beat pulse (15%
+ *   amplitude, ~120 BPM tempo) so the wave
+ *   visibly beats. HONEST LIMIT, unchanged:
+ *   beat pulse is a synthetic tempo, not real
+ *   audio amplitude - MediaSession here gives
+ *   position / duration / art only, no waveform
+ *   data, so neither CFlip nor a 9Flip-style
+ *   synthetic wave can beat to the real music.
  * vc108 CHANGES (user, 27/10):
  * - Wave colour: dominant colour of the album
  *   art (sampled, vivid-weighted, saturation /
@@ -167,7 +194,15 @@ class MediaProgressBar(context: Context) : View(context) {
                     val value = hsv[2]
                     if (sat >= 0.2f && value >= 0.2f) {
                         val bucket = ((hsv[0] / 30f).toInt() % 12).coerceIn(0, 11)
-                        val weight = sat * value
+                        // vc112: central pixels count
+                        // up to 2x more than corners,
+                        // so the art subject wins over
+                        // a saturated background.
+                        val dx = (x - w / 2f) / (w / 2f)
+                        val dy = (y - h / 2f) / (h / 2f)
+                        val dist = kotlin.math.sqrt(dx * dx + dy * dy) / 1.4142135f
+                        val centrality = 1f - 0.5f * dist.coerceIn(0f, 1f)
+                        val weight = sat * value * centrality
                         weightSum[bucket] += weight
                         hueSum[bucket] += hsv[0] * weight
                         satSum[bucket] += sat * weight
@@ -209,6 +244,9 @@ class MediaProgressBar(context: Context) : View(context) {
     private val waveSecondaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
+    private val waveFrontPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.FILL
@@ -221,6 +259,7 @@ class MediaProgressBar(context: Context) : View(context) {
     private val pillRect = RectF()
     private val wavePathPrimary = Path()
     private val wavePathSecondary = Path()
+    private val wavePathFront = Path()
 
     private fun hsv(hue: Float, sat: Float, value: Float): Int {
         return Color.HSVToColor(floatArrayOf(((hue % 360f) + 360f) % 360f, sat, value))
@@ -232,17 +271,23 @@ class MediaProgressBar(context: Context) : View(context) {
         val dom = if (art != null) runCatching { dominantHsv(art) }.getOrNull() else null
         val primary: Int
         val secondary: Int
+        val front: Int
         if (dom != null) {
             primary = hsv(dom.first, dom.second, dom.third)
-            secondary = hsv(dom.first + 140f, dom.second, dom.third)
+            // vc112: analogous +30, NOT +140 -
+            // +140 turned pink/red art green.
+            secondary = hsv(dom.first + 30f, dom.second, dom.third * 0.92f)
+            front = hsv(dom.first, dom.second * 0.85f, 1.0f)
         } else {
             val hue = ((waveformSeed % 360) + 360).toFloat()
             primary = hsv(hue, 0.7f, 0.95f)
-            secondary = hsv(hue + 140f, 0.65f, 0.95f)
+            secondary = hsv(hue + 30f, 0.65f, 0.90f)
+            front = hsv(hue, 0.6f, 1.0f)
         }
         progressPillPaint.color = primary
         wavePrimaryPaint.color = primary
         waveSecondaryPaint.color = secondary
+        waveFrontPaint.color = front
     }
 
     private val waveTickRunnable: Runnable = object : Runnable {
@@ -277,40 +322,54 @@ class MediaProgressBar(context: Context) : View(context) {
     // Wave height factor for point t in 0..1, phase in
     // 0..50 (9Flip's 68s loop), offset shifts the
     // second layer. Returns 0..1.
-    private fun waveFactor(t: Float, phase: Float, offset: Float): Float {
-        val main = kotlin.math.sin(t * 6.2831855f + phase + offset)
-        val mod = kotlin.math.sin(10.5f * phase * 0.1f + t * 6.2831855f + offset)
-        val v = ((main * 0.7f + mod * 0.3f + 1f) / 2f * 0.62f + 0.14f)
+    private fun waveFactor(t: Float, phase: Float, offset: Float, freq: Float): Float {
+        val main = kotlin.math.sin(t * 6.2831855f * freq + phase + offset)
+        val mod = kotlin.math.sin(t * 6.2831855f * freq * 2.3f + phase * 0.5f + offset)
+        val v = 0.5f + 0.5f * (main * 0.7f + mod * 0.3f)
         return v.coerceIn(0f, 1f)
     }
-    private fun buildWavePath(path: Path, left: Float, right: Float, centerY: Float, bottom: Float, amp: Float, phase: Float, offset: Float) {
+    // vc112 SYMMETRIC RIBBON: top edge above the
+    // centre line and bottom edge below it, both
+    // with their own frequency / phase, so the
+    // ribbon thickness beats instead of a flat
+    // bottom at the pill. Top and bottom are each
+    // quadTo-smoothed through midpoints, like
+    // vc107's top edge.
+    private fun buildWavePath(path: Path, left: Float, right: Float, centerY: Float, amp: Float, phase: Float, offset: Float, freq: Float) {
         path.reset()
         if (right - left <= 1f) return
         val steps = 64
-        var prevX = left
-        var prevY = centerY
-        path.moveTo(left, bottom)
-        path.lineTo(left, centerY)
+        val xs = FloatArray(steps + 1)
+        val topYs = FloatArray(steps + 1)
+        val botYs = FloatArray(steps + 1)
         for (i in 0..steps) {
-            val t = i.toFloat() / steps
-            val x = left + (right - left) * t
-            val envelope = kotlin.math.sin(t * 3.1415927f).coerceAtLeast(0f)
-            val y = centerY - amp * envelope * waveFactor(t, phase, offset)
-            if (i == 0) {
-                prevX = x; prevY = y
-                path.lineTo(x, y)
-            } else {
-                // Smooth curve through midpoints, like
-                // 9Flip's quadTo chain in e4/i.a().
-                val midX = (prevX + x) / 2f
-                val midY = (prevY + y) / 2f
-                path.quadTo(prevX, prevY, midX, midY)
-                prevX = x; prevY = y
-            }
+            val tt = i.toFloat() / steps
+            val x = left + (right - left) * tt
+            val envelope = kotlin.math.sin(tt * 3.1415927f).coerceAtLeast(0f)
+            topYs[i] = centerY - amp * envelope * waveFactor(tt, phase, offset, freq)
+            botYs[i] = centerY + amp * envelope * waveFactor(tt, phase, offset + 3.1415927f, freq * 0.85f)
+            xs[i] = x
         }
-        path.lineTo(right, prevY)
-        path.lineTo(right, bottom)
-        path.lineTo(left, bottom)
+        path.moveTo(xs[0], topYs[0])
+        var prevX = xs[0]
+        var prevY = topYs[0]
+        for (i in 1..steps) {
+            val midX = (prevX + xs[i]) / 2f
+            val midY = (prevY + topYs[i]) / 2f
+            path.quadTo(prevX, prevY, midX, midY)
+            prevX = xs[i]; prevY = topYs[i]
+        }
+        path.lineTo(xs[steps], topYs[steps])
+        path.lineTo(xs[steps], botYs[steps])
+        prevX = xs[steps]; prevY = botYs[steps]
+        for (i in steps - 1 downTo 0) {
+            val midX = (prevX + xs[i]) / 2f
+            val midY = (prevY + botYs[i]) / 2f
+            path.quadTo(prevX, prevY, midX, midY)
+            prevX = xs[i]; prevY = botYs[i]
+        }
+        path.lineTo(xs[0], botYs[0])
+        path.lineTo(xs[0], topYs[0])
         path.close()
     }
 
@@ -347,30 +406,45 @@ class MediaProgressBar(context: Context) : View(context) {
         }
         // Progress pill: played segment, fading out
         // as the wave fades in, fading back in as
-        // the wave lowers on stop.
+        // the wave lowers on stop. vc112: opaque
+        // (255, was 150) for a dense timeline.
         if (progressX > left && waveVisible < 1f) {
             val saved = progressPillPaint.alpha
-            progressPillPaint.alpha = (150f * (1f - waveVisible)).toInt().coerceIn(0, 150)
+            progressPillPaint.alpha = (255f * (1f - waveVisible)).toInt().coerceIn(0, 255)
             pillRect.set(left, pillTop, progressX, pillBottom)
             canvas.drawRoundRect(pillRect, radius, radius, progressPillPaint)
             progressPillPaint.alpha = saved
         }
-        // Wave: played segment only, two layers.
+        // Wave: played segment only, THREE layers,
+        // largest first so each smaller layer peeks
+        // out above / below it. vc112: opaque
+        // (255, was 128), 3 / 4 / 5 cycles across
+        // the segment (was 1 cycle, 2 layers),
+        // faster morph (20s loop, was 68s), and a
+        // 2Hz beat pulse (15% amplitude) so the
+        // wave visibly beats like SystemUI.
         if (progressX > left + radius && waveVisible > 0.02f) {
-            val phase = ((System.currentTimeMillis() % 68000L).toFloat() / 68000f) * 50f
-            val baseAmp = kotlin.math.min(h * 0.6f, dp(16))
-            val amp = baseAmp * (1f + 0.33f * progress) * waveVisible
-            val waveAlpha = (128f * waveVisible).toInt().coerceIn(0, 128)
-            buildWavePath(wavePathSecondary, left, progressX, centerY, pillBottom, amp, phase, 1.0f)
+            val nowMs = System.currentTimeMillis()
+            val phase = ((nowMs % 20000L).toFloat() / 20000f) * 50f
+            val pulse = 0.85f + 0.15f * (0.5f + 0.5f * kotlin.math.sin(nowMs.toFloat() * 6.2831855f / 500f))
+            val baseAmp = kotlin.math.min(h * 0.45f, dp(18))
+            val amp = baseAmp * (1f + 0.2f * progress) * waveVisible * pulse
+            val waveAlpha = (255f * waveVisible).toInt().coerceIn(0, 255)
+            buildWavePath(wavePathSecondary, left, progressX, centerY, amp, phase, 1.2f, 3f)
             val savedSec = waveSecondaryPaint.alpha
             waveSecondaryPaint.alpha = waveAlpha
             canvas.drawPath(wavePathSecondary, waveSecondaryPaint)
             waveSecondaryPaint.alpha = savedSec
-            buildWavePath(wavePathPrimary, left, progressX, centerY, pillBottom, amp, phase, 0f)
+            buildWavePath(wavePathPrimary, left, progressX, centerY, amp * 0.85f, phase, 0f, 4f)
             val savedPri = wavePrimaryPaint.alpha
             wavePrimaryPaint.alpha = waveAlpha
             canvas.drawPath(wavePathPrimary, wavePrimaryPaint)
             wavePrimaryPaint.alpha = savedPri
+            buildWavePath(wavePathFront, left, progressX, centerY, amp * 0.7f, phase, 2.0f, 5f)
+            val savedFront = waveFrontPaint.alpha
+            waveFrontPaint.alpha = waveAlpha
+            canvas.drawPath(wavePathFront, waveFrontPaint)
+            waveFrontPaint.alpha = savedFront
         }
         // Thumb: shadow + white solid circle, 7dp.
         if (progressX in left..right) {
