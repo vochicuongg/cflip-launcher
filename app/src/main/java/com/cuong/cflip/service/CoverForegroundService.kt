@@ -2,7 +2,10 @@ package com.cuong.cflip.service
 
 import android.app.Notification
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
 import android.os.Build
@@ -49,6 +52,26 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         tryShowOnSecondary(isRetry = true)
     }
     private var bubbleRetryAttempts = 0
+    // vc109 UNLOCK RE-SHOW FIX (user, 27/10):
+    // lock hides the bubble (vc101), but NOTHING
+    // listened for unlock: tryShow only ran on
+    // display added/changed and hinge events, so
+    // after lock -> unlock the bubble stayed
+    // hidden until the next rotation (hinge /
+    // display event) brought it back. Fix: listen
+    // for screen on/off + user present and run
+    // tryShow on each. tryShow itself checks
+    // keyguard, so SCREEN_ON while still locked
+    // just hides again (harmless) and USER_PRESENT
+    // (keyguard dismissed) shows the bubble
+    // immediately, without waiting for rotation.
+    private var screenReceiver: BroadcastReceiver? = null
+    private val screenReceiverImpl = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            Log.i(TAG, "Screen/unlock event: ${intent?.action} - re-checking cover")
+            tryShowOnSecondary()
+        }
+    }
     private val bubbleRetryRunnable: Runnable = Runnable {
         if (com.cuong.cflip.mirror.MirrorState.active && bubbleRetryAttempts < 3) {
             bubbleRetryAttempts++
@@ -64,6 +87,14 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         super.onCreate()
         getSystemService(DisplayManager::class.java)
             ?.registerDisplayListener(this, Handler(Looper.getMainLooper()))
+        // vc109: see screenReceiverImpl above.
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        runCatching { registerReceiver(screenReceiverImpl, filter) }
+        screenReceiver = screenReceiverImpl
         // Hinge angle sensor (present on Galaxy Z Flip): the exact fold moment is
         // the one moment the cover display might become visible to third-party
         // apps, so re-check (and log) the display list then - see v1.2 notes.
@@ -113,8 +144,11 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 // bubble hidden. Host is removed only in onDestroy
                 // (service stopped entirely), not on bubble hide.
                 assistiveTouchDisplayId = -1
+                // vc109: panel hide must NOT restore
+                // the bubble here - the user hid the
+                // cover on purpose.
+                com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                com.cuong.cflip.cover.CoverControlCenterManager.hide()
                 Log.i(TAG, "Cover AssistiveTouch hidden on request (RotateHost kept)")
             }
             ACTION_ROTATION_CHANGED -> {
@@ -143,10 +177,14 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
     override fun onDestroy() {
         hostHandler.removeCallbacks(hostRetryRunnable)
         hostHandler.removeCallbacks(bubbleRetryRunnable)
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
         getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(this)
         getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(this)
+        // vc109: panel hide must NOT restore the
+        // bubble here - the service is stopping.
+        com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-        com.cuong.cflip.cover.CoverControlCenterManager.hide()
         com.cuong.cflip.cover.CoverRotateHostManager.remove()
         super.onDestroy()
     }
@@ -160,8 +198,10 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         Log.i(TAG, "Display removed: $displayId")
         if (displayId == assistiveTouchDisplayId) {
             assistiveTouchDisplayId = -1
+            // vc109: display gone, panel hide must
+            // NOT try to restore a bubble on it.
+            com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-            com.cuong.cflip.cover.CoverControlCenterManager.hide()
         }
     }
 

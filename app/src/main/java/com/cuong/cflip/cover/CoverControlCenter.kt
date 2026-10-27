@@ -65,6 +65,39 @@ object CoverControlCenterManager {
     private var wm: WindowManager? = null
     private var view: View? = null
     private var panelParams: WindowManager.LayoutParams? = null
+    // vc109 BUBBLE-IN-PANEL FIX (user, 27/10):
+    // the bubble is a 2032 accessibility overlay,
+    // the panel is a 2038 application overlay, so
+    // the bubble always drew OVER the panel and
+    // looked like a second bubble inside the panel.
+    // Fix: hide the bubble while the panel is open
+    // and restore it synchronously when the panel
+    // closes. Synchronous restore (not a service
+    // intent) matters: show() calls hidePanelOnly()
+    // first, and an async restore posted there
+    // would land AFTER the new panel hides the
+    // bubble again, bringing the duplicate back.
+    private var bubbleHiddenForPanel = false
+    private var lastPanelDisplay: Display? = null
+    private var lastPanelAppContext: Context? = null
+    private fun restoreBubbleIfHiddenForPanel() {
+        if (!bubbleHiddenForPanel) return
+        bubbleHiddenForPanel = false
+        val disp = lastPanelDisplay ?: return
+        val appCtx = lastPanelAppContext ?: return
+        // Guards, same rules as the foreground
+        // service: never restore on lock (vc101
+        // no-bubble-on-lock), during mirror, or
+        // when the user turned AssistiveTouch off.
+        // In those cases the service restores the
+        // bubble later (unlock / mirror stop).
+        val km = runCatching { appCtx.getSystemService(android.app.KeyguardManager::class.java) }.getOrNull()
+        if (km != null && km.isKeyguardLocked) return
+        if (com.cuong.cflip.mirror.MirrorState.active) return
+        if (!runCatching { SettingsStore(appCtx).load().assistiveTouchEnabled }.getOrElse { true }) return
+        runCatching { CoverAssistiveTouchManager.show(appCtx, disp) }
+            .onFailure { Log.w(TAG, "Bubble restore after panel close failed", it) }
+    }
     private var shotFeedbackView: View? = null
     private var shotFeedbackWm: WindowManager? = null
 
@@ -95,6 +128,14 @@ object CoverControlCenterManager {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
         hidePanelOnly()
+        // vc109: hide the bubble for this panel
+        // (see fields above). Stored display /
+        // context are what hidePanelOnly uses to
+        // restore it synchronously on close.
+        lastPanelDisplay = display
+        lastPanelAppContext = appContext.applicationContext
+        bubbleHiddenForPanel = CoverAssistiveTouchManager.isShown()
+        if (bubbleHiddenForPanel) CoverAssistiveTouchManager.hide()
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
@@ -170,6 +211,9 @@ object CoverControlCenterManager {
             }.onFailure { e ->
                 runCatching { manager.removeView(loading) }
                 loadingView = null
+                // vc109: build failed, no panel to
+                // show - give the bubble back.
+                restoreBubbleIfHiddenForPanel()
                 Log.w(TAG, "Control Center build failed", e)
                 android.widget.Toast.makeText(displayContext, "Mở CFlip thất bại, thử chạm lại", android.widget.Toast.LENGTH_SHORT).show()
             }
@@ -180,6 +224,16 @@ object CoverControlCenterManager {
     }.onFailure { Log.w(TAG, "Control Center addView failed", it) }
 
     fun hide() {
+        hidePanelOnly()
+    }
+
+    // vc109: service hide-all paths (cover hidden,
+    // display removed, service destroyed) must NOT
+    // restore the bubble - the service is hiding
+    // everything on purpose. Normal hide() above
+    // restores it; this one clears the flag first.
+    fun hideWithoutBubbleRestore() {
+        bubbleHiddenForPanel = false
         hidePanelOnly()
     }
 
@@ -242,6 +296,9 @@ object CoverControlCenterManager {
             view = null; wm = null; panelParams = null
             Log.i(TAG, "Control Center hidden")
         }
+        // vc109: panel gone -> bubble back, unless
+        // hideWithoutBubbleRestore cleared the flag.
+        restoreBubbleIfHiddenForPanel()
     }
 
     private fun scheduleDismiss() {
