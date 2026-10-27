@@ -488,14 +488,13 @@ object CoverControlCenterManager {
                 setOnClickListener { resetQuickBarTimer(); onClick() }
             }
         }
+        // vc118: same ringer-only detection as the
+        // panel cycle - Mute is SILENT, never DND.
         fun barSoundMode(): Int {
             val am = displayContext.getSystemService(android.media.AudioManager::class.java)
-            val nm = displayContext.getSystemService(android.app.NotificationManager::class.java)
-            return when {
-                nm != null && nm.isNotificationPolicyAccessGranted &&
-                    nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_NONE -> 2
-                am?.ringerMode == android.media.AudioManager.RINGER_MODE_SILENT -> 2
-                am?.ringerMode == android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
+            return when (am?.ringerMode) {
+                android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
+                android.media.AudioManager.RINGER_MODE_SILENT -> 2
                 else -> 0
             }
         }
@@ -544,7 +543,7 @@ object CoverControlCenterManager {
         fun setBarSoundIcon(mode: Int) {
             soundBtn?.setImageResource(when (mode) {
                 1 -> R.drawable.ic_cflip_vibrate
-                2 -> R.drawable.ic_cflip_dnd
+                2 -> R.drawable.ic_sec_mute
                 else -> R.drawable.ic_sec_volume
             })
         }
@@ -552,30 +551,38 @@ object CoverControlCenterManager {
             val am = displayContext.getSystemService(android.media.AudioManager::class.java)
             val nm = displayContext.getSystemService(android.app.NotificationManager::class.java)
             val next = (barSoundMode() + 1) % 3
+            // vc118: same cycle as the panel - Sound
+            // -> Vibrate -> Mute (ringer silent, NOT
+            // DND), with the old tip music mute /
+            // restore carried in the Mute / Sound steps.
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+            }
             when (next) {
                 0 -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-                    }
                     am?.ringerMode = android.media.AudioManager.RINGER_MODE_NORMAL
+                    val (curVol, maxVol) = QuickControls.volume(displayContext)
+                    if (curVol == 0) {
+                        val prefs = displayContext.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                        val saved = prefs.getInt("saved_volume", -1)
+                        val restore = if (saved > 0) saved else ((maxVol * 0.45f).toInt()).coerceIn(1, maxVol)
+                        QuickControls.setVolume(displayContext, restore)
+                    }
                     android.widget.Toast.makeText(displayContext, "Đã bật Âm thanh", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 1 -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-                    }
                     am?.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
                     android.widget.Toast.makeText(displayContext, "Đã bật Rung", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 else -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_NONE)
-                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
-                        android.widget.Toast.makeText(displayContext, "Đã bật Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
-                        android.widget.Toast.makeText(displayContext, "Đã bật Im lặng (cần quyền Không làm phiền để bật DND đầy đủ)", android.widget.Toast.LENGTH_LONG).show()
+                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
+                    val (curVol, _) = QuickControls.volume(displayContext)
+                    if (curVol > 0) {
+                        displayContext.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                            .edit().putInt("saved_volume", curVol).apply()
+                        QuickControls.setVolume(displayContext, 0)
                     }
+                    android.widget.Toast.makeText(displayContext, "Đã bật Tắt âm", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
             setBarSoundIcon(next)
@@ -1656,7 +1663,10 @@ object CoverControlCenterManager {
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_brightness)
-            setRightIcon(R.drawable.ic_cflip_auto)
+            // vc118 BASE-ICON ONLY: tip auto icon
+            // removed; its toggle moves to the base
+            // sun icon below (setLeftClickListener).
+            hideRightIcon()
             minValue = 0.05f
             setValue(store.load().panelBrightness, animate = false)
             setManual(store.load().panelBrightnessManual)
@@ -1672,13 +1682,25 @@ object CoverControlCenterManager {
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
             }
             onDragEnd = { resetTimer() }
-            onRightClick = {
+            // vc118: base sun icon now toggles
+            // manual / auto (was the tip auto
+            // icon's job). Manual state still shows
+            // as slider alpha (1.0 manual / 0.42
+            // auto); the toast names the new state
+            // because the icon itself no longer
+            // changes. Note: a drag starting exactly
+            // on the sun icon now taps instead of
+            // dragging, same as the speaker icon.
+            setLeftClickListener {
                 val cur = store.load()
                 val nextManual = !cur.panelBrightnessManual
                 store.save(cur.copy(panelBrightnessManual = nextManual))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
                 refreshBright2(); resetTimer()
+                android.widget.Toast.makeText(ctx,
+                    if (nextManual) "Đã bật Độ sáng thủ công" else "Đã bật Độ sáng tự động",
+                    android.widget.Toast.LENGTH_SHORT).show()
             }
         }
         sliderColumn.addView(brightSlider2)
@@ -1691,7 +1713,11 @@ object CoverControlCenterManager {
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
             setIcon(R.drawable.ic_sec_volume)
-            setRightIcon(R.drawable.ic_sec_mute)
+            // vc118 BASE-ICON ONLY: tip mute icon
+            // removed; its music mute / restore
+            // moves into the base icon's Mute step
+            // below (sound cycle, vc118).
+            hideRightIcon()
             minValue = 0f
             val (vol, volMax) = QuickControls.volume(ctx)
             setValue(if (volMax > 0) vol.toFloat() / volMax else 0f, animate = false)
@@ -1702,49 +1728,38 @@ object CoverControlCenterManager {
                 refreshVol2()
             }
             onDragEnd = { resetTimer() }
-            onRightClick = {
-                val (v, m) = QuickControls.volume(ctx)
-                val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-                if (v > 0) {
-                    prefs.edit().putInt("saved_volume", v).apply()
-                    QuickControls.setVolume(ctx, 0)
-                } else {
-                    val saved = prefs.getInt("saved_volume", -1)
-                    val restore = if (saved > 0) saved else ((m * 0.45f).toInt()).coerceIn(1, m)
-                    QuickControls.setVolume(ctx, restore)
-                }
-                refreshVol2(); resetTimer()
-            }
         }
         sliderColumn.addView(volSlider2)
-        // vc41: left (speaker) icon cycles system sound mode:
-        // Âm thanh -> Rung -> Không làm phiền -> Âm thanh ...
-        // This is RINGER mode, not music volume: the right (mute)
-        // icon still mutes/restores STREAM_MUSIC as before.
-        // Detection: DND = interruption filter NONE (if permission
-        // granted) or ringer SILENT; Vibrate = ringer VIBRATE; else Sound.
-        // Without Notification Policy Access, DND cannot be set, so
-        // that step falls back to SILENT with a toast explaining it.
+        // vc118 SOUND CYCLE (user, 28/10):
+        // base speaker icon cycles Âm thanh ->
+        // Rung -> Tắt âm -> Âm thanh ... Tắt âm
+        // is RINGER SILENT, NOT Do Not Disturb:
+        // the old step 2 set filter NONE (DND),
+        // which the user called a mistake. The
+        // separate DND tile in the grid below
+        // still controls DND on purpose; this
+        // cycle never sets it. Detection is
+        // ringer-only: Vibrate = 1, Silent = 2,
+        // else Sound = 0. No DND permission is
+        // needed for any step now; filter ALL is
+        // still set when permitted so tapping
+        // always exits a DND left on by the tile.
         fun soundMode(): Int {
             val am = ctx.getSystemService(android.media.AudioManager::class.java)
-            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
-            return when {
-                nm != null && nm.isNotificationPolicyAccessGranted &&
-                    nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_NONE -> 2
-                am?.ringerMode == android.media.AudioManager.RINGER_MODE_SILENT -> 2
-                am?.ringerMode == android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
+            return when (am?.ringerMode) {
+                android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
+                android.media.AudioManager.RINGER_MODE_SILENT -> 2
                 else -> 0
             }
         }
         // vc115 SOUND ICON FIX (user, 27/10:
         // icon must change right after the tap):
         // refreshVolModeIcon() re-reads the system
-        // state, but NotificationManager's
-        // interruption filter updates asynchronously,
-        // so an immediate re-read still saw the OLD
-        // filter and the icon stayed one step behind
-        // (e.g. tapping Sound while DND was on kept
-        // the DND icon until the panel reopened).
+        // state: ringer changes are synchronous,
+        // but the 1s re-read is kept as a correction
+        // in case the system rejects a change (then
+        // a correct icon stays the same, a rejected
+        // change is corrected without flicker).
         // Fix: set the icon from the mode just
         // selected (next), not from a re-read, and
         // only re-read after 1s as a correction
@@ -1754,7 +1769,7 @@ object CoverControlCenterManager {
         fun setVolModeIcon(mode: Int) {
             volSlider2?.setIcon(when (mode) {
                 1 -> R.drawable.ic_cflip_vibrate
-                2 -> R.drawable.ic_cflip_dnd
+                2 -> R.drawable.ic_sec_mute
                 else -> R.drawable.ic_sec_volume
             })
         }
@@ -1766,30 +1781,46 @@ object CoverControlCenterManager {
             val am = ctx.getSystemService(android.media.AudioManager::class.java)
             val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
             val next = (soundMode() + 1) % 3
+            // vc118: every step sets filter ALL when
+            // permitted, so tapping always exits DND
+            // (DND is no longer a cycle step).
+            if (nm != null && nm.isNotificationPolicyAccessGranted) {
+                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
+            }
             when (next) {
                 0 -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-                    }
                     am?.ringerMode = android.media.AudioManager.RINGER_MODE_NORMAL
+                    // Mute step saved music volume and
+                    // set it to 0; restore it only if
+                    // it is still 0 (a manual slider
+                    // drag meanwhile wins over restore).
+                    val (curVol, maxVol) = QuickControls.volume(ctx)
+                    if (curVol == 0) {
+                        val prefs = ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                        val saved = prefs.getInt("saved_volume", -1)
+                        val restore = if (saved > 0) saved else ((maxVol * 0.45f).toInt()).coerceIn(1, maxVol)
+                        QuickControls.setVolume(ctx, restore)
+                    }
                     android.widget.Toast.makeText(ctx, "Đã bật Âm thanh", android.widget.Toast.LENGTH_SHORT).show()
+                    refreshVol2()
                 }
                 1 -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-                    }
                     am?.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
                     android.widget.Toast.makeText(ctx, "Đã bật Rung", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 else -> {
-                    if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                        nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_NONE)
-                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
-                        android.widget.Toast.makeText(ctx, "Đã bật Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
-                        android.widget.Toast.makeText(ctx, "Đã bật Im lặng (cần quyền Không làm phiền để bật DND đầy đủ)", android.widget.Toast.LENGTH_LONG).show()
+                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
+                    // vc118 MUTE = ringer silent, NOT
+                    // DND. It also carries the old tip
+                    // mute: save music volume, set 0.
+                    val (curVol, _) = QuickControls.volume(ctx)
+                    if (curVol > 0) {
+                        ctx.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
+                            .edit().putInt("saved_volume", curVol).apply()
+                        QuickControls.setVolume(ctx, 0)
                     }
+                    android.widget.Toast.makeText(ctx, "Đã bật Tắt âm", android.widget.Toast.LENGTH_SHORT).show()
+                    refreshVol2()
                 }
             }
             setVolModeIcon(next); resetTimer()

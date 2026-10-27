@@ -164,6 +164,19 @@ class NineFlipSlider @JvmOverloads constructor(
         rightIcon.visibility = View.VISIBLE
     }
 
+    // vc118 BASE-ICON ONLY: the panel sliders no
+    // longer use a tip icon at all (user, 28/10).
+    // Hiding, not just emptying, the right icon:
+    // a GONE view takes no space and cannot eat
+    // taps at the tip end, so drags starting there
+    // reach the slider itself. Also clears its
+    // click so a stale onRightClick cannot fire.
+    fun hideRightIcon() {
+        onRightClick = null
+        rightIcon.setOnClickListener(null)
+        rightIcon.visibility = View.GONE
+    }
+
     fun setManual(manual: Boolean) {
         // 9Flip: alpha 1.0 manual, 0.42 auto.
         alpha = if (manual) 1.0f else 0.42f
