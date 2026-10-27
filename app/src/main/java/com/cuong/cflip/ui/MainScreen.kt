@@ -337,16 +337,33 @@ fun MainScreen(
                     HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
                         settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
                     }
+                    // vc120 QUICK PANEL OPEN MODE (user,
+                    // 28/10): Quick Panel is NOT a bubble
+                    // action anymore - it is a feature
+                    // with two open modes (9Flip gb):
+                    // AssistiveTouch bubble or Swipe
+                    // indicator bar. Pick one here; the
+                    // bubble action rows below now have
+                    // 5 actions (Quick Panel removed).
+                    Text("Quick Panel (cách mở panel):",
+                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                    var openModeExpanded by remember { mutableStateOf(false) }
+                    OpenModeRow("Mở panel bằng", settings.panelOpenMode,
+                        expanded = openModeExpanded,
+                        onExpand = { openModeExpanded = true },
+                        onDismiss = { openModeExpanded = false },
+                        onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
+                    Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
                     // vc117 DROPDOWN (user, 27/10):
                     // tap-to-cycle rows were easy to
                     // overshoot (e.g. cycling past to
                     // NONE, then long-press looked dead).
                     // Each row now opens a dropdown with
-                    // all 6 actions, so the choice is
+                    // all 5 actions, so the choice is
                     // visible before it is made. Defaults:
                     // tap = Home, double-tap = Full panel,
-                    // long-press = Recents. Quick Panel
-                    // here is the horizontal bar (vc117).
+                    // long-press = Recents.
                     Text("Thao tác chạm AssistiveTouch (chạm vào hàng để chọn):",
                         fontSize = 13.sp, color = CFlipColors.TextPrimary)
                     var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
@@ -628,6 +645,34 @@ private fun BubbleActionRow(label: String, cur: Int, expanded: Boolean, onExpand
                 DropdownMenuItem(
                     text = { Text(com.cuong.cflip.data.BubbleActions.label(action)) },
                     onClick = { onSelect(action); onDismiss() }
+                )
+            }
+        }
+    }
+}
+
+// vc120: open-mode row, same dropdown pattern
+// as BubbleActionRow, for PanelOpenMode.
+@Composable
+private fun OpenModeRow(label: String, cur: Int, expanded: Boolean, onExpand: () -> Unit, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(CFlipColors.Bg)
+            .clickable { onExpand() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
+                modifier = Modifier.weight(1f))
+            Text(com.cuong.cflip.data.PanelOpenMode.label(cur),
+                fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                color = CFlipColors.Accent)
+            Text("  \u25BE", fontSize = 13.sp, color = CFlipColors.TextSecondary)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+            com.cuong.cflip.data.PanelOpenMode.all.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(com.cuong.cflip.data.PanelOpenMode.label(mode)) },
+                    onClick = { onSelect(mode); onDismiss() }
                 )
             }
         }

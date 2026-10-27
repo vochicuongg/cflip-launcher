@@ -149,6 +149,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 // cover on purpose.
                 com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
                 Log.i(TAG, "Cover AssistiveTouch hidden on request (RotateHost kept)")
             }
             ACTION_ROTATION_CHANGED -> {
@@ -185,6 +186,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // bubble here - the service is stopping.
         com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+        com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
         com.cuong.cflip.cover.CoverRotateHostManager.remove()
         super.onDestroy()
     }
@@ -202,6 +204,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             // NOT try to restore a bubble on it.
             com.cuong.cflip.cover.CoverControlCenterManager.hideWithoutBubbleRestore()
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
         }
     }
 
@@ -321,6 +324,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         val kmEarly = getSystemService(android.app.KeyguardManager::class.java)
         if (kmEarly != null && kmEarly.isKeyguardLocked) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
             com.cuong.cflip.cover.CoverControlCenterManager.hide()
             assistiveTouchDisplayId = -1
             runCatching {
@@ -347,25 +351,37 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // branch above still runs first, so lock
         // still hides the panel + bubble (vc101).
         if (com.cuong.cflip.cover.CoverControlCenterManager.isPanelActive()) {
-            Log.i(TAG, "Panel active - bubble left hidden (vc112)")
+            Log.i(TAG, "Panel active - opener left hidden (vc112, vc120: bubble or swipe bar)")
             return
         }
         if (assistiveTouchDisplayId == secondary.displayId &&
-            com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
+            (com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown() ||
+                com.cuong.cflip.cover.CoverSwipeIndicatorManager.isShown())) return
         if (!settings.assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
             return
         }
         // Unlocked: make sure a lingering lock bubble goes
         // away (user unlocked via main, not via the bubble),
-        // then show the normal overlay bubble.
+        // then show the opener for the current open
+        // mode (vc120: bubble vs swipe bar - never
+        // both; the other one is hidden first).
         runCatching {
             sendBroadcast(android.content.Intent(
                 com.cuong.cflip.cover.CoverUnlockActivity.ACTION_FINISH_UNLOCK))
         }
-        com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
-            .onSuccess { assistiveTouchDisplayId = secondary.displayId }
-            .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }
+        if (settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.SWIPE_INDICATOR) {
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            com.cuong.cflip.cover.CoverSwipeIndicatorManager.show(this, secondary)
+                .onSuccess { assistiveTouchDisplayId = secondary.displayId }
+                .onFailure { Log.w(TAG, "Swipe indicator refused on cover display", it) }
+        } else {
+            com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+            com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
+                .onSuccess { assistiveTouchDisplayId = secondary.displayId }
+                .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

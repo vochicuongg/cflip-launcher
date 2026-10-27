@@ -13,22 +13,49 @@ import android.content.Context
 // MainScreen takes effect on the next touch
 // (AssistiveTouch reads SettingsStore fresh at
 // gesture time, it does not cache actions).
+// vc120: Quick Panel is NOT a bubble action
+// anymore (user, 28/10). Value 3 (the old
+// Quick Panel bar action, vc115-vc119) is
+// retired, NOT renumbered: LOCK stays 4 and
+// NONE stays 5 so saved prefs keep meaning
+// the same thing. load() migrates a saved 3
+// to FULL_PANEL below.
 object BubbleActions {
     const val HOME = 0
     const val RECENTS = 1
     const val FULL_PANEL = 2
-    const val QUICK_PANEL = 3
     const val LOCK = 4
     const val NONE = 5
     fun label(action: Int): String = when (action) {
         HOME -> "Mở màn hình chính"
         RECENTS -> "Mở Gần đây"
         FULL_PANEL -> "Mở panel đầy đủ (4 tab)"
-        QUICK_PANEL -> "Mở Quick Panel (thanh ngang)"
         LOCK -> "Khóa màn hình"
         else -> "Không làm gì"
     }
-    val all = listOf(HOME, RECENTS, FULL_PANEL, QUICK_PANEL, LOCK, NONE)
+    val all = listOf(HOME, RECENTS, FULL_PANEL, LOCK, NONE)
+}
+
+// vc120 PANEL OPEN MODE (9Flip decompile,
+// 28/10: 9Flip's cover control has exactly two
+// open modes, stored as pref "open_mode" with
+// default "swipe_indicator" - enum gb:
+// swipe_indicator vs assistive_touch, shown in
+// settings as cover_control_open_mode_* strings).
+// CFlip's clean-room equivalent, same two modes:
+// ASSISTIVE_TOUCH = the floating C bubble,
+// SWIPE_INDICATOR = the bottom swipe bar.
+// CFlip default stays ASSISTIVE_TOUCH (not 9Flip's
+// swipe default) so existing users keep their
+// bubble until they switch in MainScreen.
+object PanelOpenMode {
+    const val ASSISTIVE_TOUCH = 0
+    const val SWIPE_INDICATOR = 1
+    fun label(mode: Int): String = when (mode) {
+        SWIPE_INDICATOR -> "Thanh Vuốt (vuốt để mở)"
+        else -> "AssistiveTouch (bong bóng)"
+    }
+    val all = listOf(ASSISTIVE_TOUCH, SWIPE_INDICATOR)
 }
 
 data class CoverSettings(
@@ -75,6 +102,7 @@ data class CoverSettings(
     val bubbleTapAction: Int = BubbleActions.HOME,
     val bubbleDoubleTapAction: Int = BubbleActions.FULL_PANEL,
     val bubbleLongPressAction: Int = BubbleActions.RECENTS,
+    val panelOpenMode: Int = PanelOpenMode.ASSISTIVE_TOUCH,
 )
 
 object BackgroundStyles {
@@ -86,7 +114,16 @@ object BackgroundStyles {
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    fun load(): CoverSettings = CoverSettings(
+    fun load(): CoverSettings {
+        // vc120 MIGRATION: a saved bubble action 3
+        // was Quick Panel (vc115-vc119 bar); it is
+        // now an open mode, not an action, so an old
+        // 3 becomes Full Panel, the closest action.
+        fun migrated(a: Int): Int = if (a == 3) BubbleActions.FULL_PANEL else a
+        val rawTap = prefs.getInt("bubbleTapAction", BubbleActions.HOME)
+        val rawDouble = prefs.getInt("bubbleDoubleTapAction", BubbleActions.FULL_PANEL)
+        val rawLong = prefs.getInt("bubbleLongPressAction", BubbleActions.RECENTS)
+        return CoverSettings(
         columns = prefs.getInt("columns", 0),
         iconSizeDp = prefs.getInt("iconSizeDp", 56),
         showLabels = prefs.getBoolean("showLabels", true),
@@ -104,10 +141,13 @@ class SettingsStore(context: Context) {
         rotateMode = prefs.getInt("rotateMode", 1),
         panelBrightnessManual = prefs.getBoolean("panelBrightnessManual", false),
         panelBrightness = prefs.getFloat("panelBrightness", 0.72f),
-        bubbleTapAction = prefs.getInt("bubbleTapAction", BubbleActions.HOME),
-        bubbleDoubleTapAction = prefs.getInt("bubbleDoubleTapAction", BubbleActions.FULL_PANEL),
-        bubbleLongPressAction = prefs.getInt("bubbleLongPressAction", BubbleActions.RECENTS),
+        bubbleTapAction = migrated(rawTap),
+        bubbleDoubleTapAction = migrated(rawDouble),
+        bubbleLongPressAction = migrated(rawLong),
+        panelOpenMode = prefs.getInt("panelOpenMode", PanelOpenMode.ASSISTIVE_TOUCH)
+            .let { if (it == PanelOpenMode.SWIPE_INDICATOR) it else PanelOpenMode.ASSISTIVE_TOUCH },
     )
+    }
 
     fun save(s: CoverSettings) {
         prefs.edit()
@@ -131,6 +171,7 @@ class SettingsStore(context: Context) {
             .putInt("bubbleTapAction", s.bubbleTapAction)
             .putInt("bubbleDoubleTapAction", s.bubbleDoubleTapAction)
             .putInt("bubbleLongPressAction", s.bubbleLongPressAction)
+            .putInt("panelOpenMode", s.panelOpenMode)
             .apply()
     }
 }

@@ -78,6 +78,7 @@ object CoverControlCenterManager {
     // would land AFTER the new panel hides the
     // bubble again, bringing the duplicate back.
     private var bubbleHiddenForPanel = false
+    private var indicatorHiddenForPanel = false
     private var lastPanelDisplay: Display? = null
     private var lastPanelAppContext: Context? = null
     // vc110 PANEL CACHE (user, 27/10: first open
@@ -123,14 +124,12 @@ object CoverControlCenterManager {
     private var cachedAppListVersion: Int = -1
     private var cachedFavoritesKey: String = ""
     private var cachedHiddenKey: String = ""
-    // vc117 QUICK BAR state: the horizontal
-    // quick strip (see showQuickBar), separate
-    // from the full panel and its cache. The
-    // bar never hides the bubble - it coexists
-    // with AssistiveTouch, unlike the full panel.
-    private var quickBarView: View? = null
-    private var quickBarWm: WindowManager? = null
-    private var quickBarDismissRunnable: Runnable? = null
+    // vc120: the swipe indicator is hidden for
+    // the panel the same way the bubble is (see
+    // indicatorHiddenForPanel below, next to
+    // bubbleHiddenForPanel). No Quick Bar state
+    // remains - vc117's bar is deleted (user,
+    // 28/10: Quick Panel is not a bar option).
     private var cachedReopen: ((Int) -> Unit)? = null
     private var forceFreshShow: Boolean = false
     private fun clearPanelCache() {
@@ -153,23 +152,35 @@ object CoverControlCenterManager {
             st.sortMode, st.coverWidgets, st.rotateMode,
         ).joinToString("|")
     }
-    private fun restoreBubbleIfHiddenForPanel() {
-        if (!bubbleHiddenForPanel) return
+    // vc120: panel close restores whichever
+    // opener was hidden for the panel, following
+    // the CURRENT open mode (not the mode at
+    // open time, so a mode switch while the panel
+    // is open still lands on the right opener).
+    // Guards, same rules as the foreground
+    // service: never restore on lock (vc101
+    // no-opener-on-lock), during mirror, or
+    // when the user turned the opener off.
+    // In those cases the service restores the
+    // opener later (unlock / mirror stop).
+    private fun restoreOpenerIfHiddenForPanel() {
+        if (!bubbleHiddenForPanel && !indicatorHiddenForPanel) return
         bubbleHiddenForPanel = false
+        indicatorHiddenForPanel = false
         val disp = lastPanelDisplay ?: return
         val appCtx = lastPanelAppContext ?: return
-        // Guards, same rules as the foreground
-        // service: never restore on lock (vc101
-        // no-bubble-on-lock), during mirror, or
-        // when the user turned AssistiveTouch off.
-        // In those cases the service restores the
-        // bubble later (unlock / mirror stop).
         val km = runCatching { appCtx.getSystemService(android.app.KeyguardManager::class.java) }.getOrNull()
         if (km != null && km.isKeyguardLocked) return
         if (com.cuong.cflip.mirror.MirrorState.active) return
-        if (!runCatching { SettingsStore(appCtx).load().assistiveTouchEnabled }.getOrElse { true }) return
-        runCatching { CoverAssistiveTouchManager.show(appCtx, disp) }
-            .onFailure { Log.w(TAG, "Bubble restore after panel close failed", it) }
+        val st = runCatching { SettingsStore(appCtx).load() }.getOrNull() ?: return
+        if (!st.assistiveTouchEnabled) return
+        if (st.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.SWIPE_INDICATOR) {
+            runCatching { CoverSwipeIndicatorManager.show(appCtx, disp) }
+                .onFailure { Log.w(TAG, "Indicator restore after panel close failed", it) }
+        } else {
+            runCatching { CoverAssistiveTouchManager.show(appCtx, disp) }
+                .onFailure { Log.w(TAG, "Bubble restore after panel close failed", it) }
+        }
     }
     private var shotFeedbackView: View? = null
     private var shotFeedbackWm: WindowManager? = null
@@ -218,25 +229,17 @@ object CoverControlCenterManager {
             .start()
     }
 
-    // vc117 QUICK PANEL = HORIZONTAL BAR: a bubble
-    // action for Quick Panel lands here with
-    // quickPanel = true. It now routes to
-    // showQuickBar (a bottom strip that coexists
-    // with AssistiveTouch), NOT to a tab-less
-    // panel - vc115's tab-less panel is replaced.
-    // Defaults keep the old full panel behaviour.
-    fun show(appContext: Context, display: Display, initialTab: Int = 0, quickPanel: Boolean = false): Result<Unit> = runCatching {
-        if (quickPanel) {
-            showQuickBar(appContext, display).getOrThrow()
-            return@runCatching Unit
-        }
+    // vc120: show() is Full Panel only now.
+    // Quick Panel is an open mode (bubble vs
+    // swipe bar, PanelOpenMode), not a show()
+    // variant - the vc117 Quick Bar routing is
+    // deleted along with the bar itself.
+    fun show(appContext: Context, display: Display, initialTab: Int = 0): Result<Unit> = runCatching {
         val effectiveInitialTab = initialTab
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Control Center is cover-only, refusing default display")
         }
         hidePanelOnly()
-        // vc117: full panel and quick bar never stack.
-        hideQuickBar()
         if (forceFreshShow) {
             forceFreshShow = false
             clearPanelCache()
@@ -249,6 +252,11 @@ object CoverControlCenterManager {
         lastPanelAppContext = appContext.applicationContext
         bubbleHiddenForPanel = CoverAssistiveTouchManager.isShown()
         if (bubbleHiddenForPanel) CoverAssistiveTouchManager.hide()
+        // vc120: same for the swipe indicator -
+        // panel open hides whichever opener is
+        // shown; panel close restores it.
+        indicatorHiddenForPanel = CoverSwipeIndicatorManager.isShown()
+        if (indicatorHiddenForPanel) CoverSwipeIndicatorManager.hide()
         val displayContext = appContext.createDisplayContext(display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
@@ -312,7 +320,7 @@ object CoverControlCenterManager {
                     scheduleDismiss()
                     Log.i(TAG, "Control Center shown from cache on display ${display.displayId}")
                 } catch (e: Exception) {
-                    restoreBubbleIfHiddenForPanel()
+                    restoreOpenerIfHiddenForPanel()
                     throw e
                 }
                 return@runCatching Unit
@@ -397,8 +405,8 @@ object CoverControlCenterManager {
                 runCatching { manager.removeView(loading) }
                 loadingView = null
                 // vc109: build failed, no panel to
-                // show - give the bubble back.
-                restoreBubbleIfHiddenForPanel()
+                // show - give the opener back.
+                restoreOpenerIfHiddenForPanel()
                 Log.w(TAG, "Control Center build failed", e)
                 android.widget.Toast.makeText(displayContext, "Mở CFlip thất bại, thử chạm lại", android.widget.Toast.LENGTH_SHORT).show()
             }
@@ -444,241 +452,6 @@ object CoverControlCenterManager {
         return show(appContext, display, initialTab)
     }
 
-    // vc117 QUICK BAR: 9Flip's Quick Panel, as the
-    // user clarified 27/10, is a horizontal strip
-    // that coexists with AssistiveTouch, not a
-    // vertical panel. Decompile note: 9Flip's own
-    // Quick Panel is Samsung's system Quick Panel
-    // (TileService / accessibility inspection of its
-    // tiles, f5/*), not a custom vertical list, so
-    // CFlip cannot copy that system panel directly.
-    // Clean-room equivalent here: a bottom strip
-    // on the cover, one horizontal row - C (opens
-    // the Full Panel), Flashlight, Sound mode,
-    // Rotate, Media Prev / Play / Next, Close.
-    // The bubble stays visible while the bar is
-    // open; opening the Full Panel hides the bar.
-    // Auto-dismiss 60s, reset on every bar tap.
-    fun showQuickBar(appContext: Context, display: Display): Result<Unit> = runCatching {
-        if (display.displayId == Display.DEFAULT_DISPLAY) {
-            throw IllegalArgumentException("Quick Bar is cover-only, refusing default display")
-        }
-        hidePanelOnly()
-        hideQuickBar()
-        val displayContext = appContext.createDisplayContext(display)
-        val manager = displayContext.getSystemService(WindowManager::class.java)
-            ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
-        val density = displayContext.resources.displayMetrics.density
-        val dp = { v: Int -> (v * density).toInt() }
-        val store = SettingsStore(appContext)
-        fun ovalDark(): android.graphics.drawable.GradientDrawable =
-            android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xFF23262B.toInt())
-            }
-        fun barButton(iconRes: Int, onClick: () -> Unit): ImageButton {
-            return ImageButton(displayContext).apply {
-                setImageResource(iconRes)
-                setColorFilter(0xFFFFFFFF.toInt())
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = ovalDark()
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                    setMargins(dp(2), 0, dp(2), 0)
-                }
-                setOnClickListener { resetQuickBarTimer(); onClick() }
-            }
-        }
-        // vc118: same ringer-only detection as the
-        // panel cycle - Mute is SILENT, never DND.
-        fun barSoundMode(): Int {
-            val am = displayContext.getSystemService(android.media.AudioManager::class.java)
-            return when (am?.ringerMode) {
-                android.media.AudioManager.RINGER_MODE_VIBRATE -> 1
-                android.media.AudioManager.RINGER_MODE_SILENT -> 2
-                else -> 0
-            }
-        }
-        val bar = LinearLayout(displayContext).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-                cornerRadius = dp(24).toFloat()
-                setColor(0xE01A1D20.toInt())
-            }
-        }
-        // C: AssistiveTouch in the bar - opens Full Panel.
-        bar.addView(TextView(displayContext).apply {
-            text = "C"; textSize = 20f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(0xFF7FE3C0.toInt())
-            gravity = Gravity.CENTER
-            background = ovalDark()
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
-                setMargins(dp(2), 0, dp(2), 0)
-            }
-            setOnClickListener { resetQuickBarTimer(); hideQuickBar(); show(appContext, display, 0, false) }
-        })
-        // Flashlight: same toggle as the Control tile.
-        var flashBtn: ImageButton? = null
-        val flash = barButton(R.drawable.ic_sec_flashlight) {
-            val nextOn = !QuickControls.torchOn
-            QuickControls.setTorch(displayContext, nextOn)
-            val nowOn = QuickControls.torchOn
-            flashBtn?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-            (flashBtn?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
-                if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
-        }
-        flashBtn = flash
-        if (QuickControls.torchOn) {
-            flash.setColorFilter(0xFF000000.toInt())
-            (flash.background as? android.graphics.drawable.GradientDrawable)?.setColor(0xFF7FE3C0.toInt())
-        }
-        bar.addView(flash)
-        // Sound mode: same cycle as the Control slider
-        // (vc115 icon fix: icon from the mode just
-        // selected, re-read after 1s as a correction).
-        var soundBtn: ImageButton? = null
-        fun setBarSoundIcon(mode: Int) {
-            soundBtn?.setImageResource(when (mode) {
-                1 -> R.drawable.ic_cflip_vibrate
-                2 -> R.drawable.ic_sec_mute
-                else -> R.drawable.ic_sec_volume
-            })
-        }
-        val sound = barButton(R.drawable.ic_sec_volume) {
-            val am = displayContext.getSystemService(android.media.AudioManager::class.java)
-            val nm = displayContext.getSystemService(android.app.NotificationManager::class.java)
-            val next = (barSoundMode() + 1) % 3
-            // vc118: same cycle as the panel - Sound
-            // -> Vibrate -> Mute (ringer silent, NOT
-            // DND), with the old tip music mute /
-            // restore carried in the Mute / Sound steps.
-            if (nm != null && nm.isNotificationPolicyAccessGranted) {
-                nm.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
-            }
-            when (next) {
-                0 -> {
-                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_NORMAL
-                    val (curVol, maxVol) = QuickControls.volume(displayContext)
-                    if (curVol == 0) {
-                        val prefs = displayContext.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-                        val saved = prefs.getInt("saved_volume", -1)
-                        val restore = if (saved > 0) saved else ((maxVol * 0.45f).toInt()).coerceIn(1, maxVol)
-                        QuickControls.setVolume(displayContext, restore)
-                    }
-                    android.widget.Toast.makeText(displayContext, "Đã bật Âm thanh", android.widget.Toast.LENGTH_SHORT).show()
-                }
-                1 -> {
-                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
-                    android.widget.Toast.makeText(displayContext, "Đã bật Rung", android.widget.Toast.LENGTH_SHORT).show()
-                }
-                else -> {
-                    am?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
-                    val (curVol, _) = QuickControls.volume(displayContext)
-                    if (curVol > 0) {
-                        displayContext.getSharedPreferences("cflip_volume", Context.MODE_PRIVATE)
-                            .edit().putInt("saved_volume", curVol).apply()
-                        QuickControls.setVolume(displayContext, 0)
-                    }
-                    android.widget.Toast.makeText(displayContext, "Đã bật Tắt âm", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-            setBarSoundIcon(next)
-            handler.postDelayed({ setBarSoundIcon(barSoundMode()) }, 1000)
-        }
-        soundBtn = sound
-        setBarSoundIcon(barSoundMode())
-        bar.addView(sound)
-        // Rotate: same FOLLOW -> LOCK -> SYSTEM cycle
-        // as the Control tile, icon updated in place.
-        var rotBtn: ImageButton? = null
-        val rot = barButton(if (store.load().rotateMode == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate) {
-            val curMode = store.load().rotateMode
-            val next = when (curMode) { 0 -> 1; 1 -> 2; else -> 0 }
-            store.save(store.load().copy(rotateMode = next))
-            CoverRotateState.contentFallback = false
-            when (next) {
-                0 -> {
-                    val svcOn = MyAccessibilityService.instance != null
-                    CoverRotateHostManager.follow(appContext.applicationContext, display)
-                    android.widget.Toast.makeText(displayContext,
-                        if (svcOn) "Đã bật Xoay theo hướng lật — host FULL_SENSOR đang giữ, hãy lật máy để kiểm tra."
-                        else "Đã bật Xoay theo hướng lật (chưa có Accessibility — nếu không xoay, bật Accessibility cho CFlip rồi bấm lại).",
-                        android.widget.Toast.LENGTH_LONG).show()
-                }
-                1 -> {
-                    CoverRotateHostManager.lock(appContext.applicationContext, display)
-                    android.widget.Toast.makeText(displayContext, "Đã khóa xoay màn phụ ở hướng hiện tại.", android.widget.Toast.LENGTH_SHORT).show()
-                }
-                else -> {
-                    CoverRotateHostManager.remove()
-                    android.widget.Toast.makeText(displayContext, "Đã về xoay mặc định hệ thống — gỡ host xoay.", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-            val active = next != 2
-            rotBtn?.setImageResource(if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate)
-            rotBtn?.setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-            (rotBtn?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
-                if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
-        }
-        rotBtn = rot
-        if (store.load().rotateMode != 2) {
-            rot.setColorFilter(0xFF000000.toInt())
-            (rot.background as? android.graphics.drawable.GradientDrawable)?.setColor(0xFF7FE3C0.toInt())
-        }
-        bar.addView(rot)
-        // Media: same session actions as the panel row.
-        val mediaRepo = MediaControllerRepository(displayContext)
-        runCatching { mediaRepo.refresh() }
-        val playing = MediaState.current.value?.isPlaying == true
-        bar.addView(barButton(R.drawable.ic_cflip_media_prev) { mediaRepo.previous() })
-        var playBtn: ImageButton? = null
-        val play = barButton(if (playing) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play) {
-            mediaRepo.playPause()
-            handler.postDelayed({
-                val p = MediaState.current.value?.isPlaying == true
-                playBtn?.setImageResource(if (p) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)
-            }, 500)
-        }
-        playBtn = play
-        bar.addView(play)
-        bar.addView(barButton(R.drawable.ic_cflip_media_next) { mediaRepo.next() })
-        // Close: bar never hides the bubble, so closing
-        // the bar simply leaves the bubble where it was.
-        bar.addView(barButton(R.drawable.ic_sec_close) { hideQuickBar() })
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(16)
-        }
-        manager.addView(bar, params)
-        quickBarView = bar; quickBarWm = manager
-        resetQuickBarTimer()
-    }
-
-    private fun resetQuickBarTimer() {
-        quickBarDismissRunnable?.let { handler.removeCallbacks(it) }
-        val r = Runnable { hideQuickBar() }
-        quickBarDismissRunnable = r
-        handler.postDelayed(r, 60000)
-    }
-
-    fun hideQuickBar() {
-        quickBarDismissRunnable?.let { handler.removeCallbacks(it) }
-        quickBarDismissRunnable = null
-        runCatching {
-            val v = quickBarView; val w = quickBarWm
-            if (v != null && w != null) w.removeView(v)
-        }
-        quickBarView = null; quickBarWm = null
-    }
-
     // vc109: service hide-all paths (cover hidden,
     // display removed, service destroyed) must NOT
     // restore the bubble - the service is hiding
@@ -686,8 +459,8 @@ object CoverControlCenterManager {
     // restores it; this one clears the flag first.
     fun hideWithoutBubbleRestore() {
         bubbleHiddenForPanel = false
+        indicatorHiddenForPanel = false
         hidePanelOnly()
-        hideQuickBar()
         clearPanelCache()
     }
 
@@ -761,7 +534,7 @@ object CoverControlCenterManager {
         }
         // vc109: panel gone -> bubble back, unless
         // hideWithoutBubbleRestore cleared the flag.
-        restoreBubbleIfHiddenForPanel()
+        restoreOpenerIfHiddenForPanel()
     }
 
     private fun scheduleDismiss() {
@@ -974,9 +747,9 @@ object CoverControlCenterManager {
             background = rounded(0xFF23262B.toInt(), 24)
             setTextColor(0xFFFFFFFF.toInt())
         })
-        // vc117: full panel always has its tab bar.
-        // Quick Panel is now the horizontal bar
-        // (showQuickBar), not a tab-less panel.
+        // vc120: full panel always has its tab bar.
+        // Quick Panel is an open mode, not a
+        // panel variant (vc117 bar deleted).
         outer.addView(tabBar)
         outer.addView(scroll)
         // 3.2.0: no content rotation here. Rotation is the display-level

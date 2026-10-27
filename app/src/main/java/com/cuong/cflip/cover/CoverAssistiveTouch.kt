@@ -499,8 +499,7 @@ object CoverAssistiveTouchManager {
         when (action) {
             com.cuong.cflip.data.BubbleActions.HOME -> doHome(context, displayId)
             com.cuong.cflip.data.BubbleActions.RECENTS -> doRecents(context)
-            com.cuong.cflip.data.BubbleActions.FULL_PANEL -> doMenu(context, displayId, quickPanel = false)
-            com.cuong.cflip.data.BubbleActions.QUICK_PANEL -> doMenu(context, displayId, quickPanel = true)
+            com.cuong.cflip.data.BubbleActions.FULL_PANEL -> doMenu(context, displayId)
             com.cuong.cflip.data.BubbleActions.LOCK -> doLock(context)
             com.cuong.cflip.data.BubbleActions.NONE -> { /* deliberately nothing */ }
             else -> doHome(context, displayId)
@@ -517,7 +516,11 @@ object CoverAssistiveTouchManager {
         }
     }
 
-    private fun doMenu(context: Context, displayId: Int, quickPanel: Boolean = false) {
+    // vc120: Menu is always the Full Panel now.
+    // Quick Panel is an open mode (bubble vs
+    // swipe bar), not a menu variant, so there
+    // is no quickPanel flag here anymore.
+    private fun doMenu(context: Context, displayId: Int) {
         // Menu = CFlip's own Control Center panel, as an overlay on the
         // cover display (2.6.0). It used to launch MainActivity at the
         // Quick tab on the cover display, but that activity route is the
@@ -530,7 +533,7 @@ object CoverAssistiveTouchManager {
                 .getDisplay(displayId)
         }.getOrNull()
         val panelOk = if (display != null) {
-            CoverControlCenterManager.show(context, display, quickPanel = quickPanel).isSuccess
+            CoverControlCenterManager.show(context, display).isSuccess
         } else false
         if (!panelOk) {
             val intent = Intent(context, MainActivity::class.java)
