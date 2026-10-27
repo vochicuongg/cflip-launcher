@@ -55,6 +55,47 @@ import android.view.View
  * BEHAVIOUR (smooth filled wave, pill track,
  * palette, fade-in, slow animation), not real
  * audio analysis, which neither app does here.
+ * vc114 CHANGES (user, 27/10, build vc113
+ * already very good):
+ * - ALTERNATING LAYER BEAT: layers no longer
+ *   pulse together (vc112) and no longer have
+ *   no beat at all (vc113). Each layer has its
+ *   own beat factor, 0.85..1.0, with peaks
+ *   staggered by a quarter cycle, in fixed
+ *   order layer 0 -> 1 -> 2 -> 3 -> 0, repeating
+ *   on a definite 2400ms loop (peak moves every
+ *   600ms). So at any moment one layer is at
+ *   its peak while the others are lower, and
+ *   prominence rolls through the layers instead
+ *   of the whole wave pumping at once. That is
+ *   what makes it feel natural but still cyclic:
+ *   the beat order and period are fixed, never
+ *   random. The slow 68s shape morph (9Flip)
+ *   stays underneath, so shape and beat are two
+ *   separate, definite cycles.
+ * - BRIGHTER GAMUT: same dominant hue family
+ *   (no unrelated colours), but saturation is
+ *   boosted 10% (capped at 0.95) and the value
+ *   steps are raised from 0.60/0.75/0.90/1.0 to
+ *   0.75/0.85/0.95/1.0, so the outermost layer
+ *   is still darkest but no longer dull, and
+ *   the whole wave reads fresher on the dark
+ *   card. The progress pill uses the same
+ *   boosted innermost colour, so wave -> pill
+ *   on stop does not change hue.
+ * - FASTER BEAT, One UI 9 feel: HONEST NOTE -
+ *   there is no decompiled One UI 9 SystemUI
+ *   waveform tempo to copy exactly, so the
+ *   2400ms layer cycle is a chosen middle
+ *   ground, not a claimed One UI 9 value: faster
+ *   and livelier than vc113's beatless wave,
+ *   but gentler than vc112's simultaneous 2Hz
+ *   pulse, because the beat is spread across
+ *   layers instead of pumping the whole wave.
+ *   If it still feels slow / fast, the cycle is
+ *   one number (2400ms) and can be retuned in
+ *   one line - tell me and I will shorten it
+ *   (e.g. 1600ms) or lengthen it (e.g. 3200ms).
  * vc113 CHANGES (user, 27/10, build vc112
  * already good):
  * - FOUR wave layers, darkest outermost:
@@ -326,11 +367,17 @@ class MediaProgressBar(context: Context) : View(context) {
         } else {
             hue = ((waveformSeed % 360) + 360).toFloat(); sat = 0.7f; valFull = 0.95f
         }
-        val primary = hsv(hue, sat, valFull)
+        // vc114 BRIGHTER: saturation +10%
+        // (capped), value steps raised so the
+        // darkest outer layer is still dark but
+        // not dull. Hue unchanged, so no unrelated
+        // colours appear.
+        val satWave = (sat * 1.10f).coerceAtMost(0.95f)
+        val primary = hsv(hue, satWave, valFull)
         progressPillPaint.color = primary
-        val valueSteps = floatArrayOf(0.60f, 0.75f, 0.90f, 1.0f)
+        val valueSteps = floatArrayOf(0.75f, 0.85f, 0.95f, 1.0f)
         for (i in 0 until 4) {
-            waveLayerPaints[i].color = hsv(hue, sat, valFull * valueSteps[i])
+            waveLayerPaints[i].color = hsv(hue, satWave, valFull * valueSteps[i])
         }
     }
 
@@ -485,20 +532,26 @@ class MediaProgressBar(context: Context) : View(context) {
         }
         // Wave: played segment only, FOUR layers,
         // largest + darkest first, smallest +
-        // dominant last, so the dark outer layer
-        // peeks out above the brighter inner
-        // layers. vc113: opaque (255, kept from
-        // vc112), constant amplitude (no progress
-        // factor, no beat pulse), 9Flip phase
-        // from the frame-rate animator above.
+        // dominant last. vc114 ALTERNATING BEAT:
+        // each layer's amplitude is multiplied by
+        // 0.925 + 0.075 * sin(beat - i * pi/2),
+        // so layer peaks follow in fixed order
+        // 0 -> 1 -> 2 -> 3 -> 0 on a 2400ms loop
+        // (peak moves every 600ms). The beat is
+        // spread across layers, not pumped into
+        // all layers at once, so the wave rolls
+        // instead of thumping. Opaque (255),
+        // 9Flip phase from the animator above.
         if (progressX > left + radius && waveVisible > 0.02f) {
             val baseAmp = kotlin.math.min(h * 0.5f, dp(14))
             val amp = baseAmp * waveVisible
             val waveAlpha = (255f * waveVisible).toInt().coerceIn(0, 255)
             val ampSteps = floatArrayOf(1.0f, 0.85f, 0.70f, 0.55f)
             val offsets = floatArrayOf(0f, 0.8f, 1.6f, 2.4f)
+            val beatCycle = (System.currentTimeMillis() % 2400L).toFloat() / 2400f * 6.2831855f
             for (i in 0 until 4) {
-                buildWavePath(wavePaths[i], left, progressX, centerY, pillBottom, amp * ampSteps[i], wavePhase, offsets[i])
+                val beatFactor = 0.925f + 0.075f * kotlin.math.sin(beatCycle - i * 1.5707963f)
+                buildWavePath(wavePaths[i], left, progressX, centerY, pillBottom, amp * ampSteps[i] * beatFactor, wavePhase, offsets[i])
                 val paint = waveLayerPaints[i]
                 val saved = paint.alpha
                 paint.alpha = waveAlpha
