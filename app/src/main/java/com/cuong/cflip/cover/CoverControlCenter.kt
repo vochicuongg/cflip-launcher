@@ -113,6 +113,16 @@ object CoverControlCenterManager {
     private var cachedMediaExists: Boolean = false
     private var cachedMediaPlaying: Boolean = false
     private var cachedSettingsKey: String = ""
+    // vc111: panel cache must also track widget
+    // inputs, otherwise a cached panel would show
+    // a stale appgrid widget after an install /
+    // pin / hide change. App list version comes
+    // from AppRepository (increments on package
+    // broadcast clear); favorites + hidden are
+    // read per check (cheap SharedPreferences).
+    private var cachedAppListVersion: Int = -1
+    private var cachedFavoritesKey: String = ""
+    private var cachedHiddenKey: String = ""
     private var cachedReopen: ((Int) -> Unit)? = null
     private var forceFreshShow: Boolean = false
     private fun clearPanelCache() {
@@ -124,6 +134,9 @@ object CoverControlCenterManager {
         cachedMediaExists = false
         cachedMediaPlaying = false
         cachedSettingsKey = ""
+        cachedAppListVersion = -1
+        cachedFavoritesKey = ""
+        cachedHiddenKey = ""
     }
     private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
         return listOf(
@@ -208,10 +221,20 @@ object CoverControlCenterManager {
                 settingsKeyFor(SettingsStore(appContext).load())
             }.getOrElse { "" }
             val metrics = displayContext.resources.displayMetrics
+            val curAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
+            val curFavoritesKey = runCatching {
+                com.cuong.cflip.data.FavoritesStore(appContext).getFavorites().sorted().joinToString(",")
+            }.getOrElse { "" }
+            val curHiddenKey = runCatching {
+                com.cuong.cflip.data.HiddenAppsStore(appContext).getHidden().sorted().joinToString(",")
+            }.getOrElse { "" }
             val cacheValid = curMedia != null == cachedMediaExists &&
                 (curMedia?.isPlaying == true) == cachedMediaPlaying &&
                 curSettingsKey == cachedSettingsKey &&
                 cachedSettingsKey.isNotEmpty() &&
+                curAppListVersion == cachedAppListVersion &&
+                curFavoritesKey == cachedFavoritesKey &&
+                curHiddenKey == cachedHiddenKey &&
                 metrics.widthPixels == cachedPanelDisplayW &&
                 metrics.heightPixels == cachedPanelDisplayH
             if (cacheValid) {
@@ -638,6 +661,12 @@ object CoverControlCenterManager {
         // (SettingsStore.coverWidgets, default empty). If none are on,
         // the section says so and offers to open CFlip to add one.
         var widgetCardDeferred: LinearLayout? = null
+        // vc111: clock widget views, so the panel
+        // cache reopen lambda can refresh the time
+        // instead of showing the time from the
+        // last open (vc110 panel cache froze it).
+        var clockTimeView: TextView? = null
+        var clockDetailView: TextView? = null
         run {
             val chosen = store.load().coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             val widgetCard = card()
@@ -719,23 +748,33 @@ object CoverControlCenterManager {
                 })
             } else {
                 if ("clock" in chosen) {
-                    val batteryPct = runCatching {
-                        val intent = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-                        val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
-                        val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
-                        if (level >= 0 && scale > 0) level * 100 / scale else -1
-                    }.getOrDefault(-1)
-                    widgetCard.addView(TextView(ctx).apply {
+                    // vc111: clock views are kept in
+                    // clockTimeView / clockDetailView
+                    // (declared above) so reopen can
+                    // refresh them; text is identical
+                    // to the old anonymous version.
+                    fun clockBatteryPct(): Int {
+                        return runCatching {
+                            val intent = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                            if (level >= 0 && scale > 0) level * 100 / scale else -1
+                        }.getOrDefault(-1)
+                    }
+                    val batteryPct = clockBatteryPct()
+                    clockTimeView = TextView(ctx).apply {
                         text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
                         textSize = 28f; setTextColor(0xFFFFFFFF.toInt())
                         setTypeface(null, android.graphics.Typeface.BOLD)
-                    })
-                    widgetCard.addView(TextView(ctx).apply {
+                    }
+                    widgetCard.addView(clockTimeView)
+                    clockDetailView = TextView(ctx).apply {
                         val battery = if (batteryPct >= 0) " · Pin $batteryPct%" else ""
                         text = java.text.SimpleDateFormat("EEE, dd/MM", java.util.Locale.getDefault()).format(java.util.Date()) +
                             " · TB: ${NotificationState.active.value.size}$battery"
                         textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                    })
+                    }
+                    widgetCard.addView(clockDetailView)
                 }
                 if ("appgrid" in chosen) {
                     widgetCard.addView(TextView(ctx).apply {
@@ -764,16 +803,25 @@ object CoverControlCenterManager {
                     // empty text. Query uses applicationContext
                     // (not the cover display context) to avoid
                     // display-specific PackageManager quirks.
+                    // vc111: favorites read ONCE (was
+                    // read twice: pins + hasPins).
+                    // loadLaunchableApps() itself is
+                    // now cached in AppRepository, so
+                    // this widget no longer re-queries
+                    // PackageManager + icons on every
+                    // panel build - the main widget
+                    // loading cost the user reported.
+                    val favoritesSet = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites()
                     val favApps = run {
                         val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
                         val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
                         val byPkg = all.associateBy { it.packageName }
-                        val pins = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().map { pkg ->
+                        val pins = favoritesSet.map { pkg ->
                             byPkg[pkg] ?: com.cuong.cflip.data.AppInfo(packageName = pkg, label = pkg.substringAfterLast('.'), icon = null)
                         }.take(8)
                         if (pins.isNotEmpty()) pins else all.take(8)
                     }
-                    val hasPins = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().isNotEmpty()
+                    val hasPins = favoritesSet.isNotEmpty()
                     if (favApps.isEmpty()) {
                         // vc71 WIDGET RETRY: the old text blamed
                         // pinning ("Chưa ghim...") even when the query
@@ -2018,6 +2066,13 @@ object CoverControlCenterManager {
         cachedMediaExists = mediaInfo != null
         cachedMediaPlaying = mediaInfo?.isPlaying == true
         cachedSettingsKey = settingsKeyFor(store.load())
+        cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
+        cachedFavoritesKey = runCatching {
+            com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")
+        }.getOrElse { "" }
+        cachedHiddenKey = runCatching {
+            com.cuong.cflip.data.HiddenAppsStore(ctx.applicationContext).getHidden().sorted().joinToString(",")
+        }.getOrElse { "" }
         cachedReopen = { tab: Int ->
             notifTabBuilt = false
             notifContent.removeAllViews()
@@ -2027,6 +2082,21 @@ object CoverControlCenterManager {
             refreshBright2()
             refreshVol2()
             updateMediaViews()
+            // vc111: clock widget refresh on reopen
+            // (time / date / notification count /
+            // battery were frozen at build time).
+            clockTimeView?.text = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            clockDetailView?.let { detail ->
+                val batteryPct = runCatching {
+                    val intent = ctx.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                    if (level >= 0 && scale > 0) level * 100 / scale else -1
+                }.getOrDefault(-1)
+                val battery = if (batteryPct >= 0) " · Pin $batteryPct%" else ""
+                detail.text = java.text.SimpleDateFormat("EEE, dd/MM", java.util.Locale.getDefault()).format(java.util.Date()) +
+                    " · TB: ${NotificationState.active.value.size}$battery"
+            }
             scroll.scrollTo(0, 0)
             selectTab(tab.coerceIn(0, 3))
             mediaTickRunnable = mediaTick
