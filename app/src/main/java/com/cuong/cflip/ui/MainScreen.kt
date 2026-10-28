@@ -87,8 +87,8 @@ import com.cuong.cflip.service.NotificationController
  *   still opens via AssistiveTouch / Swipe indicator and via
  *   MainActivity's cover intent. Service control is a single toggle
  *   in its own card, not three stacked buttons.
- * - Status: three small stat cards, refreshed by one small "Làm mới"
- *   text button, not a full-width button.
+ * - Status: three small stat cards, refreshed automatically on every
+ *   action (vc133: the manual refresh button is gone).
  * - Mirror & Bubble are NOT on this screen any more - they live in the
  *   cover Quick tab where they are actually used. Removing them is
  *   what unclutters the hub; no feature was deleted.
@@ -226,7 +226,7 @@ fun MainScreen(
                 }
                 Text("Không thêm CFlip vào GoodLock.",
                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
-                Text("CFlip chạy độc lập trên màn phụ, không cần GoodLock hay MultiStar. Thêm vào GoodLock không làm CFlip chạy tốt hơn.",
+                Text("CFlip chạy độc lập trên màn hình ngoài, không cần GoodLock hay MultiStar. Thêm vào GoodLock làm chức năng CFlip không hoạt động đúng yêu cầu.",
                     fontSize = 12.sp, color = CFlipColors.TextSecondary)
                 Text("Mở panel bằng AssistiveTouch hoặc Thanh Vuốt trong mục Quick Panel, không qua GoodLock.",
                     fontSize = 12.sp, color = CFlipColors.TextSecondary)
@@ -294,16 +294,13 @@ fun MainScreen(
 
 
 
-        // Status: three quiet stats, one small refresh action.
+        // Status: three quiet stats, refreshed automatically (vc133).
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             StatCard("Quyền", "${statuses.requiredCount}/3", statuses.requiredCount == 3, Modifier.weight(1f))
             StatCard("Dịch vụ", if (statuses.serviceRunning) "Đang chạy" else "Tắt",
                 statuses.serviceRunning, Modifier.weight(1f))
-            StatCard("Màn phụ", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy",
+            StatCard("Màn hình ngoài", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy",
                 statuses.secondarySeen, Modifier.weight(1f))
-        }
-        TextButton(onClick = { statusVersion++ }, modifier = Modifier.align(Alignment.End)) {
-            Text("Làm mới trạng thái", color = CFlipColors.TextSecondary, fontSize = 12.sp)
         }
 
         // Widgets, 3.1.0 — USER-ADDED ONLY, corrected after the user's
@@ -342,19 +339,19 @@ fun MainScreen(
                 }
                 Text("Chưa bật gì thì panel không tự hiện Widget.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("Thêm Widget Samsung trên màn phụ: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
+                Text("Thêm Widget Samsung trên màn hình ngoài: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
                     fontSize = 12.sp, color = CFlipColors.TextSecondary)
                 Text("Hoặc mở cài đặt Widget Samsung bên dưới (chỉ mở được trên màn chính).",
                     fontSize = 12.sp, color = CFlipColors.TextSecondary)
                 TextButton(onClick = {
                     com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
                 }, modifier = Modifier.align(Alignment.Start)) {
-                    Text("Mở Cài đặt Widget màn phụ Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
+                    Text("Mở Cài đặt Widget màn hình ngoài Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
                 TextButton(onClick = {
                     toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
                 }, modifier = Modifier.align(Alignment.Start)) {
-                    Text("Kiểm tra Widget màn phụ đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
+                    Text("Kiểm tra Widget màn hình ngoài đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
             }
         }
@@ -394,7 +391,7 @@ fun MainScreen(
                 // itself never shows a bubble — it is custom/settings only.
                 // (Label renamed vc127: this switch is the common on/off
                 // for both openers, not just the bubble.)
-                HubSwitch("Quick Panel trên màn phụ", settings.assistiveTouchEnabled) {
+                HubSwitch("Quick Panel trên màn hình ngoài", settings.assistiveTouchEnabled) {
                     settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
                     if (it) {
                         // vc132 POKE (user, 29/10: enable showed neither opener):
@@ -415,6 +412,9 @@ fun MainScreen(
                         // the old code left the swipe bar visible in bar mode.
                         com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                         com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                        // vc133: stats recompute at once on toggle-off too
+                        // (the manual refresh button is gone).
+                        statusVersion++
                     }
                 }
                 var openModeExpanded by remember { mutableStateOf(false) }
@@ -453,9 +453,9 @@ fun MainScreen(
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
-                                // auto-dim, and position reset. Size/auto-dim only take
-                                // effect the next time the button is shown (service re-show
-                                // or panel close), because the overlay button is built once.
+                                // auto-dim, and position reset. vc133: size applies
+                                // immediately - picking it hides the opener and pokes
+                                // the service, which re-shows it at the new size.
                                 Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
                                     for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
                                         val selected = settings.assistiveTouchSize == size
@@ -464,6 +464,19 @@ fun MainScreen(
                                             .clickable {
                                                 settings = settings.copy(assistiveTouchSize = size)
                                                 settingsStore.save(settings)
+                                                // vc133 SIZE LIVE (user, 29/10: size picks
+                                                // did nothing): show() sizes the button once
+                                                // at creation, and while the bubble was up the
+                                                // service guard returned early, so a new size
+                                                // never took effect. Hide the opener and poke
+                                                // the service: tryShow re-shows it at the
+                                                // new size right away.
+                                                if (settings.assistiveTouchEnabled) {
+                                                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                                    com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                                    ContextCompat.startForegroundService(context,
+                                                        Intent(context, CoverForegroundService::class.java))
+                                                }
                                             }
                                             .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                                             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
@@ -478,7 +491,7 @@ fun MainScreen(
                                     context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
                                         .edit().clear().apply()
                                     com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                    toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
+                                    toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
                                 }, modifier = Modifier.align(Alignment.Start)) {
                                     Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
                                 }

@@ -14,7 +14,7 @@ import com.cuong.cflip.service.ScreenMirrorService
  * vc84 DIALOG-ONLY permission activity (vc83 split + cover-dialog fixes).
  * vc83 test (27/10): NO permission dialog on the cover, only the
  * 180-degree rotation, then nothing. User requirement for vc84: the
- * dialog MUST appear on the cover (màn phụ); the user will not
+ * dialog MUST appear on the cover (màn hình ngoài); the user will not
  * unfold to check the main display.
  *
  * vc84 changes in this file only (host changes are in

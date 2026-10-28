@@ -45,6 +45,10 @@ import com.cuong.cflip.service.MyAccessibilityService
  * and restores it on close (same rules as the
  * bubble: never on lock, never during mirror,
  * never when the opener is turned off).
+ *
+ * vc133: drawn ^ chevron + dark halo pill (9Flip mechanism, own drawing)
+ * so the bar reads on light wallpapers, and FLAG_NOT_TOUCH_MODAL so
+ * touches outside the bar still reach the cover UI.
  */
 object CoverSwipeIndicatorManager {
     private const val TAG = "CFlipSwipeIndicator"
@@ -71,21 +75,60 @@ object CoverSwipeIndicatorManager {
         val density = displayContext.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
+        // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
+        // 9Flip's indicator draws a chevron affordance (^) over a pill
+        // with contrast layers, so it reads on light wallpapers too.
+        // CFlip's old bar was a lone white pill with no chevron and no
+        // edge - white-on-white on a light cover wallpaper. Own drawing:
+        // a drawn ^ chevron (no font dependency) with a dark shadow,
+        // over a white pill set in a larger dark halo pill.
+        val chevron = object : View(displayContext) {
+            private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFFFFFFFF.toInt()
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = dp(3).toFloat()
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+                setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
+            }
+            override fun onDraw(canvas: android.graphics.Canvas) {
+                super.onDraw(canvas)
+                val w = width.toFloat(); val h = height.toFloat()
+                val path = android.graphics.Path().apply {
+                    moveTo(w * 0.15f, h * 0.8f)
+                    lineTo(w * 0.5f, h * 0.2f)
+                    lineTo(w * 0.85f, h * 0.8f)
+                }
+                canvas.drawPath(path, paint)
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(24), dp(12)).apply { gravity = Gravity.CENTER }
+        }
         val pill = View(displayContext).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(3).toFloat()
                 setColor(0xB3FFFFFF.toInt())
             }
-            layoutParams = LinearLayout.LayoutParams(dp(72), dp(6)).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams(dp(72), dp(6)).apply {
                 gravity = Gravity.CENTER
             }
         }
-        val container = LinearLayout(displayContext).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+        val halo = android.widget.FrameLayout(displayContext).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(0x66000000.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(88), dp(16)).apply { gravity = Gravity.CENTER }
             addView(pill)
+        }
+        val container = LinearLayout(displayContext).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(4), dp(8), dp(6))
+            addView(chevron)
+            addView(halo)
         }
         var downX = 0f
         var downY = 0f
@@ -131,7 +174,8 @@ object CoverSwipeIndicatorManager {
             dp(160),
             dp(48),
             barType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(16)

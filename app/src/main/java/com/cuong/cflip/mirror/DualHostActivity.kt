@@ -17,7 +17,7 @@ import android.widget.Toast
  * vc83 test (27/10): pull/build/install OK, but NO permission dialog
  * appeared on the cover — only the 180-degree rotation, then nothing.
  * User requirement for vc84: the dialog MUST appear on the cover
- * (màn phụ); the user will not unfold to check the main display.
+ * (màn hình ngoài); the user will not unfold to check the main display.
  *
  * vc84 changes, all in this host + permission (no service, no
  * RotateHost, no widget, no foreground change):
@@ -123,7 +123,7 @@ class DualHostActivity : Activity() {
         }
         dualEnabled = true
         Log.i(TAG, "Dual enabled, launching permission on cover (vc84)")
-        showCoverPill("Đã bật màn hình kép, đang mở dialog trên màn phụ")
+        showCoverPill("Đã bật màn hình kép, đang mở dialog trên màn hình ngoài")
         launchPermissionOnCover()
     }
 
@@ -133,7 +133,7 @@ class DualHostActivity : Activity() {
             com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay()
         }.getOrNull()
         if (cover == null) {
-            Toast.makeText(this, "Không tìm thấy màn phụ", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Không tìm thấy màn hình ngoài", Toast.LENGTH_SHORT).show()
             finishAndRemoveTask()
             return
         }
@@ -150,7 +150,7 @@ class DualHostActivity : Activity() {
         // like the vc83 symptom (rotated cover, nothing else). Surface it.
         val ok = runCatching { startActivity(permIntent, opts) }.isSuccess
         if (!ok) {
-            showCoverPill("Không mở được dialog trên màn phụ, thử bấm lại")
+            showCoverPill("Không mở được dialog trên màn hình ngoài, thử bấm lại")
             finishAndRemoveTask()
             return
         }

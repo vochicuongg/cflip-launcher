@@ -54,7 +54,7 @@ class MyAccessibilityService : AccessibilityService() {
     // NO_ACCESSIBILITY_ACCESS (code 2). The panel then fell back
     // to GLOBAL_ACTION_TAKE_SCREENSHOT, which targets the DEFAULT
     // (main) display, so folded it captured the main display and
-    // looked like "chụp màn chính, không phải màn phụ". vc44 adds
+    // looked like "chụp màn chính, không phải màn hình ngoài". vc44 adds
     // canTakeScreenshot=true to the config AND removes the silent
     // main-display fallback: if the cover API fails, the panel
     // reports the real error code instead of capturing the wrong
@@ -110,7 +110,7 @@ class MyAccessibilityService : AccessibilityService() {
                         } ?: throw IllegalStateException("Cannot open output stream")
                         runCatching {
                             val notif = NotificationCompat.Builder(this@MyAccessibilityService, CFlipApp.CHANNEL_ID)
-                                .setContentTitle("CFlip - Đã chụp màn phụ")
+                                .setContentTitle("CFlip - Đã chụp màn hình ngoài")
                                 .setContentText(name)
                                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                                 .setAutoCancel(true)
@@ -140,7 +140,7 @@ class MyAccessibilityService : AccessibilityService() {
                         1 -> "lỗi nội bộ hệ thống"
                         2 -> "chưa có quyền chụp (tắt/bật lại Accessibility cho CFlip một lần để nhận cấu hình mới)"
                         3 -> "chụp quá nhanh sau lần trước (cách nhau ít nhất 1 giây)"
-                        4 -> "display màn phụ không hợp lệ với API chụp của hệ thống"
+                        4 -> "display màn hình ngoài không hợp lệ với API chụp của hệ thống"
                         5 -> "cửa sổ không hợp lệ"
                         6 -> "nội dung bảo mật, hệ thống cấm chụp"
                         else -> "lỗi không rõ"

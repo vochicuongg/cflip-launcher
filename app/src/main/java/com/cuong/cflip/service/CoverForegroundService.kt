@@ -354,9 +354,8 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             Log.i(TAG, "Panel active - opener left hidden (vc112, vc120: bubble or swipe bar)")
             return
         }
-        if (assistiveTouchDisplayId == secondary.displayId &&
-            (com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown() ||
-                com.cuong.cflip.cover.CoverSwipeIndicatorManager.isShown())) return
+        // vc133: no blanket already-shown early return here anymore - the
+        // per-mode check in the mode-aware re-show below handles it.
         if (!settings.assistiveTouchEnabled) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
             com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
@@ -371,13 +370,26 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             sendBroadcast(android.content.Intent(
                 com.cuong.cflip.cover.CoverUnlockActivity.ACTION_FINISH_UNLOCK))
         }
-        if (settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.SWIPE_INDICATOR) {
+        // vc133 MODE-AWARE RE-SHOW (user, 29/10: switching to the swipe bar
+        // never showed it): the old guard returned early whenever ANY
+        // opener was shown, so switching bubble -> bar with the bubble
+        // still up left the bubble in place and the bar never appeared.
+        // 9Flip re-applies its indicator layout on every show instead of
+        // early-returning. Same idea here: hide the opener that does NOT
+        // match the current mode, then show the right one unless it is
+        // already up on this display.
+        val wantBar = settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.SWIPE_INDICATOR
+        if (wantBar) {
             com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+            if (assistiveTouchDisplayId == secondary.displayId &&
+                com.cuong.cflip.cover.CoverSwipeIndicatorManager.isShown()) return
             com.cuong.cflip.cover.CoverSwipeIndicatorManager.show(this, secondary)
                 .onSuccess { assistiveTouchDisplayId = secondary.displayId }
                 .onFailure { Log.w(TAG, "Swipe indicator refused on cover display", it) }
         } else {
             com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+            if (assistiveTouchDisplayId == secondary.displayId &&
+                com.cuong.cflip.cover.CoverAssistiveTouchManager.isShown()) return
             com.cuong.cflip.cover.CoverAssistiveTouchManager.show(this, secondary)
                 .onSuccess { assistiveTouchDisplayId = secondary.displayId }
                 .onFailure { Log.w(TAG, "AssistiveTouch refused on cover display", it) }

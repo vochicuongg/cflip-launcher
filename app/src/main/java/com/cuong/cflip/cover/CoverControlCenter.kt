@@ -790,7 +790,7 @@ object CoverControlCenterManager {
             // widget. This text states that flow; the picker itself is
             // Samsung's UI, not CFlip's.
             widgetCard.addView(TextView(ctx).apply {
-                text = "Thêm từ màn phụ (không cần mở máy): gập máy lại, vuốt Widget màn phụ tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung."
+                text = "Thêm từ màn hình ngoài (không cần mở máy): gập máy lại, vuốt Widget màn hình ngoài tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung."
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
             // 3.4.0: status + Samsung settings, usable from the cover
@@ -806,14 +806,14 @@ object CoverControlCenterManager {
                     resetTimer()
                 }
             })
-            widgetCard.addView(modernButton("Mở Cài đặt Widget màn phụ Samsung").apply {
+            widgetCard.addView(modernButton("Mở Cài đặt Widget màn hình ngoài Samsung").apply {
                 setOnClickListener {
                     com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(ctx.applicationContext)
                 }
             })
             if (chosen.isEmpty()) {
                 widgetCard.addView(TextView(ctx).apply {
-                    text = "Chưa thêm Widget nào. Bấm một nút dưới đây để thêm ngay trên màn phụ — không nhảy sang màn hình chính."
+                    text = "Chưa thêm Widget nào. Bấm một nút dưới đây để thêm ngay trên màn hình ngoài — không nhảy sang màn hình chính."
                     textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                 })
                 fun addWidgetOnCover(key: String, label: String) {
@@ -840,7 +840,7 @@ object CoverControlCenterManager {
                 // design — it is labelled as such, so it is not a
                 // mistaken jump to main home. If the activity does not
                 // exist, show 9Flip's unsupported toast equivalent.
-                widgetCard.addView(modernButton("Mở Cài đặt Widget màn phụ Samsung").apply {
+                widgetCard.addView(modernButton("Mở Cài đặt Widget màn hình ngoài Samsung").apply {
                     setOnClickListener {
                         val intent = Intent().apply {
                             component = android.content.ComponentName(
@@ -850,7 +850,7 @@ object CoverControlCenterManager {
                         }
                         if (intent.resolveActivity(ctx.packageManager) == null) {
                             android.widget.Toast.makeText(
-                                ctx, "Thiết bị này không hỗ trợ Cài đặt Widget màn phụ Samsung.",
+                                ctx, "Thiết bị này không hỗ trợ Cài đặt Widget màn hình ngoài Samsung.",
                                 android.widget.Toast.LENGTH_SHORT).show()
                         } else {
                             ctx.applicationContext.startActivity(intent)
@@ -1135,7 +1135,7 @@ object CoverControlCenterManager {
                             ctx.applicationContext.startActivity(
                                 Intent(launchIntent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }
-                        android.widget.Toast.makeText(ctx, "App không mở được trên màn phụ, đã mở trên màn chính - mở máy ra để xem", android.widget.Toast.LENGTH_LONG).show()
+                        android.widget.Toast.makeText(ctx, "App không mở được trên màn hình ngoài, đã mở trên màn chính - mở máy ra để xem", android.widget.Toast.LENGTH_LONG).show()
                     } else if (openedViaPi) {
                         android.widget.Toast.makeText(ctx, "Đã mở app đang phát", android.widget.Toast.LENGTH_SHORT).show()
                     } else {
@@ -1849,7 +1849,7 @@ object CoverControlCenterManager {
                     1 -> {
                         CoverRotateHostManager.lock(ctx.applicationContext, display)
                         android.widget.Toast.makeText(
-                            ctx, "Đã khóa xoay màn phụ ở hướng hiện tại.",
+                            ctx, "Đã khóa xoay màn hình ngoài ở hướng hiện tại.",
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
                     else -> {
@@ -1939,10 +1939,10 @@ object CoverControlCenterManager {
                     svc.takeScreenshotForDisplay(display.displayId) { ok, msg ->
                         if (ok) {
                             showCoverMessage(ctx, display, "\u0110\u00e3 ch\u1ee5p m\u00e0n ph\u1ee5 \u2713\n" + msg)
-                            android.widget.Toast.makeText(ctx, "Đã chụp màn phụ, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(ctx, "Đã chụp màn hình ngoài, lưu vào Gallery: $msg", android.widget.Toast.LENGTH_LONG).show()
                         } else {
                             showCoverMessage(ctx, display, "Ch\u1ee5p th\u1ea5t b\u1ea1i: " + msg)
-                            android.widget.Toast.makeText(ctx, "Chụp màn phụ thất bại ($msg). CFlip không chụp màn chính thay thế để khỏi nhầm ảnh - bấm lại sau 1 giây nếu mã là chụp quá nhanh.", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(ctx, "Chụp màn hình ngoài thất bại ($msg). CFlip không chụp màn chính thay thế để khỏi nhầm ảnh - bấm lại sau 1 giây nếu mã là chụp quá nhanh.", android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
                 }, 500)
@@ -2022,8 +2022,8 @@ object CoverControlCenterManager {
                     true
                 }.getOrDefault(false)
                 if (coverHostOk) {
-                    android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn phụ - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
-                    showCoverMessage(ctx, display, "Đã mở xin quyền trên màn phụ - bấm Cho phép")
+                    android.widget.Toast.makeText(ctx, "Đã mở xin quyền phản chiếu trên màn hình ngoài - bấm Cho phép để bắt đầu", android.widget.Toast.LENGTH_LONG).show()
+                    showCoverMessage(ctx, display, "Đã mở xin quyền trên màn hình ngoài - bấm Cho phép")
                 } else {
                     android.widget.Toast.makeText(
                         ctx, "Mở máy ra để đồng ý phản chiếu màn hình",

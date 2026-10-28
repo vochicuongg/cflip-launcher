@@ -171,7 +171,7 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
         // AssistiveTouch on the cover display, toggled from the main screen
         // under "Cài đặt cover" — not from here, and never on the main display.
         Text(
-            "AssistiveTouch chỉ hiện trên màn phụ, bật/tắt ở màn hình chính → Cài đặt cover.",
+            "AssistiveTouch chỉ hiện trên màn hình ngoài, bật/tắt ở màn hình chính → Cài đặt cover.",
             fontSize = 12.sp, color = CFlipColors.TextFaint,
         )
         Spacer(Modifier.height(4.dp))
