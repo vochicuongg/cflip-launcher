@@ -14,6 +14,30 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
+ * vc142 (user, 29/10 - chưa pull vc141, bản này chồng lên vc141):
+ * - REAL AMPLITUDE: the wave is now driven by AudioWaveCapture
+ *   (Visualizer on the output mix) when it works: bass hits rise tall,
+ *   quiet passages go flat, because the heights are the music's real
+ *   RMS amplitude, not a sine. When capture is unavailable (init
+ *   throws, or the device returns exact-flat output = blocked mix),
+ *   the view falls back to the synthetic 4-layer sine wave below, so
+ *   the UI never goes dead. Capture is the whole device mix, not
+ *   per-app - that is a platform limit, not a bug to chase.
+ * - SMOOTHING: capture lands at ~10-20Hz; the view interpolates to
+ *   display refresh (60/120Hz) with attack/release per bar (rise fast
+ *   0.45/frame, fall slow 0.18/frame), so peaks snap up at once and
+ *   settle smoothly instead of jerking.
+ * - COLOUR GRADIENT: the wave no longer uses one hue family only.
+ *   The art's dominant hue is the gradient start and the runner-up
+ *   hue (or hue + 30 when the art is near-monochrome) is the end, so
+ *   the bars sweep primary -> secondary across the played segment.
+ * - TIME CURSOR, WRAPPED IN COLOUR: the old white thumb is replaced
+ *   by a primary-colour core, a secondary-colour ring around it, and
+ *   a soft primary glow, all from the album art. It grows slightly
+ *   while the finger drags it. Seek behaviour is unchanged (drag
+ *   follows the finger, session seeks once on finger-up).
+ * This supersedes the vc107/vc112 HONEST LIMIT notes for the case
+ * where capture works; the synthetic wave remains the fallback.
  * vc107 media timeline, following 9Flip e4/i (decompiled
  * 27/10, clean-room re-implementation, NOT a copy):
  * - View height 28dp, timeline inset 8dp left/right.
@@ -227,6 +251,10 @@ class MediaProgressBar(context: Context) : View(context) {
             if (field != v) {
                 field = v
                 updatePalette()
+                // vc142: a new track retries real capture if an
+                // earlier track was blocked into fallback.
+                waveCapture.resetBlocked()
+                startCapture()
                 invalidate()
             }
         }
@@ -236,6 +264,9 @@ class MediaProgressBar(context: Context) : View(context) {
                 field = v
                 updateWaveAnimation()
                 animateWaveHeight(if (v) 1f else 0f)
+                // vc142: capture only while playing, never while
+                // paused or stopped (battery + a settled wave).
+                if (v) startCapture() else stopCapture()
             }
         }
     // vc108 wave height factor: 1 = full wave,
@@ -266,6 +297,23 @@ class MediaProgressBar(context: Context) : View(context) {
         waveHeightAnimator = anim
         anim.start()
     }
+    // vc142 REAL AMPLITUDE + SMOOTHING + CURSOR: the capture wrapper,
+    // per-bar smoothed heights (main thread only), and the gradient
+    // colours. Smoothing state is reset whenever the bar count changes
+    // (played segment grows as the song progresses).
+    private val waveCapture = AudioWaveCapture()
+    private var smoothedBars = FloatArray(0)
+    private var wavePrimaryColor: Int = Color.WHITE
+    private var waveSecondaryColor: Int = Color.WHITE
+    private fun startCapture() {
+        if (!isAttachedToWindow || !wavePlaying) return
+        if (waveCapture.captureActive) return
+        waveCapture.onBars = { postInvalidate() }
+        waveCapture.start()
+    }
+    private fun stopCapture() {
+        waveCapture.stop()
+    }
     // vc108: album art for dominant-colour palette.
     // Stored as a reference only (panel already
     // holds the bitmap); null = fall back to seed.
@@ -285,10 +333,15 @@ class MediaProgressBar(context: Context) : View(context) {
     // value so the wave stays vivid on dark art.
     // Returns (hue, sat, value) or null if no vivid
     // pixel was found (then seed hue is used).
-    private fun dominantHsv(art: Bitmap): Triple<Float, Float, Float>? {
+    // vc142: top TWO hue buckets (dominant + runner-up) for the
+    // gradient (primary -> secondary) and the cursor ring. The
+    // runner-up must differ by more than 25 degrees from the best,
+    // otherwise the gradient would be invisible on near-monochrome
+    // art (the call site then falls back to hue + 30).
+    private fun dominantHues(art: Bitmap): List<Triple<Float, Float, Float>> {
         val w = art.width
         val h = art.height
-        if (w <= 0 || h <= 0) return null
+        if (w <= 0 || h <= 0) return emptyList()
         val stepX = kotlin.math.max(1, w / 32)
         val stepY = kotlin.math.max(1, h / 32)
         val weightSum = FloatArray(12)
@@ -326,6 +379,14 @@ class MediaProgressBar(context: Context) : View(context) {
             }
             y += stepY
         }
+        fun tripleFor(bucket: Int): Triple<Float, Float, Float> {
+            val wSum = weightSum[bucket]
+            return Triple(
+                (hueSum[bucket] / wSum).coerceIn(0f, 360f),
+                (satSum[bucket] / wSum).coerceIn(0.62f, 0.94f),
+                (valSum[bucket] / wSum).coerceIn(0.88f, 1.0f)
+            )
+        }
         var best = -1
         var bestWeight = 0f
         for (i in 0 until 12) {
@@ -334,11 +395,22 @@ class MediaProgressBar(context: Context) : View(context) {
                 best = i
             }
         }
-        if (best < 0 || bestWeight <= 0f) return null
-        val hue = (hueSum[best] / bestWeight).coerceIn(0f, 360f)
-        val sat = (satSum[best] / bestWeight).coerceIn(0.62f, 0.94f)
-        val value = (valSum[best] / bestWeight).coerceIn(0.88f, 1.0f)
-        return Triple(hue, sat, value)
+        if (best < 0 || bestWeight <= 0f) return emptyList()
+        val result = mutableListOf(tripleFor(best))
+        val bestHue = hueSum[best] / bestWeight
+        var second = -1
+        var secondWeight = 0f
+        for (i in 0 until 12) {
+            if (i == best || weightSum[i] <= 0f) continue
+            val hueI = hueSum[i] / weightSum[i]
+            val diff = kotlin.math.abs(((hueI - bestHue + 540f) % 360f) - 180f)
+            if (diff > 25f && weightSum[i] > secondWeight) {
+                secondWeight = weightSum[i]
+                second = i
+            }
+        }
+        if (second >= 0) result.add(tripleFor(second))
+        return result
     }
 
     private val density = context.resources.displayMetrics.density
@@ -356,14 +428,23 @@ class MediaProgressBar(context: Context) : View(context) {
     private val waveLayerPaints = Array(4) {
         Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     }
-    private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+    // vc142 TIME CURSOR paints: the playhead is wrapped in colour -
+    // primary-colour core + secondary-colour ring + primary glow -
+    // instead of the old white thumb. Colours are set in updatePalette.
+    private val cursorGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-    private val thumbShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(32, 0, 0, 0)
+    private val cursorRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(2)
+    }
+    private val cursorDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
+    private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val barRect = RectF()
     private val trackRect = RectF()
     private val pillRect = RectF()
     private val wavePaths = Array(4) { Path() }
@@ -371,11 +452,21 @@ class MediaProgressBar(context: Context) : View(context) {
     private fun hsv(hue: Float, sat: Float, value: Float): Int {
         return Color.HSVToColor(floatArrayOf(((hue % 360f) + 360f) % 360f, sat, value))
     }
+    // vc142: gradient interpolation between two opaque colours, used
+    // for the real bars (primary -> secondary across the segment).
+    private fun lerpColor(a: Int, b: Int, t: Float): Int {
+        val f = t.coerceIn(0f, 1f)
+        return Color.argb(255,
+            (Color.red(a) + (Color.red(b) - Color.red(a)) * f).toInt(),
+            (Color.green(a) + (Color.green(b) - Color.green(a)) * f).toInt(),
+            (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * f).toInt())
+    }
     private fun updatePalette() {
         // vc108: art dominant colour wins; seed
         // hue is only the no-art fallback.
         val art = waveArt
-        val dom = if (art != null) runCatching { dominantHsv(art) }.getOrNull() else null
+        val doms = if (art != null) runCatching { dominantHues(art) }.getOrNull() else null
+        val dom = doms?.firstOrNull()
         // vc113: same hue family, value ramps
         // dark -> dominant. Outermost layer is
         // darkest, innermost is the full dominant
@@ -412,6 +503,16 @@ class MediaProgressBar(context: Context) : View(context) {
         // colours appear.
         val satWave = (sat * 1.20f).coerceAtMost(0.98f)
         val primary = hsv(hue, satWave, valFull)
+        wavePrimaryColor = primary
+        // vc142 GRADIENT + CURSOR colours: the art's runner-up hue is
+        // the gradient end and the cursor ring; near-monochrome art
+        // falls back to hue + 30 (analogous, same family as vc112).
+        val secondHue = doms?.getOrNull(1)?.first ?: ((hue + 30f) % 360f)
+        waveSecondaryColor = hsv(secondHue, satWave, valFull)
+        cursorGlowPaint.color = primary
+        cursorGlowPaint.alpha = 60
+        cursorRingPaint.color = waveSecondaryColor
+        cursorDotPaint.color = primary
         progressPillPaint.color = primary
         val valueSteps = floatArrayOf(0.80f, 0.88f, 0.95f, 1.0f)
         for (i in 0 until 4) {
@@ -458,12 +559,14 @@ class MediaProgressBar(context: Context) : View(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         updateWaveAnimation()
+        startCapture()
     }
     override fun onDetachedFromWindow() {
         wavePhaseAnimator?.cancel()
         wavePhaseAnimator = null
         waveHeightAnimator?.cancel()
         waveHeightAnimator = null
+        stopCapture()
         super.onDetachedFromWindow()
     }
 
@@ -568,6 +671,38 @@ class MediaProgressBar(context: Context) : View(context) {
             canvas.drawRoundRect(pillRect, radius, radius, progressPillPaint)
             progressPillPaint.alpha = saved
         }
+        // vc142 REAL BARS: when the output-mix capture is alive, the
+        // played segment is drawn as rounded bars whose heights are
+        // the smoothed real amplitudes, coloured by the album-art
+        // gradient primary -> secondary. Smoothing is attack/release
+        // per bar (rise fast 0.45/frame, fall slow 0.18/frame), so bass
+        // hits snap up at once and quiet parts settle smoothly instead
+        // of jerking. When capture is unavailable the sine wave below
+        // runs instead (fallback, never a dead UI).
+        val capture = if (wavePlaying) waveCapture.latestBars else null
+        val realMode = capture != null && waveCapture.captureActive
+        if (realMode && progressX > left + radius && waveVisible > 0.02f) {
+            val displayCount = ((progressX - left) / dp(6)).toInt().coerceIn(16, 64)
+            if (smoothedBars.size != displayCount) smoothedBars = FloatArray(displayCount)
+            val maxHalf = kotlin.math.min(h * 0.5f, dp(10))
+            val slotW = (progressX - left) / displayCount
+            val barW = slotW * 0.62f
+            val waveAlpha = (220f * waveVisible).toInt().coerceIn(0, 220)
+            for (i in 0 until displayCount) {
+                val src = capture[(i * capture.size / displayCount).coerceIn(0, capture.size - 1)]
+                val target = (src * waveVisible).coerceIn(0f, 1f)
+                val cur = smoothedBars[i]
+                smoothedBars[i] = if (target > cur) cur + (target - cur) * 0.45f else cur + (target - cur) * 0.18f
+                val bh = smoothedBars[i] * maxHalf * 2f
+                if (bh < 0.5f) continue
+                val bx = left + slotW * i + (slotW - barW) / 2f
+                barPaint.color = lerpColor(wavePrimaryColor, waveSecondaryColor,
+                    if (displayCount > 1) i.toFloat() / (displayCount - 1) else 0f)
+                barPaint.alpha = waveAlpha
+                barRect.set(bx, centerY - bh / 2f, bx + barW, centerY + bh / 2f)
+                canvas.drawRoundRect(barRect, barW / 2f, barW / 2f, barPaint)
+            }
+        }
         // Wave: played segment only, FOUR layers,
         // largest + darkest first, smallest +
         // dominant last. vc114 ALTERNATING BEAT:
@@ -580,7 +715,10 @@ class MediaProgressBar(context: Context) : View(context) {
         // all layers at once, so the wave rolls
         // instead of thumping. Opaque (255),
         // 9Flip phase from the animator above.
-        if (progressX > left + radius && waveVisible > 0.02f) {
+        // vc142: sine is the fallback only - when
+        // real capture is alive the bars above
+        // are drawn instead.
+        if (!realMode && progressX > left + radius && waveVisible > 0.02f) {
             val baseAmp = kotlin.math.min(h * 0.5f, dp(14))
             val amp = baseAmp * waveVisible
             val waveAlpha = (220f * waveVisible).toInt().coerceIn(0, 220)
@@ -597,10 +735,15 @@ class MediaProgressBar(context: Context) : View(context) {
                 paint.alpha = saved
             }
         }
-        // Thumb: shadow + white solid circle, 7dp.
+        // vc142 TIME CURSOR: the playhead is wrapped in colour - a
+        // primary-colour core, a secondary-colour ring around it, and
+        // a soft primary glow - instead of the old white thumb. It
+        // grows slightly while the finger drags it.
         if (progressX in left..right) {
-            canvas.drawCircle(progressX, centerY, dp(8), thumbShadowPaint)
-            canvas.drawCircle(progressX, centerY, dp(7), thumbPaint)
+            val seekScale = if (isSeeking) 1.25f else 1f
+            canvas.drawCircle(progressX, centerY, dp(12) * seekScale, cursorGlowPaint)
+            canvas.drawCircle(progressX, centerY, dp(9) * seekScale, cursorRingPaint)
+            canvas.drawCircle(progressX, centerY, dp(6) * seekScale, cursorDotPaint)
         }
     }
 

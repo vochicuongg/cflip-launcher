@@ -17,6 +17,8 @@
     <!-- Brightness control (user grants "Modify system settings" per-app) -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Real wave amplitude: Visualizer on the output mix (vc142, normal permission, no runtime prompt) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
