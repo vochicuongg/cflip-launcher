@@ -278,11 +278,27 @@ fun MainScreen(
             }
         }
 
-        // Cover settings: segmented sort + three clean toggle rows.
-        SectionLabel("Cài đặt cover")
-        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .padding(16.dp)) {
+        // vc121 ISLANDS (user, 28/10: group the
+        // main settings into separate feature
+        // islands, neat like 9Flip). The old
+        // "Cai dat cover" box crammed unrelated
+        // features - display, AssistiveTouch,
+        // Quick Panel, touch actions - into one
+        // card. Each group is now its own island
+        // (9Flip pattern: grouped sections, one
+        // feature per rounded card, same card
+        // style as the existing Widget /
+        // Permissions / Service islands). Nothing
+        // is added or removed - same rows, same
+        // order, same save logic, only grouped.
+        // One move: the AssistiveTouch position
+        // reset button moves from the touch-action
+        // rows into the AssistiveTouch island,
+        // where it belongs. Island labels sit
+        // 8dp above their card (before, a label
+        // sat 24dp above its card, the outer
+        // section spacing, which read as detached).
+        Island("Hiển thị cover") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
                     for ((mode, label) in listOf(0 to "A-Z", 1 to "Mới mở", 2 to "Mới cài")) {
@@ -308,6 +324,11 @@ fun MainScreen(
                 HubSwitch("Hiện nhãn ứng dụng", settings.showLabels) {
                     settings = settings.copy(showLabels = it); settingsStore.save(settings)
                 }
+            }
+        }
+
+        Island("AssistiveTouch") {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 // 25/10/2026: this toggle is cover-only. The main display
                 // itself never shows a bubble — it is custom/settings only.
                 HubSwitch("AssistiveTouch trên màn phụ", settings.assistiveTouchEnabled) {
@@ -337,60 +358,66 @@ fun MainScreen(
                     HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
                         settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
                     }
-                    // vc120 QUICK PANEL OPEN MODE (user,
-                    // 28/10): Quick Panel is NOT a bubble
-                    // action anymore - it is a feature
-                    // with two open modes (9Flip gb):
-                    // AssistiveTouch bubble or Swipe
-                    // indicator bar. Pick one here; the
-                    // bubble action rows below now have
-                    // 5 actions (Quick Panel removed).
-                    Text("Quick Panel (cách mở panel):",
-                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                    var openModeExpanded by remember { mutableStateOf(false) }
-                    OpenModeRow("Mở panel bằng", settings.panelOpenMode,
-                        expanded = openModeExpanded,
-                        onExpand = { openModeExpanded = true },
-                        onDismiss = { openModeExpanded = false },
-                        onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
-                    Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
-                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                    // vc117 DROPDOWN (user, 27/10):
-                    // tap-to-cycle rows were easy to
-                    // overshoot (e.g. cycling past to
-                    // NONE, then long-press looked dead).
-                    // Each row now opens a dropdown with
-                    // all 5 actions, so the choice is
-                    // visible before it is made. Defaults:
-                    // tap = Home, double-tap = Full panel,
-                    // long-press = Recents.
-                    Text("Thao tác chạm AssistiveTouch (chạm vào hàng để chọn):",
-                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                    var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
-                    BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
-                        expanded = bubbleMenuExpanded == "tap",
-                        onExpand = { bubbleMenuExpanded = "tap" },
-                        onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                    BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
-                        expanded = bubbleMenuExpanded == "double",
-                        onExpand = { bubbleMenuExpanded = "double" },
-                        onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                    BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
-                        expanded = bubbleMenuExpanded == "long",
-                        onExpand = { bubbleMenuExpanded = "long" },
-                        onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                    TextButton(onClick = {
-                        context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                            .edit().clear().apply()
-                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                        toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
-                    }, modifier = Modifier.align(Alignment.Start)) {
-                        Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
                 }
+                TextButton(onClick = {
+                    context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                        .edit().clear().apply()
+                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                    toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
+                }, modifier = Modifier.align(Alignment.Start)) {
+                    Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
+                }
+            }
+        }
+
+        Island("Quick Panel") {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // vc120 QUICK PANEL OPEN MODE (user,
+                // 28/10): Quick Panel is NOT a bubble
+                // action anymore - it is a feature
+                // with two open modes (9Flip gb):
+                // AssistiveTouch bubble or Swipe
+                // indicator bar.
+                var openModeExpanded by remember { mutableStateOf(false) }
+                OpenModeRow("Mở panel bằng", settings.panelOpenMode,
+                    expanded = openModeExpanded,
+                    onExpand = { openModeExpanded = true },
+                    onDismiss = { openModeExpanded = false },
+                    onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
+                Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+            }
+        }
+
+        Island("Thao tác chạm") {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // vc117 DROPDOWN (user, 27/10):
+                // tap-to-cycle rows were easy to
+                // overshoot (e.g. cycling past to
+                // NONE, then long-press looked dead).
+                // Each row now opens a dropdown with
+                // all 5 actions, so the choice is
+                // visible before it is made. Defaults:
+                // tap = Home, double-tap = Full panel,
+                // long-press = Recents.
+                Text("Chạm vào hàng để chọn:",
+                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
+                BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                    expanded = bubbleMenuExpanded == "tap",
+                    onExpand = { bubbleMenuExpanded = "tap" },
+                    onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                    onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                    expanded = bubbleMenuExpanded == "double",
+                    onExpand = { bubbleMenuExpanded = "double" },
+                    onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                    onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                    expanded = bubbleMenuExpanded == "long",
+                    onExpand = { bubbleMenuExpanded = "long" },
+                    onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                    onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
             }
         }
 
@@ -502,6 +529,25 @@ private fun isServiceRunning(context: Context, cls: Class<*>): Boolean {
     val am = context.getSystemService(ActivityManager::class.java) ?: return false
     return runCatching { am.getRunningServices(Int.MAX_VALUE) }
         .getOrNull()?.any { it.service.className == cls.name } == true
+}
+
+// vc121 ISLAND: one feature group = one
+// island - a small caps label 8dp above a
+// rounded card, same card style as the
+// existing Widget / Permissions / Service
+// islands (20dp corners, Surface, CardStroke,
+// 16dp padding). Callers pass their own inner
+// Column so row spacing stays as before.
+@Composable
+private fun Island(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(title)
+        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
+            .padding(16.dp)) {
+            content()
+        }
+    }
 }
 
 @Composable
