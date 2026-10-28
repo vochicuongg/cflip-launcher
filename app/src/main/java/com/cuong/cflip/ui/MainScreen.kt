@@ -559,8 +559,8 @@ fun MainScreen(
                                 onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                             TextButton(onClick = {
                                 context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                                context.getSharedPreferences("swipe_indicator", Context.MODE_PRIVATE)
                                     .edit().clear().apply()
+                                context.getSharedPreferences("swipe_indicator", Context.MODE_PRIVATE)
                                     .edit().clear().apply()
                                 com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                                 com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
