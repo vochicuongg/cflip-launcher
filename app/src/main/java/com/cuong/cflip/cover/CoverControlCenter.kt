@@ -1169,8 +1169,16 @@ object CoverControlCenterManager {
             val total = (ms / 1000).toInt()
             return "%d:%02d".format(total / 60, total % 60)
         }
-        val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
-        val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()) }
+        // vc124 FIXED TIME WIDTHS (user, 28/10): these two labels
+        // are rewritten every tick. WRAP_CONTENT made their width
+        // change as seconds rolled over, forcing the whole card to
+        // re-measure/re-layout every second - and that layout churn
+        // restarted the title marquee from the beginning each time,
+        // so the title looked like it kept "loading" in step with
+        // the elapsed time. Fixed widths keep the card layout
+        // frozen during playback, so the title scrolls smoothly.
+        val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()); layoutParams = LinearLayout.LayoutParams(dp(56), LinearLayout.LayoutParams.WRAP_CONTENT) }
+        val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.END; layoutParams = LinearLayout.LayoutParams(dp(56), LinearLayout.LayoutParams.WRAP_CONTENT) }
         val mediaProgress = MediaProgressBar(ctx).apply {
             // vc113: back to 28dp (9Flip height).
             // vc112's 36dp was for the symmetric
@@ -1207,6 +1215,26 @@ object CoverControlCenterManager {
             // thumb already sits at frac, and the
             // 1s media tick picks up the session's
             // new position on its next run.
+            // vc124 DRAG TIME (user, 28/10): while
+            // the finger drags the timeline, the
+            // elapsed number must follow the thumb
+            // continuously. Previously only the
+            // thumb moved (bar-local) and the tick
+            // skipped elapsed while seeking, so
+            // the number froze at the pre-drag
+            // value until finger-up. onSeekDragging
+            // fires on DOWN/MOVE/CANCEL with the
+            // finger fraction; the tick still owns
+            // elapsed once the finger lifts, and
+            // the session itself is seeked only on
+            // finger-up via onSeek (vc113).
+            onSeekDragging = { frac ->
+                val dur = MediaState.current.value?.durationMs?.takeIf { it > 0 }
+                    ?: mediaInfo?.durationMs?.takeIf { it > 0 }
+                if (dur != null) {
+                    mediaElapsed.text = fmtTime((frac * dur).toLong())
+                }
+            }
             onSeek = { frac ->
                 val dur = MediaState.current.value?.durationMs?.takeIf { it > 0 }
                     ?: mediaInfo?.durationMs?.takeIf { it > 0 }
@@ -1323,8 +1351,13 @@ object CoverControlCenterManager {
             // until finger-up, then the tick takes
             // over again (see onSeek above).
             if (!mediaProgress.isSeeking) {
-                mediaElapsed.text = fmtTime(cur.positionMs)
-                mediaTotal.text = fmtTime(cur.durationMs)
+                // vc124: only rewrite a time label when its
+                // formatted string actually changed (total almost
+                // never changes) - fewer setText calls, less churn.
+                val elapsedStr = fmtTime(cur.positionMs)
+                if (mediaElapsed.text.toString() != elapsedStr) mediaElapsed.text = elapsedStr
+                val totalStr = fmtTime(cur.durationMs)
+                if (mediaTotal.text.toString() != totalStr) mediaTotal.text = totalStr
                 mediaProgress.progress = if (cur.durationMs > 0) cur.positionMs.toFloat() / cur.durationMs else 0f
             }
             mediaProgress.waveformSeed = cur.title.hashCode()

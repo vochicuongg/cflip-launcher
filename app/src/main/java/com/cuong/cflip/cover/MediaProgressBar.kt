@@ -206,6 +206,11 @@ class MediaProgressBar(context: Context) : View(context) {
             invalidate()
         }
     var onSeek: ((Float) -> Unit)? = null
+    // vc124 DRAG TIME: fires on DOWN/MOVE/CANCEL with the finger
+    // fraction so the panel can update the elapsed number live
+    // while dragging. The session itself is still seeked ONLY on
+    // finger-up via onSeek (vc113) - this callback is UI-only.
+    var onSeekDragging: ((Float) -> Unit)? = null
 
     // vc113 SEEK STATE: true while the finger
     // is down on the timeline. The panel's
@@ -600,9 +605,12 @@ class MediaProgressBar(context: Context) : View(context) {
     }
 
     // vc113 SEEK SMOOTHNESS: drag updates the
-    // UI locally ONLY (thumb + elapsed follow
-    // the finger with no IPC in between), and
-    // the session is seeked ONCE on finger-up.
+    // UI locally ONLY (thumb follows locally
+    // + elapsed follows via onSeekDragging,
+    // no IPC in between), and the session is
+    // seeked ONCE on finger-up (vc124: the old
+    // comment claimed elapsed followed the
+    // finger, but no code did it until now).
     // Old code seeked + refreshed + overwrote
     // progress on EVERY move, so the thumb
     // fought the finger between the finger
@@ -617,6 +625,7 @@ class MediaProgressBar(context: Context) : View(context) {
                 val inset = dp(8)
                 val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
                 progress = ((e.x - inset) / trackW).coerceIn(0f, 1f)
+                onSeekDragging?.invoke(progress)
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -628,6 +637,7 @@ class MediaProgressBar(context: Context) : View(context) {
                 val inset = dp(8)
                 val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
                 progress = ((e.x - inset) / trackW).coerceIn(0f, 1f)
+                onSeekDragging?.invoke(progress)
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
@@ -644,6 +654,7 @@ class MediaProgressBar(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> {
                 isSeeking = false
                 progress = dragStartProgress
+                onSeekDragging?.invoke(dragStartProgress)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
