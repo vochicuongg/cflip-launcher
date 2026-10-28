@@ -151,7 +151,6 @@ fun MainScreen(
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "2.3"
     }
-    val sortLabel = when (settings.sortMode) { 1 -> "Mới mở"; 2 -> "Mới cài"; else -> "A-Z" }
 
     fun openCover(tab: CoverTab) { coverTab = tab; showCover = true }
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -177,6 +176,52 @@ fun MainScreen(
             }
         }
 
+        // vc122 PERMISSIONS FIRST (user, 28/10):
+        // the Permissions island moves to the top
+        // of the app (right after the top bar),
+        // so granting comes before everything else.
+        // Permissions: compact rows, chevron only, no per-row buttons.
+        SectionLabel("Quyền")
+        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column {
+                PermissionRow("Thông báo", statuses.notifications) {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+                PermissionRow("Accessibility", statuses.accessibility) {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+                PermissionRow("Hiển thị trên app khác", statuses.overlay) {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + context.packageName)))
+                }
+                PermissionRow("Usage Access", statuses.usage) {
+                    QuickControls.openUsageAccessSettings(context)
+                }
+                PermissionRow("Sửa cài đặt hệ thống", statuses.writeSettings) {
+                    QuickControls.openWriteSettingsPermission(context)
+                }
+            }
+        }
+
+        // vc122 GOODLOCK WARNING (user, 28/10):
+        // CFlip runs standalone on the cover and
+        // never routes through GoodLock/MultiStar.
+        // The warning sits with Permissions at the
+        // top so a new user sees it before trying
+        // to add CFlip to GoodLock.
+        Island("Cảnh báo") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Không thêm CFlip vào GoodLock.",
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
+                Text("CFlip chạy độc lập trên màn phụ, không cần GoodLock hay MultiStar. Thêm vào GoodLock không làm CFlip chạy tốt hơn.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                Text("Mở panel bằng AssistiveTouch hoặc Thanh Vuốt trong mục Quick Panel, không qua GoodLock.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+            }
+        }
+
         // Hero: miniature cover preview + one primary action.
         HeroCoverCard(
             notifCount = notifCount,
@@ -193,30 +238,6 @@ fun MainScreen(
         }
         TextButton(onClick = { statusVersion++ }, modifier = Modifier.align(Alignment.End)) {
             Text("Làm mới trạng thái", color = CFlipColors.TextSecondary, fontSize = 12.sp)
-        }
-
-        // Feature grid: muted icon tints, one line of subtitle each.
-        SectionLabel("Cover của bạn")
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                FeatureCard(Icons.Filled.Home, "Cover", "Đồng hồ · Pin",
-                    Color(0xFF7FE3C0), Modifier.weight(1f)) { openCover(CoverTab.HOME) }
-                FeatureCard(Icons.Filled.GridView, "Ứng dụng", "Sắp xếp: $sortLabel",
-                    Color(0xFFA8C7FA), Modifier.weight(1f)) { openCover(CoverTab.APPS) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                FeatureCard(Icons.Filled.Notifications, "Thông báo",
-                    if (notifCount > 0) "$notifCount mới" else "Trống",
-                    Color(0xFFF2C94C), Modifier.weight(1f)) { openCover(CoverTab.NOTIFS) }
-                FeatureCard(Icons.Filled.MusicNote, "Nhạc", "Phát · Chuyển bài",
-                    Color(0xFFC4B5FD), Modifier.weight(1f)) { openCover(CoverTab.MEDIA) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                FeatureCard(Icons.Filled.Bolt, "Điều khiển", "Đèn · Âm · Sáng",
-                    Color(0xFFFDE68A), Modifier.weight(1f)) { openCover(CoverTab.QUICK) }
-                FeatureCard(Icons.Filled.Palette, "Cá nhân hóa", "Lưới · Màu · Ẩn app",
-                    Color(0xFFF9A8D4), Modifier.weight(1f)) { openCover(CoverTab.STYLE) }
-            }
         }
 
         // Widgets, 3.1.0 — USER-ADDED ONLY, corrected after the user's
@@ -298,35 +319,6 @@ fun MainScreen(
         // 8dp above their card (before, a label
         // sat 24dp above its card, the outer
         // section spacing, which read as detached).
-        Island("Hiển thị cover") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
-                    for ((mode, label) in listOf(0 to "A-Z", 1 to "Mới mở", 2 to "Mới cài")) {
-                        val selected = settings.sortMode == mode
-                        Box(modifier = Modifier.weight(1f).clip(CircleShape)
-                            .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                            .clickable {
-                                settings = settings.copy(sortMode = mode)
-                                settingsStore.save(settings)
-                            }
-                            .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
-                        }
-                    }
-                }
-                HubSwitch("Yêu thích lên trước", settings.favoritesFirst) {
-                    settings = settings.copy(favoritesFirst = it); settingsStore.save(settings)
-                }
-                HubSwitch("Đồng hồ 24 giờ", settings.clock24h) {
-                    settings = settings.copy(clock24h = it); settingsStore.save(settings)
-                }
-                HubSwitch("Hiện nhãn ứng dụng", settings.showLabels) {
-                    settings = settings.copy(showLabels = it); settingsStore.save(settings)
-                }
-            }
-        }
-
         Island("AssistiveTouch") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 // 25/10/2026: this toggle is cover-only. The main display
@@ -418,31 +410,6 @@ fun MainScreen(
                     onExpand = { bubbleMenuExpanded = "long" },
                     onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
                     onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-            }
-        }
-
-        // Permissions: compact rows, chevron only, no per-row buttons.
-        SectionLabel("Quyền")
-        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Column {
-                PermissionRow("Thông báo", statuses.notifications) {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                }
-                PermissionRow("Accessibility", statuses.accessibility) {
-                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                }
-                PermissionRow("Hiển thị trên app khác", statuses.overlay) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + context.packageName)))
-                }
-                PermissionRow("Usage Access", statuses.usage) {
-                    QuickControls.openUsageAccessSettings(context)
-                }
-                PermissionRow("Sửa cài đặt hệ thống", statuses.writeSettings) {
-                    QuickControls.openWriteSettingsPermission(context)
-                }
             }
         }
 
@@ -623,31 +590,6 @@ private fun StatCard(label: String, value: String, ok: Boolean, modifier: Modifi
             Text(label, fontSize = 12.sp, color = CFlipColors.TextSecondary)
         }
         Text(value, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
-    }
-}
-
-@Composable
-private fun FeatureCard(
-    icon: ImageVector, title: String, subtitle: String, tint: Color,
-    modifier: Modifier = Modifier, onClick: () -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(CFlipColors.Surface)
-            .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .clickable { onClick() }
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(modifier = Modifier.size(38.dp).clip(CircleShape).background(tint.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
-            Text(subtitle, fontSize = 12.sp, color = CFlipColors.TextSecondary)
-        }
     }
 }
 
