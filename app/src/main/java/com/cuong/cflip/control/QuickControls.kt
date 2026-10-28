@@ -46,24 +46,11 @@ object QuickControls {
         runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0) }
     }
 
-    // ---- Brightness (needs "Modify system settings" grant for writing) ----
-    fun canWriteSettings(context: Context): Boolean = Settings.System.canWrite(context)
+    // ---- Brightness (system value, read-only) ----
 
     fun brightness(context: Context): Int = runCatching {
         Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
     }.getOrDefault(125)
-
-    fun setBrightness(context: Context, value: Int): Boolean {
-        if (!canWriteSettings(context)) return false
-        // Switch to manual mode so the value actually applies
-        runCatching {
-            Settings.System.putInt(context.contentResolver,
-                Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
-        }
-        return runCatching {
-            Settings.System.putInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, value); true
-        }.getOrDefault(false)
-    }
 
     // ---- Panels & settings shortcuts (the supported way to "toggle" system features) ----
     fun openWifiPanel(context: Context) {
@@ -101,12 +88,6 @@ object QuickControls {
     }
     fun openDeviceSettings(context: Context) {
         context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-    fun openWriteSettingsPermission(context: Context) {
-        val i = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-            android.net.Uri.parse("package:" + context.packageName))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(i)
     }
     fun openUsageAccessSettings(context: Context) {
         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

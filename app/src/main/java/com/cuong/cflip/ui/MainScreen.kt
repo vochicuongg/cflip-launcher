@@ -59,8 +59,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.cuong.cflip.control.QuickControls
-import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.service.CoverForegroundService
@@ -141,8 +139,6 @@ fun MainScreen(
             notifications = NotificationController.isConnected(),
             accessibility = MyAccessibilityService.instance != null,
             overlay = Settings.canDrawOverlays(context),
-            usage = RecentAppsRepository(context).hasUsageAccess(),
-            writeSettings = QuickControls.canWriteSettings(context),
             serviceRunning = isServiceRunning(context, CoverForegroundService::class.java),
             secondarySeen = displayRepo.secondaryDisplay() != null,
         )
@@ -237,24 +233,30 @@ fun MainScreen(
         // ON_RESUME refresh makes each return land on the next one.
         // (Warning now sits above this island, vc126.)
         // Permissions: compact rows, chevron only, plus that button.
+        // vc127 REQUIRED SET (9Flip evidence, user, 29/10): 9Flip declares
+        // no Usage Stats and no Write Settings - its recents come from its
+        // own launch history (like CFlip's LaunchHistoryStore fallback) and
+        // it never writes system brightness. So CFlip's required set is now
+        // 3 (Thông báo, Accessibility, Overlay); Usage moved out (its
+        // on-demand button already lives in the STYLE tab QUYỀN section);
+        // Write Settings removed entirely - panel brightness has been
+        // window-local since 3.2.0 and setBrightness has no callers.
         SectionLabel("Quyền")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 8.dp)) {
             Column {
-                if (statuses.grantedCount < 5) {
+                if (statuses.requiredCount < 3) {
                     Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
                         .clickable {
                             when {
                                 !statuses.notifications -> openNotificationSettings()
                                 !statuses.accessibility -> openAccessibilitySettings()
                                 !statuses.overlay -> openOverlaySettings()
-                                !statuses.usage -> QuickControls.openUsageAccessSettings(context)
-                                !statuses.writeSettings -> QuickControls.openWriteSettingsPermission(context)
                             }
                         }
                         .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                        Text("Cấp quyền còn thiếu (${statuses.grantedCount}/5) →",
+                        Text("Cấp quyền còn thiếu (${statuses.requiredCount}/3) →",
                             fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
                     }
                     Spacer(Modifier.height(8.dp))
@@ -268,12 +270,6 @@ fun MainScreen(
                 PermissionRow("Hiển thị trên app khác", statuses.overlay) {
                     openOverlaySettings()
                 }
-                PermissionRow("Usage Access", statuses.usage) {
-                    QuickControls.openUsageAccessSettings(context)
-                }
-                PermissionRow("Sửa cài đặt hệ thống", statuses.writeSettings) {
-                    QuickControls.openWriteSettingsPermission(context)
-                }
             }
         }
 
@@ -281,7 +277,7 @@ fun MainScreen(
 
         // Status: three quiet stats, one small refresh action.
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatCard("Quyền", "${statuses.grantedCount}/5", statuses.grantedCount == 5, Modifier.weight(1f))
+            StatCard("Quyền", "${statuses.requiredCount}/3", statuses.requiredCount == 3, Modifier.weight(1f))
             StatCard("Dịch vụ", if (statuses.serviceRunning) "Đang chạy" else "Tắt",
                 statuses.serviceRunning, Modifier.weight(1f))
             StatCard("Màn phụ", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy",
@@ -364,16 +360,27 @@ fun MainScreen(
         // 8dp above their card (before, a label
         // sat 24dp above its card, the outer
         // section spacing, which read as detached).
-        Island("AssistiveTouch") {
+        // vc127: AssistiveTouch + Quick Panel + Touch actions merged into one Quick Panel island below.
+        // vc127 QUICK PANEL MERGE (user, 29/10):
+        // the old AssistiveTouch + Quick Panel +
+        // Touch actions islands are one island now:
+        // Quick Panel is the feature (bubble or bar);
+        // its open mode and touch actions appear
+        // inside it once it is enabled. Bubble-only
+        // rows (size, auto-dim, position reset)
+        // appear only in AssistiveTouch mode.
+        Island("Quick Panel") {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 // 25/10/2026: this toggle is cover-only. The main display
                 // itself never shows a bubble — it is custom/settings only.
-                HubSwitch("AssistiveTouch trên màn phụ", settings.assistiveTouchEnabled) {
+                // (Label renamed vc127: this switch is the common on/off
+                // for both openers, not just the bubble.)
+                HubSwitch("Quick Panel trên màn phụ", settings.assistiveTouchEnabled) {
                     settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
                     if (it) {
                         // vc126 AUTO-START (user, 29/10): the Cover
                         // Services island is gone - enabling
-                        // AssistiveTouch starts the cover service
+                        // Quick Panel starts the cover service
                         // itself (if not already running); the
                         // service shows the opener on the cover.
                         if (!isServiceRunning(context, CoverForegroundService::class.java)) {
@@ -383,89 +390,84 @@ fun MainScreen(
                         statusVersion++
                     } else com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 }
-                // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
-                // auto-dim, and position reset. Size/auto-dim only take
-                // effect the next time the button is shown (service re-show
-                // or panel close), because the overlay button is built once.
+                var openModeExpanded by remember { mutableStateOf(false) }
+                var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
                 if (settings.assistiveTouchEnabled) {
-                    Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
-                        for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
-                            val selected = settings.assistiveTouchSize == size
-                            Box(modifier = Modifier.weight(1f).clip(CircleShape)
-                                .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                                .clickable {
-                                    settings = settings.copy(assistiveTouchSize = size)
-                                    settingsStore.save(settings)
+                    // vc120 QUICK PANEL OPEN MODE (user,
+                    // 28/10): Quick Panel is NOT a bubble
+                    // action anymore - it is a feature
+                    // with two open modes (9Flip gb):
+                    // AssistiveTouch bubble or Swipe
+                    // indicator bar.
+                    OpenModeRow("Mở panel bằng", settings.panelOpenMode,
+                        expanded = openModeExpanded,
+                        onExpand = { openModeExpanded = true },
+                        onDismiss = { openModeExpanded = false },
+                        onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
+                    Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                    if (settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.ASSISTIVE_TOUCH) {
+                        // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
+                        // auto-dim, and position reset. Size/auto-dim only take
+                        // effect the next time the button is shown (service re-show
+                        // or panel close), because the overlay button is built once.
+                        Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+                            for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
+                                val selected = settings.assistiveTouchSize == size
+                                Box(modifier = Modifier.weight(1f).clip(CircleShape)
+                                    .background(if (selected) CFlipColors.Accent else Color.Transparent)
+                                    .clickable {
+                                        settings = settings.copy(assistiveTouchSize = size)
+                                        settingsStore.save(settings)
+                                    }
+                                    .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                        color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                                 }
-                                .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                    color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                             }
                         }
+                        HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
+                            settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                        }
+                        TextButton(onClick = {
+                            context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                                .edit().clear().apply()
+                            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                            toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
+                        }, modifier = Modifier.align(Alignment.Start)) {
+                            Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
+                        }
                     }
-                    HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
-                        settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
-                    }
+                    // vc117 DROPDOWN (user, 27/10):
+                    // tap-to-cycle rows were easy to
+                    // overshoot (e.g. cycling past to
+                    // NONE, then long-press looked dead).
+                    // Each row now opens a dropdown with
+                    // all 5 actions, so the choice is
+                    // visible before it is made. Defaults:
+                    // tap = Home, double-tap = Full panel,
+                    // long-press = Recents.
+                    // (Touch actions are bubble actions: in
+                    // Swipe-bar mode they take effect when
+                    // you switch back to AssistiveTouch.)
+                    Text("Chạm vào hàng để chọn:",
+                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                    BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                        expanded = bubbleMenuExpanded == "tap",
+                        onExpand = { bubbleMenuExpanded = "tap" },
+                        onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                    BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                        expanded = bubbleMenuExpanded == "double",
+                        onExpand = { bubbleMenuExpanded = "double" },
+                        onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                    BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                        expanded = bubbleMenuExpanded == "long",
+                        onExpand = { bubbleMenuExpanded = "long" },
+                        onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                        onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                 }
-                TextButton(onClick = {
-                    context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                        .edit().clear().apply()
-                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                    toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
-                }, modifier = Modifier.align(Alignment.Start)) {
-                    Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                }
-            }
-        }
-
-        Island("Quick Panel") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // vc120 QUICK PANEL OPEN MODE (user,
-                // 28/10): Quick Panel is NOT a bubble
-                // action anymore - it is a feature
-                // with two open modes (9Flip gb):
-                // AssistiveTouch bubble or Swipe
-                // indicator bar.
-                var openModeExpanded by remember { mutableStateOf(false) }
-                OpenModeRow("Mở panel bằng", settings.panelOpenMode,
-                    expanded = openModeExpanded,
-                    onExpand = { openModeExpanded = true },
-                    onDismiss = { openModeExpanded = false },
-                    onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
-                Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
-                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
-            }
-        }
-
-        Island("Thao tác chạm") {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                // vc117 DROPDOWN (user, 27/10):
-                // tap-to-cycle rows were easy to
-                // overshoot (e.g. cycling past to
-                // NONE, then long-press looked dead).
-                // Each row now opens a dropdown with
-                // all 5 actions, so the choice is
-                // visible before it is made. Defaults:
-                // tap = Home, double-tap = Full panel,
-                // long-press = Recents.
-                Text("Chạm vào hàng để chọn:",
-                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
-                BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
-                    expanded = bubbleMenuExpanded == "tap",
-                    onExpand = { bubbleMenuExpanded = "tap" },
-                    onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
-                    onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
-                    expanded = bubbleMenuExpanded == "double",
-                    onExpand = { bubbleMenuExpanded = "double" },
-                    onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
-                    onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
-                    expanded = bubbleMenuExpanded == "long",
-                    onExpand = { bubbleMenuExpanded = "long" },
-                    onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
-                    onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
             }
         }
 
@@ -477,13 +479,11 @@ private data class MainStatuses(
     val notifications: Boolean,
     val accessibility: Boolean,
     val overlay: Boolean,
-    val usage: Boolean,
-    val writeSettings: Boolean,
     val serviceRunning: Boolean,
     val secondarySeen: Boolean,
 ) {
-    val grantedCount: Int
-        get() = listOf(notifications, accessibility, overlay, usage, writeSettings).count { it }
+    val requiredCount: Int
+        get() = listOf(notifications, accessibility, overlay).count { it }
 }
 
 @Suppress("DEPRECATION")
