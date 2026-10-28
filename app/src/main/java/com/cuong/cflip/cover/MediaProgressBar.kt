@@ -1,6 +1,7 @@
 package com.cuong.cflip.cover
 
 import android.animation.ValueAnimator
+import android.os.SystemClock
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -225,10 +226,43 @@ class MediaProgressBar(context: Context) : View(context) {
 
     var progress: Float = 0f
         set(v) {
-            field = v.coerceIn(0f, 1f)
+            val nv = v.coerceIn(0f, 1f)
+            // vc145 SMOOTH CURSOR sync: the panel's 1s tick sets
+            // progress in steps. While the finger is NOT down, each
+            // outside set re-anchors the smooth clock below; a small
+            // forward step over a plausible tick interval also
+            // teaches the playback rate (fraction per ms) so onDraw
+            // can glide between ticks. A seek or track change (large
+            // or backward jump) only re-anchors - it must not poison
+            // the rate. Finger sets (isSeeking) never touch the clock.
+            if (!isSeeking) {
+                val now = SystemClock.uptimeMillis()
+                val dt = now - syncTime
+                val delta = nv - syncProgress
+                if (syncTime != 0L && dt in 200..5000 && delta > 0f && delta <= 0.05f) {
+                    smoothRatePerMs = delta / dt.toFloat()
+                }
+                syncProgress = nv
+                syncTime = now
+            }
+            field = nv
             updateWaveAnimation()
             invalidate()
         }
+    // vc145 SMOOTH CURSOR state: last ticked fraction, when it was
+    // ticked, and the learned playback rate. While playing, onDraw
+    // shows syncProgress + rate * elapsed instead of the last ticked
+    // value, so the cursor glides instead of jumping once a second.
+    private var syncProgress: Float = 0f
+    private var syncTime: Long = 0L
+    private var smoothRatePerMs: Float = 0f
+    private fun smoothProgress(): Float {
+        if (isSeeking || !wavePlaying) return progress
+        if (smoothRatePerMs <= 0f || syncTime == 0L) return progress
+        val elapsed = SystemClock.uptimeMillis() - syncTime
+        if (elapsed <= 0L) return progress
+        return (syncProgress + smoothRatePerMs * elapsed).coerceIn(0f, 1f)
+    }
     var onSeek: ((Float) -> Unit)? = null
     // vc124 DRAG TIME: fires on DOWN/MOVE/CANCEL with the finger
     // fraction so the panel can update the elapsed number live
@@ -250,6 +284,11 @@ class MediaProgressBar(context: Context) : View(context) {
         set(v) {
             if (field != v) {
                 field = v
+                // vc145: a new track makes the old playback rate
+                // meaningless until the second tick teaches the new
+                // one - glide resumes from the second tick, not from
+                // a stale rate.
+                smoothRatePerMs = 0f
                 updatePalette()
                 // vc142: a new track retries real capture if an
                 // earlier track was blocked into fallback.
@@ -416,7 +455,10 @@ class MediaProgressBar(context: Context) : View(context) {
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Int): Float = v * density
 
-    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    // vc145 DOTTED UNPLAYED TRACK: the segment behind the cursor is
+    // dots, not a solid pill (One UI reference, user 29/10). Same
+    // white 128 alpha as the old solid track, only the shape changes.
+    private val trackDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(128, 255, 255, 255)
         style = Paint.Style.FILL
     }
@@ -428,13 +470,17 @@ class MediaProgressBar(context: Context) : View(context) {
     private val waveLayerPaints = Array(4) {
         Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     }
-    // vc142 TIME CURSOR paints: the playhead is wrapped in colour -
-    // primary-colour core + secondary-colour ring + primary glow -
-    // instead of the old white thumb. Colours are set in updatePalette.
+    // vc142 TIME CURSOR paints: primary-colour core + primary glow
+    // instead of the old white thumb. Core/glow colours are set in
+    // updatePalette.
+    // vc145 FIXED WHITE FRAME (user, 29/10, One UI reference): the
+    // ring around the cursor is white and NEVER changes colour - it
+    // is set here once and updatePalette must not touch it.
     private val cursorGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
     private val cursorRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = dp(2)
     }
@@ -445,7 +491,6 @@ class MediaProgressBar(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
     private val barRect = RectF()
-    private val trackRect = RectF()
     private val pillRect = RectF()
     private val wavePaths = Array(4) { Path() }
 
@@ -511,7 +556,6 @@ class MediaProgressBar(context: Context) : View(context) {
         waveSecondaryColor = hsv(secondHue, satWave, valFull)
         cursorGlowPaint.color = primary
         cursorGlowPaint.alpha = 60
-        cursorRingPaint.color = waveSecondaryColor
         cursorDotPaint.color = primary
         progressPillPaint.color = primary
         val valueSteps = floatArrayOf(0.80f, 0.88f, 0.95f, 1.0f)
@@ -647,18 +691,34 @@ class MediaProgressBar(context: Context) : View(context) {
         val pillTop = centerY - pillH / 2f
         val pillBottom = centerY + pillH / 2f
         val radius = pillH / 2f
-        val progressX = left + trackW * progress
-        val fadeIn = smoothstep((progress - 0.05f) / 0.04f)
+        // vc145 SMOOTH CURSOR: draw the interpolated fraction, not
+        // the last ticked one, so the cursor glides between the
+        // panel's 1s ticks. While seeking or paused this is exactly
+        // progress.
+        val displayProgress = smoothProgress()
+        val progressX = left + trackW * displayProgress
+        val fadeIn = smoothstep((displayProgress - 0.05f) / 0.04f)
         // vc108 effective wave visibility: progress
         // fade-in AND height factor. When stopped,
         // height factor goes 1 -> 0, so waveAlpha
         // goes 128 -> 0 and pillAlpha goes back to
         // 150 - the wave lowers into the pill.
         val waveVisible = fadeIn * waveHeightFactor
-        // Track: unplayed segment only.
+        // vc145 DOTTED UNPLAYED TRACK (user, 29/10, One UI reference):
+        // the segment behind the cursor is a row of small dots - the
+        // "broken" effect from the reference player - not a solid
+        // pill. Dots sit on a fixed grid from the track start so they
+        // never slide as the cursor glides; only dots fully clear of
+        // the cursor frame and fully inside the track are drawn.
         if (progressX < right) {
-            trackRect.set(progressX, pillTop, right, pillBottom)
-            canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
+            val dotR = dp(3) / 2f
+            val pitch = dp(7)
+            val clearX = progressX + dp(8) * (if (isSeeking) 1.25f else 1f) + dotR
+            var x = left + pitch / 2f
+            while (x < right - dotR) {
+                if (x >= clearX) canvas.drawCircle(x, centerY, dotR, trackDotPaint)
+                x += pitch
+            }
         }
         // Progress pill: played segment, fading out
         // as the wave fades in, fading back in as
@@ -736,9 +796,12 @@ class MediaProgressBar(context: Context) : View(context) {
             }
         }
         // vc142 TIME CURSOR: the playhead is wrapped in colour - a
-        // primary-colour core, a secondary-colour ring around it, and
-        // a soft primary glow - instead of the old white thumb. It
-        // grows slightly while the finger drags it.
+        // primary-colour core, a soft primary glow, and a ring around
+        // it - instead of the old white thumb. It grows slightly
+        // while the finger drags it.
+        // vc145 FIXED WHITE FRAME: the ring is white and never
+        // changes colour (user, 29/10, One UI reference) - see the
+        // cursorRingPaint declaration.
         // vc144 ZERO GAP (user, 29/10): the frame sits flush against
         // the cursor - the ring's inner edge is exactly at the dot's
         // edge, so there is no gap between them. The ring radius is
@@ -754,6 +817,10 @@ class MediaProgressBar(context: Context) : View(context) {
             canvas.drawCircle(progressX, centerY, dotR + strokeW / 2f, cursorRingPaint)
             canvas.drawCircle(progressX, centerY, dotR, cursorDotPaint)
         }
+        // vc145 SMOOTH CURSOR frame loop: while playing, keep posting
+        // frames so the interpolated cursor glides instead of waiting
+        // for the next 1s tick. Pausing stops the loop (no re-post).
+        if (wavePlaying && !isSeeking) postInvalidateOnAnimation()
     }
 
     // vc113 SEEK SMOOTHNESS: drag updates the
@@ -797,8 +864,13 @@ class MediaProgressBar(context: Context) : View(context) {
                 val inset = dp(8)
                 val trackW = (width.toFloat() - 2f * inset).coerceAtLeast(1f)
                 val frac = ((e.x - inset) / trackW).coerceIn(0f, 1f)
-                progress = frac
+                // vc145: clear the seek flag FIRST so the setter
+                // above treats this as an outside set and re-anchors
+                // the smooth clock to the seek target (otherwise the
+                // cursor would glide back toward the pre-seek sync
+                // point until the next tick).
                 isSeeking = false
+                progress = frac
                 onSeek?.invoke(frac)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
