@@ -739,11 +739,20 @@ class MediaProgressBar(context: Context) : View(context) {
         // primary-colour core, a secondary-colour ring around it, and
         // a soft primary glow - instead of the old white thumb. It
         // grows slightly while the finger drags it.
+        // vc144 ZERO GAP (user, 29/10): the frame sits flush against
+        // the cursor - the ring's inner edge is exactly at the dot's
+        // edge, so there is no gap between them. The ring radius is
+        // derived from the dot radius plus half the stroke (both
+        // scaled together while seeking), so the gap stays zero at
+        // any scale instead of drifting apart when the cursor grows.
         if (progressX in left..right) {
             val seekScale = if (isSeeking) 1.25f else 1f
+            val dotR = dp(6) * seekScale
+            val strokeW = dp(2) * seekScale
+            cursorRingPaint.strokeWidth = strokeW
             canvas.drawCircle(progressX, centerY, dp(12) * seekScale, cursorGlowPaint)
-            canvas.drawCircle(progressX, centerY, dp(9) * seekScale, cursorRingPaint)
-            canvas.drawCircle(progressX, centerY, dp(6) * seekScale, cursorDotPaint)
+            canvas.drawCircle(progressX, centerY, dotR + strokeW / 2f, cursorRingPaint)
+            canvas.drawCircle(progressX, centerY, dotR, cursorDotPaint)
         }
     }
 
