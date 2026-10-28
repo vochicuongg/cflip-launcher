@@ -9,6 +9,12 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -252,22 +258,28 @@ fun MainScreen(
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 8.dp)) {
             Column {
-                if (statuses.requiredCount < 3) {
-                    Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
-                        .clickable {
-                            when {
-                                !statuses.notifications -> openNotificationSettings()
-                                !statuses.accessibility -> openAccessibilitySettings()
-                                !statuses.overlay -> openOverlaySettings()
+                // perm-btn-anim
+                AnimatedVisibility(
+                    visible = statuses.requiredCount < 3,
+                    enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                ) {
+                    Column {
+                        Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
+                            .clickable {
+                                when {
+                                    !statuses.notifications -> openNotificationSettings()
+                                    !statuses.accessibility -> openAccessibilitySettings()
+                                    !statuses.overlay -> openOverlaySettings()
+                                }
                             }
+                            .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                            Text("Cấp quyền còn thiếu (${statuses.requiredCount}/3) →",
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
                         }
-                        .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                        Text("Cấp quyền còn thiếu (${statuses.requiredCount}/3) →",
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
-                }
-                PermissionRow("Thông báo", statuses.notifications) {
+                }                PermissionRow("Thông báo", statuses.notifications) {
                     openNotificationSettings()
                 }
                 PermissionRow("Accessibility", statuses.accessibility) {
@@ -398,83 +410,95 @@ fun MainScreen(
                 }
                 var openModeExpanded by remember { mutableStateOf(false) }
                 var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
-                if (settings.assistiveTouchEnabled) {
-                    // vc120 QUICK PANEL OPEN MODE (user,
-                    // 28/10): Quick Panel is NOT a bubble
-                    // action anymore - it is a feature
-                    // with two open modes (9Flip gb):
-                    // AssistiveTouch bubble or Swipe
-                    // indicator bar.
-                    OpenModeRow("Mở panel bằng", settings.panelOpenMode,
-                        expanded = openModeExpanded,
-                        onExpand = { openModeExpanded = true },
-                        onDismiss = { openModeExpanded = false },
-                        onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
-                    Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
-                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                    if (settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.ASSISTIVE_TOUCH) {
-                        // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
-                        // auto-dim, and position reset. Size/auto-dim only take
-                        // effect the next time the button is shown (service re-show
-                        // or panel close), because the overlay button is built once.
-                        Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
-                            for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
-                                val selected = settings.assistiveTouchSize == size
-                                Box(modifier = Modifier.weight(1f).clip(CircleShape)
-                                    .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                                    .clickable {
-                                        settings = settings.copy(assistiveTouchSize = size)
-                                        settingsStore.save(settings)
+                // qp-outer-anim
+                AnimatedVisibility(
+                    visible = settings.assistiveTouchEnabled,
+                    enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                    exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // vc120 QUICK PANEL OPEN MODE (user,
+                        // 28/10): Quick Panel is NOT a bubble
+                        // action anymore - it is a feature
+                        // with two open modes (9Flip gb):
+                        // AssistiveTouch bubble or Swipe
+                        // indicator bar.
+                        OpenModeRow("Mở panel bằng", settings.panelOpenMode,
+                            expanded = openModeExpanded,
+                            onExpand = { openModeExpanded = true },
+                            onDismiss = { openModeExpanded = false },
+                            onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
+                        Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                            fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                        // qp-mode-anim
+                        AnimatedVisibility(
+                            visible = settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.ASSISTIVE_TOUCH,
+                            enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
+                                // auto-dim, and position reset. Size/auto-dim only take
+                                // effect the next time the button is shown (service re-show
+                                // or panel close), because the overlay button is built once.
+                                Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+                                    for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
+                                        val selected = settings.assistiveTouchSize == size
+                                        Box(modifier = Modifier.weight(1f).clip(CircleShape)
+                                            .background(if (selected) CFlipColors.Accent else Color.Transparent)
+                                            .clickable {
+                                                settings = settings.copy(assistiveTouchSize = size)
+                                                settingsStore.save(settings)
+                                            }
+                                            .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                                color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
+                                        }
                                     }
-                                    .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                        color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
+                                }
+                                HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
+                                    settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                                }
+                                TextButton(onClick = {
+                                    context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                                        .edit().clear().apply()
+                                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                    toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
+                                }, modifier = Modifier.align(Alignment.Start)) {
+                                    Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
                                 }
                             }
-                        }
-                        HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
-                            settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
-                        }
-                        TextButton(onClick = {
-                            context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                                .edit().clear().apply()
-                            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                            toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn phụ.")
-                        }, modifier = Modifier.align(Alignment.Start)) {
-                            Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                        }
+                        }                    // vc117 DROPDOWN (user, 27/10):
+                        // tap-to-cycle rows were easy to
+                        // overshoot (e.g. cycling past to
+                        // NONE, then long-press looked dead).
+                        // Each row now opens a dropdown with
+                        // all 5 actions, so the choice is
+                        // visible before it is made. Defaults:
+                        // tap = Home, double-tap = Full panel,
+                        // long-press = Recents.
+                        // (Touch actions are bubble actions: in
+                        // Swipe-bar mode they take effect when
+                        // you switch back to AssistiveTouch.)
+                        Text("Chạm vào hàng để chọn:",
+                            fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                        BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                            expanded = bubbleMenuExpanded == "tap",
+                            onExpand = { bubbleMenuExpanded = "tap" },
+                            onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                            onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                        BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                            expanded = bubbleMenuExpanded == "double",
+                            onExpand = { bubbleMenuExpanded = "double" },
+                            onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                            onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                        BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                            expanded = bubbleMenuExpanded == "long",
+                            onExpand = { bubbleMenuExpanded = "long" },
+                            onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                            onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                     }
-                    // vc117 DROPDOWN (user, 27/10):
-                    // tap-to-cycle rows were easy to
-                    // overshoot (e.g. cycling past to
-                    // NONE, then long-press looked dead).
-                    // Each row now opens a dropdown with
-                    // all 5 actions, so the choice is
-                    // visible before it is made. Defaults:
-                    // tap = Home, double-tap = Full panel,
-                    // long-press = Recents.
-                    // (Touch actions are bubble actions: in
-                    // Swipe-bar mode they take effect when
-                    // you switch back to AssistiveTouch.)
-                    Text("Chạm vào hàng để chọn:",
-                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                    BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
-                        expanded = bubbleMenuExpanded == "tap",
-                        onExpand = { bubbleMenuExpanded = "tap" },
-                        onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                    BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
-                        expanded = bubbleMenuExpanded == "double",
-                        onExpand = { bubbleMenuExpanded = "double" },
-                        onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                    BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
-                        expanded = bubbleMenuExpanded == "long",
-                        onExpand = { bubbleMenuExpanded = "long" },
-                        onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
-                        onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                }
-            }
+                }            }
         }
 
         Spacer(Modifier.height(8.dp))

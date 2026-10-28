@@ -2,6 +2,17 @@ package com.cuong.cflip.ui
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -198,58 +209,74 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
         Box(modifier = Modifier.fillMaxSize().background(CFlipColors.TopGlow))
 
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            if (tab != CoverTab.HOME) {
+            // vc130 MOTION (user, 29/10): the status row expands/fades in and out with the tab.
+            AnimatedVisibility(
+                visible = tab != CoverTab.HOME,
+                enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+            ) {
                 StatusRow(now = now, settings = settings, batteryPct = batteryPct, charging = charging)
             }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (tab) {
-                    CoverTab.HOME -> HomeTab(
-                        now = now, settings = settings,
-                        batteryPct = batteryPct, charging = charging,
-                        notifCount = notifications.size,
-                        mediaTitle = media?.title, mediaPlaying = media?.isPlaying == true,
-                        onOpenMedia = { tab = CoverTab.MEDIA },
-                        onOpenNotifs = { tab = CoverTab.NOTIFS },
-                    )
-                    CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
-                        OutlinedTextField(
-                            value = search, onValueChange = { search = it },
-                            placeholder = { Text("Tìm ứng dụng") }, singleLine = true,
-                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                            shape = RoundedCornerShape(20.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                // vc130 MOTION (user, 29/10): tab content slides + fades
+                // in the swipe direction instead of popping.
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        (slideInHorizontally(animationSpec = tween(300)) { if (forward) it else -it } + fadeIn(animationSpec = tween(200))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(300)) { if (forward) -it else it } + fadeOut(animationSpec = tween(200)))
+                    },
+                    label = "coverTab",
+                ) { targetTab ->
+                    when (targetTab) {
+                        CoverTab.HOME -> HomeTab(
+                            now = now, settings = settings,
+                            batteryPct = batteryPct, charging = charging,
+                            notifCount = notifications.size,
+                            mediaTitle = media?.title, mediaPlaying = media?.isPlaying == true,
+                            onOpenMedia = { tab = CoverTab.MEDIA },
+                            onOpenNotifs = { tab = CoverTab.NOTIFS },
                         )
-                        if (recentApps.isNotEmpty() && search.isEmpty()) {
-                            SectionHeader("GẦN ĐÂY")
+                        CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
+                            OutlinedTextField(
+                                value = search, onValueChange = { search = it },
+                                placeholder = { Text("Tìm ứng dụng") }, singleLine = true,
+                                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            )
+                            if (recentApps.isNotEmpty() && search.isEmpty()) {
+                                SectionHeader("GẦN ĐÂY")
+                            }
+                            val base = if (search.isEmpty()) {
+                                (recentApps + appsOrdered).distinctBy { it.packageName }
+                            } else appsOrdered.filter { it.label.contains(search, ignoreCase = true) }
+                            CoverLauncherScreen(
+                                apps = base,
+                                favorites = favorites,
+                                settings = settings,
+                                onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
+                                onToggleFavorite = { app ->
+                                    favoritesStore.toggle(app.packageName)
+                                    favorites = favoritesStore.getFavorites()
+                                },
+                                onAppMenu = { menuApp = it },
+                            )
                         }
-                        val base = if (search.isEmpty()) {
-                            (recentApps + appsOrdered).distinctBy { it.packageName }
-                        } else appsOrdered.filter { it.label.contains(search, ignoreCase = true) }
-                        CoverLauncherScreen(
-                            apps = base,
-                            favorites = favorites,
-                            settings = settings,
-                            onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
-                            onToggleFavorite = { app ->
-                                favoritesStore.toggle(app.packageName)
-                                favorites = favoritesStore.getFavorites()
-                            },
-                            onAppMenu = { menuApp = it },
-                        )
+                        CoverTab.NOTIFS -> NotificationsScreen()
+                        CoverTab.MEDIA -> MediaScreen()
+                        CoverTab.QUICK -> QuickControlsScreen()
+                        CoverTab.STYLE -> SettingsScreen(settings = settings,
+                            onSettingsChange = { settings = it },
+                            hiddenApps = hiddenApps,
+                            onUnhideApp = { app ->
+                                hiddenStore.unhide(app.packageName)
+                                hidden = hiddenStore.getHidden()
+                                appsVersion++
+                            })
                     }
-                    CoverTab.NOTIFS -> NotificationsScreen()
-                    CoverTab.MEDIA -> MediaScreen()
-                    CoverTab.QUICK -> QuickControlsScreen()
-                    CoverTab.STYLE -> SettingsScreen(settings = settings,
-                        onSettingsChange = { settings = it },
-                        hiddenApps = hiddenApps,
-                        onUnhideApp = { app ->
-                            hiddenStore.unhide(app.packageName)
-                            hidden = hiddenStore.getHidden()
-                            appsVersion++
-                        })
-                }
-            }
+                }            }
             PillNav(
                 tabs = tabs, current = tab,
                 notifCount = notifications.size,
@@ -392,6 +419,7 @@ private fun PillNav(
                     .clip(CircleShape)
                     .background(if (selected) CFlipColors.AccentBrush else SolidColor(Color.Transparent))
                     .clickable { onSelect(t) }
+                    .animateContentSize(animationSpec = tween(250))
                     .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
