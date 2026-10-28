@@ -29,7 +29,7 @@ object BubbleActions {
     fun label(action: Int): String = when (action) {
         HOME -> "Mở màn hình chính"
         RECENTS -> "Mở Gần đây"
-        FULL_PANEL -> "Mở panel đầy đủ (4 tab)"
+        FULL_PANEL -> "Mở Panel"
         LOCK -> "Khóa màn hình"
         else -> "Không làm gì"
     }

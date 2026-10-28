@@ -1,6 +1,8 @@
 package com.cuong.cflip.cover
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
@@ -49,13 +51,20 @@ import com.cuong.cflip.service.MyAccessibilityService
  * vc133: drawn ^ chevron + dark halo pill (9Flip mechanism, own drawing)
  * so the bar reads on light wallpapers, and FLAG_NOT_TOUCH_MODAL so
  * touches outside the bar still reach the cover UI.
+ *
+ * vc134: drag sideways to hug either edge (snaps + remembers position),
+ * and auto-dim to 35% after 2.5s without a touch.
  */
 object CoverSwipeIndicatorManager {
     private const val TAG = "CFlipSwipeIndicator"
+    private const val PREFS = "swipe_indicator"
 
     private var wm: WindowManager? = null
     private var bar: View? = null
     private var displayId: Int = -1
+    private var barParams: WindowManager.LayoutParams? = null
+    private val dimHandler = Handler(Looper.getMainLooper())
+    private var dimRunnable: Runnable? = null
 
     fun isShown(): Boolean = bar != null
 
@@ -75,6 +84,16 @@ object CoverSwipeIndicatorManager {
         val density = displayContext.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
+        // vc134 DRAG (user, 29/10): the bar can be dragged sideways to hug
+        // either edge of the cover. Position is an offset from centre,
+        // restored (scaled to the current display width) on every show.
+        val barW = dp(160)
+        val dispW = displayContext.resources.displayMetrics.widthPixels
+        val maxOffset = maxOf(0, (dispW - barW) / 2 - dp(8))
+        val barPrefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val savedX = barPrefs.getInt("x", 0)
+        val savedW = barPrefs.getInt("w", 0)
+        val startX = (if (savedW > 0) savedX * dispW / savedW else 0).coerceIn(-maxOffset, maxOffset)
         // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
         // 9Flip's indicator draws a chevron affordance (^) over a pill
         // with contrast layers, so it reads on light wallpapers too.
@@ -132,37 +151,75 @@ object CoverSwipeIndicatorManager {
         }
         var downX = 0f
         var downY = 0f
+        var downRawX = 0f
+        var startOffsetX = 0
         var swiped = false
+        var dragging = false
+        // vc134 DIM (user, 29/10): the bar fades to 35% after 2.5s without
+        // a touch, like the bubble's auto-dim, and comes back on touch.
+        fun armDim() {
+            dimRunnable?.let { dimHandler.removeCallbacks(it) }
+            val r = Runnable { container.alpha = 0.35f }
+            dimRunnable = r
+            dimHandler.postDelayed(r, 2500L)
+        }
+        fun cancelDim() {
+            dimRunnable?.let { dimHandler.removeCallbacks(it) }
+            dimRunnable = null
+            container.alpha = 1f
+        }
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.x; downY = e.y; swiped = false
+                    downX = e.x; downY = e.y; downRawX = e.rawX
+                    startOffsetX = barParams?.x ?: 0
+                    swiped = false; dragging = false
+                    cancelDim()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!swiped) {
+                    if (!dragging && !swiped) {
+                        val dxRaw = e.rawX - downRawX
                         val dx = e.x - downX; val dy = e.y - downY
-                        if (dy < -touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.1f) {
+                        if (kotlin.math.abs(dxRaw) > touchSlop && kotlin.math.abs(dxRaw) > kotlin.math.abs(dy) * 1.1f) {
+                            dragging = true
+                        } else if (dy < -touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.1f) {
                             swiped = true
                             openPanel(appContext, display)
+                        }
+                    }
+                    if (dragging) {
+                        val params = barParams
+                        if (params != null) {
+                            params.x = (startOffsetX + (e.rawX - downRawX)).toInt().coerceIn(-maxOffset, maxOffset)
+                            runCatching { manager.updateViewLayout(container, params) }
                         }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    // Tap fallback: a tap that never
-                    // became a swipe still opens the
-                    // panel, so a missed swipe is not
-                    // a dead tap on a small cover.
-                    if (!swiped) {
+                    if (dragging) {
+                        // Snap to the nearest side edge and remember it.
+                        val params = barParams
+                        if (params != null) {
+                            params.x = if (params.x >= 0) maxOffset else -maxOffset
+                            runCatching { manager.updateViewLayout(container, params) }
+                            barPrefs.edit().putInt("x", params.x).putInt("w", dispW).apply()
+                        }
+                    } else if (!swiped) {
+                        // Tap fallback: a tap that never
+                        // became a swipe still opens the
+                        // panel, so a missed swipe is not
+                        // a dead tap on a small cover.
                         val dx = e.x - downX; val dy = e.y - downY
                         if (kotlin.math.hypot(dx, dy) <= touchSlop) {
                             openPanel(appContext, display)
                         }
                     }
+                    armDim()
                     true
                 }
-                MotionEvent.ACTION_CANCEL -> true
+                MotionEvent.ACTION_CANCEL -> { armDim(); true }
                 else -> true
             }
         }
@@ -178,10 +235,12 @@ object CoverSwipeIndicatorManager {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            x = startX
             y = dp(16)
         }
         manager.addView(container, params)
-        wm = manager; bar = container; displayId = display.displayId
+        wm = manager; bar = container; displayId = display.displayId; barParams = params
+        armDim()
         // 9Flip pj.a(): keep system gestures from
         // stealing the bar's touches. Posted so
         // the view is laid out and has a size.
@@ -200,6 +259,8 @@ object CoverSwipeIndicatorManager {
     }
 
     fun hide() {
+        dimRunnable?.let { dimHandler.removeCallbacks(it) }
+        dimRunnable = null; barParams = null
         runCatching {
             val v = bar; val w = wm
             if (v != null && w != null) w.removeView(v)

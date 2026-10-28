@@ -43,16 +43,28 @@ object SamsungCoverWidgetHelper {
             component = ComponentName(SAMSUNG_PKG, SAMSUNG_ACTIVITY)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        if (intent.resolveActivity(context.packageManager) == null) {
-            Toast.makeText(
-                context,
-                "Thiết bị này không hỗ trợ Cài đặt Widget màn hình ngoài Samsung.",
-                Toast.LENGTH_SHORT,
-            ).show()
-            return false
+        // vc134 (user, 29/10: the button did nothing): 9Flip starts this
+        // intent from its MainActivity, while CFlip started it from the
+        // application context - the one proven deviation. Start from the
+        // Activity when we have one (MainScreen), keep the app-context
+        // path for non-Activity callers (the cover panel). Never fail
+        // silently and never crash on a refused start: if Samsung's
+        // activity cannot be opened directly, fall back to the Settings
+        // app (official path: Settings > Cover screen > Widgets).
+        if (intent.resolveActivity(context.packageManager) != null) {
+            val starter = (context as? android.app.Activity) ?: context.applicationContext
+            if (runCatching { starter.startActivity(intent) }.isSuccess) return true
         }
-        context.applicationContext.startActivity(intent)
-        return true
+        return runCatching {
+            val starter = (context as? android.app.Activity) ?: context.applicationContext
+            starter.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            Toast.makeText(context, "Đã mở Cài đặt — vào Màn hình ngoài → Widget để chọn.", Toast.LENGTH_LONG).show()
+            true
+        }.onFailure {
+            Toast.makeText(context, "Không mở được Cài đặt Widget Samsung. Gập máy, vuốt Widget màn hình ngoài tới cuối, bấm + và chọn CFlip.", Toast.LENGTH_LONG).show()
+        }.getOrDefault(false)
     }
 
     data class ProviderStatus(val label: String, val total: Int, val cover: Int)
