@@ -455,10 +455,9 @@ class MediaProgressBar(context: Context) : View(context) {
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Int): Float = v * density
 
-    // vc145 DOTTED UNPLAYED TRACK: the segment behind the cursor is
-    // dots, not a solid pill (One UI reference, user 29/10). Same
-    // white 128 alpha as the old solid track, only the shape changes.
-    private val trackDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    // vc146: the unplayed track is a solid pill again (user, 29/10:
+    // the vc145 dots are reverted). White 128 alpha, same as before.
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(128, 255, 255, 255)
         style = Paint.Style.FILL
     }
@@ -491,6 +490,7 @@ class MediaProgressBar(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
     private val barRect = RectF()
+    private val trackRect = RectF()
     private val pillRect = RectF()
     private val wavePaths = Array(4) { Path() }
 
@@ -704,21 +704,19 @@ class MediaProgressBar(context: Context) : View(context) {
         // goes 128 -> 0 and pillAlpha goes back to
         // 150 - the wave lowers into the pill.
         val waveVisible = fadeIn * waveHeightFactor
-        // vc145 DOTTED UNPLAYED TRACK (user, 29/10, One UI reference):
-        // the segment behind the cursor is a row of small dots - the
-        // "broken" effect from the reference player - not a solid
-        // pill. Dots sit on a fixed grid from the track start so they
-        // never slide as the cursor glides; only dots fully clear of
-        // the cursor frame and fully inside the track are drawn.
+        // vc146 SOLID TRACK BEHIND THE CURSOR + HIDDEN ROUNDED CORNER
+        // (user, 29/10, One UI reference): the segment behind the
+        // cursor is a solid pill again, and its left end is drawn
+        // from the cursor CENTRE (progressX), not from the ring edge.
+        // That puts the pill's rounded left cap underneath the cursor
+        // assembly (dot + ring + glow are drawn later, on top), so
+        // the corner itself stays hidden - the bar looks like it
+        // disappears behind the ring, exactly as in the reference,
+        // instead of ending in a visible square cut or a gap at the
+        // ring's edge.
         if (progressX < right) {
-            val dotR = dp(3) / 2f
-            val pitch = dp(7)
-            val clearX = progressX + dp(8) * (if (isSeeking) 1.25f else 1f) + dotR
-            var x = left + pitch / 2f
-            while (x < right - dotR) {
-                if (x >= clearX) canvas.drawCircle(x, centerY, dotR, trackDotPaint)
-                x += pitch
-            }
+            trackRect.set(progressX, pillTop, right, pillBottom)
+            canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
         }
         // Progress pill: played segment, fading out
         // as the wave fades in, fading back in as
