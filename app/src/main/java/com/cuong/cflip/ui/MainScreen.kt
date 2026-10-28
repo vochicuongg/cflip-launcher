@@ -238,9 +238,14 @@ fun MainScreen(
         // own launch history (like CFlip's LaunchHistoryStore fallback) and
         // it never writes system brightness. So CFlip's required set is now
         // 3 (Thông báo, Accessibility, Overlay); Usage moved out (its
-        // on-demand button already lives in the STYLE tab QUYỀN section);
-        // Write Settings removed entirely - panel brightness has been
-        // window-local since 3.2.0 and setBrightness has no callers.
+        // on-demand button already lives in the STYLE tab QUYỀN section).
+        // vc128 CORRECTION: Write Settings is NOT dead - the cover QUICK
+        // tab has its own system-brightness slider (QuickControlsScreen)
+        // that writes Settings.System and already grants on demand
+        // (slider toast + grant button). Panel brightness is window-local
+        // since 3.2.0, but the QUICK-tab slider still needs the write
+        // helpers, so they are restored; Write stays OUT of the required
+        // set (3) and is granted on demand only.
         SectionLabel("Quyền")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
