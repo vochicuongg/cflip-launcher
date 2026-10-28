@@ -186,7 +186,7 @@ object CoverSwipeIndicatorManager {
         }
         var downRawX = 0f
         var downRawY = 0f
-        var startY = 0
+        var dragStartY = 0
         var dragH = false
         var dragV = false
         var opened = false
@@ -211,7 +211,7 @@ object CoverSwipeIndicatorManager {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downRawX = e.rawX; downRawY = e.rawY
-                    startY = barParams?.y ?: 0
+                    dragStartY = barParams?.y ?: 0
                     dragH = false; dragV = false; opened = false; switched = false
                     // Work in left-edge coordinates during the drag so
                     // the bar can travel the full width: if it sits on
@@ -236,7 +236,7 @@ object CoverSwipeIndicatorManager {
                         val params = barParams
                         if (params != null && (dragH || dragV)) {
                             if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
-                            if (dragV) params.y = (startY + (e.rawY - downRawY)).toInt().coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
+                            if (dragV) params.y = (dragStartY + (e.rawY - downRawY)).toInt().coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
                             runCatching { manager.updateViewLayout(container, params) }
                         }
                     }
