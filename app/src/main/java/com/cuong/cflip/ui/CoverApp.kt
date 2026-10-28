@@ -117,7 +117,6 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     LaunchedEffect(Unit) { while (true) { now = LocalDateTime.now(); delay(1000) } }
 
     val byPackage = remember(allApps) { allApps.associateBy { it.packageName } }
-    val favApps = favorites.mapNotNull { byPackage[it] }
     // Old bug: keyed only on favorites, so Recents never refreshed when the
     // app list changed (hide/unhide) or after launching an app from CFlip.
     // Keying on tab too means opening the Apps tab re-reads recents, so a
@@ -209,15 +208,8 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                         batteryPct = batteryPct, charging = charging,
                         notifCount = notifications.size,
                         mediaTitle = media?.title, mediaPlaying = media?.isPlaying == true,
-                        favApps = favApps, favorites = favorites,
                         onOpenMedia = { tab = CoverTab.MEDIA },
                         onOpenNotifs = { tab = CoverTab.NOTIFS },
-                        onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
-                        onToggleFavorite = { app ->
-                            favoritesStore.toggle(app.packageName)
-                            favorites = favoritesStore.getFavorites()
-                        },
-                        onAppMenu = { menuApp = it },
                     )
                     CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
                         OutlinedTextField(
@@ -323,13 +315,8 @@ private fun HomeTab(
     notifCount: Int,
     mediaTitle: String?,
     mediaPlaying: Boolean,
-    favApps: List<AppInfo>,
-    favorites: Set<String>,
     onOpenMedia: () -> Unit,
     onOpenNotifs: () -> Unit,
-    onAppClick: (AppInfo) -> Unit,
-    onToggleFavorite: (AppInfo) -> Unit,
-    onAppMenu: (AppInfo) -> Unit,
 ) {
     val timeFmt = if (settings.clock24h) DateTimeFormatter.ofPattern("HH:mm") else DateTimeFormatter.ofPattern("hh:mm a")
     Column(modifier = Modifier.fillMaxSize().padding(top = 14.dp)) {
@@ -370,22 +357,11 @@ private fun HomeTab(
             }
         }
         Spacer(Modifier.height(14.dp))
-        SectionHeader("YÊU THÍCH")
-        GlassCard(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            if (favApps.isEmpty()) {
-                EmptyState(Icons.Filled.Home, "Chưa ghim ứng dụng nào",
-                    "Sang tab Ứng dụng, giữ một ứng dụng để ghim vào đây")
-            } else {
-                CoverLauncherScreen(
-                    apps = favApps,
-                    favorites = favorites,
-                    settings = settings,
-                    onAppClick = onAppClick,
-                    onToggleFavorite = onToggleFavorite,
-                    onAppMenu = onAppMenu,
-                )
-            }
-        }
+        // vc125 (user, 29/10): the YÊU THÍCH favorites section was
+        // REMOVED (display only). Pin/unpin + favorites-first sorting
+        // in the Apps tab and FavoritesStore stay untouched, so the
+        // weight spacer below keeps the hint pinned to the bottom.
+        Spacer(Modifier.weight(1f))
         Text("Vuốt ngang để chuyển tab · Giữ ứng dụng để mở menu",
             fontSize = 11.sp, color = CFlipColors.TextFaint,
             modifier = Modifier.padding(top = 8.dp, start = 4.dp))

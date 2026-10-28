@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -66,7 +64,6 @@ import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.MyAccessibilityService
 import com.cuong.cflip.service.NotificationController
-import com.cuong.cflip.service.NotificationState
 
 /**
  * CFlip 2.3 main screen, redesigned after Cường called the 2.2 hub ugly.
@@ -74,13 +71,14 @@ import com.cuong.cflip.service.NotificationState
  * What was wrong with 2.2: every section shouted at once - five 20sp
  * headings, full-width buttons stacked on each other, long explanations,
  * Mirror/Bubble controls embedded in the middle, and raw display text.
- * The redesign follows one rule: one hero, one primary action, then a
- * quiet grid, then compact lists. Nothing here is decorative text.
+ * The redesign follows one rule: a quiet grid, then compact lists.
+ * Nothing here is decorative text.
  *
- * - Hero: a miniature cover preview (clock, battery, now-playing hint,
- *   favourite dots) instead of a paragraph describing the app.
- * - Primary action: one mint "Mở Cover" button. Service control is a
- *   single toggle in its own card, not three stacked buttons.
+ * - vc125 (user, 29/10): the hero miniature-cover preview + the mint
+ *   "Mở Cover" primary action were REMOVED (display only). The cover
+ *   still opens via AssistiveTouch / Swipe indicator and via
+ *   MainActivity's cover intent. Service control is a single toggle
+ *   in its own card, not three stacked buttons.
  * - Status: three small stat cards, refreshed by one small "Làm mới"
  *   text button, not a full-width button.
  * - Mirror & Bubble are NOT on this screen any more - they live in the
@@ -146,13 +144,10 @@ fun MainScreen(
             secondarySeen = displayRepo.secondaryDisplay() != null,
         )
     }
-    val notifications by NotificationState.active.collectAsState()
-    val notifCount = notifications.size
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "2.3"
     }
 
-    fun openCover(tab: CoverTab) { coverTab = tab; showCover = true }
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
     Column(
@@ -222,11 +217,6 @@ fun MainScreen(
             }
         }
 
-        // Hero: miniature cover preview + one primary action.
-        HeroCoverCard(
-            notifCount = notifCount,
-            onOpen = { openCover(CoverTab.HOME) },
-        )
 
         // Status: three quiet stats, one small refresh action.
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -521,62 +511,6 @@ private fun Island(title: String, content: @Composable () -> Unit) {
 private fun SectionLabel(text: String) {
     Text(text.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
         color = CFlipColors.TextFaint, letterSpacing = 1.4.sp)
-}
-
-/** Miniature cover preview: the visual anchor of the whole screen. */
-@Composable
-private fun HeroCoverCard(notifCount: Int, onOpen: () -> Unit) {
-    Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
-        .background(Brush.linearGradient(listOf(Color(0xFF122B23), Color(0xFF0B0E0D))))
-        .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(28.dp))
-        .padding(20.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("09:41", fontSize = 40.sp, fontWeight = FontWeight.Bold,
-                        color = CFlipColors.TextPrimary, letterSpacing = (-1).sp)
-                    Text("Thứ Bảy, 25/10", fontSize = 13.sp, color = CFlipColors.TextSecondary)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(modifier = Modifier.clip(CircleShape).background(Color(0x1FFFFFFF))
-                            .padding(horizontal = 9.dp, vertical = 4.dp)) {
-                            Text("Pin 78%", fontSize = 12.sp, color = CFlipColors.TextPrimary)
-                        }
-                        Box(modifier = Modifier.clip(CircleShape).background(Color(0x1FFFFFFF))
-                            .padding(horizontal = 9.dp, vertical = 4.dp)) {
-                            Text(if (notifCount > 0) "$notifCount thông báo" else "Không có thông báo",
-                                fontSize = 12.sp, color = CFlipColors.TextPrimary)
-                        }
-                    }
-                }
-                // Favourite dots: 2x2 mini grid, the cover at a glance.
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MiniAppDot("Z", Color(0xFF3B82F6))
-                        MiniAppDot("M", Color(0xFF8B5CF6))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MiniAppDot("Y", Color(0xFFEF4444))
-                        MiniAppDot("C", Color(0xFF7FE3C0))
-                    }
-                }
-            }
-            Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
-                .clickable { onOpen() }.padding(vertical = 13.dp),
-                contentAlignment = Alignment.Center) {
-                Text("Mở Cover", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniAppDot(letter: String, color: Color) {
-    Box(modifier = Modifier.size(34.dp).clip(CircleShape).background(color.copy(alpha = 0.22f))
-        .border(1.dp, color.copy(alpha = 0.5f), CircleShape),
-        contentAlignment = Alignment.Center) {
-        Text(letter, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = color)
-    }
 }
 
 @Composable
