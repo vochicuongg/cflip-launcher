@@ -397,17 +397,25 @@ fun MainScreen(
                 HubSwitch("Quick Panel trên màn phụ", settings.assistiveTouchEnabled) {
                     settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
                     if (it) {
-                        // vc126 AUTO-START (user, 29/10): the Cover
-                        // Services island is gone - enabling
-                        // Quick Panel starts the cover service
-                        // itself (if not already running); the
-                        // service shows the opener on the cover.
-                        if (!isServiceRunning(context, CoverForegroundService::class.java)) {
-                            ContextCompat.startForegroundService(context,
-                                Intent(context, CoverForegroundService::class.java))
-                        }
+                        // vc132 POKE (user, 29/10: enable showed neither opener):
+                        // the vc126 guard only started the service when it was
+                        // NOT running, so re-enabling while the (sticky)
+                        // service was already alive never re-ran tryShow -
+                        // and on a static emulator cover there is no later
+                        // display/screen event to bring the opener back.
+                        // startForegroundService on an already-running service
+                        // is harmless: it just delivers onStartCommand, which
+                        // re-runs tryShow with fresh settings. So always poke
+                        // on enable, never guard.
+                        ContextCompat.startForegroundService(context,
+                            Intent(context, CoverForegroundService::class.java))
                         statusVersion++
-                    } else com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                    } else {
+                        // vc132: OFF hides BOTH openers, not just the bubble -
+                        // the old code left the swipe bar visible in bar mode.
+                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                        com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                    }
                 }
                 var openModeExpanded by remember { mutableStateOf(false) }
                 var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
@@ -428,7 +436,13 @@ fun MainScreen(
                             expanded = openModeExpanded,
                             onExpand = { openModeExpanded = true },
                             onDismiss = { openModeExpanded = false },
-                            onSelect = { m -> settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false })
+                            onSelect = { m ->
+                                settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false
+                                // vc132 POKE (see toggle above): re-show the opener
+                                // for the new mode at once when Quick Panel is on.
+                                if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
+                                    Intent(context, CoverForegroundService::class.java))
+                            })
                         Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
                             fontSize = 12.sp, color = CFlipColors.TextSecondary)
                         // qp-mode-anim
