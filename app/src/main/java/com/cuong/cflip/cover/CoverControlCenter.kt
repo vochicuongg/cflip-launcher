@@ -135,6 +135,7 @@ object CoverControlCenterManager {
     private fun clearPanelCache() {
         cachedPanelRoot = null
         cachedReopen = null
+        mediaCardPositionSync = null
         cachedPanelDisplayId = -1
         cachedPanelDisplayW = 0
         cachedPanelDisplayH = 0
@@ -195,6 +196,10 @@ object CoverControlCenterManager {
     }
     private val handler = Handler(Looper.getMainLooper())
     private var mediaTickRunnable: Runnable? = null
+    // vc123: live media-card position sync (see updateMediaViews).
+    // Assigned at the end of buildPanel, re-assigned by cachedReopen,
+    // cleared on hide / cache clear so it never touches dead views.
+    private var mediaCardPositionSync: ((Boolean) -> Unit)? = null
     private var dismissRunnable: Runnable? = null
     // vc44 loading intro: shown instantly on double-tap while the
     // heavy panel builds on the next main-loop turn, so the user
@@ -511,6 +516,7 @@ object CoverControlCenterManager {
         dismissRunnable = null
         mediaTickRunnable?.let { handler.removeCallbacks(it) }
         mediaTickRunnable = null
+        mediaCardPositionSync = null
         loadingRunnable?.let { handler.removeCallbacks(it) }
         loadingRunnable = null
         val lv = loadingView
@@ -1256,14 +1262,41 @@ object CoverControlCenterManager {
         var mediaPlayButtonRef: ImageButton? = null
         var lastMediaArt: android.graphics.Bitmap? = mediaInfo?.albumArt
         var lastPlayIconState: Boolean? = null
+        // vc123: tracks whether a session existed at the last tick,
+        // so updateMediaViews() can spot an appear/disappear
+        // transition (see the block right after `cur` below).
+        var lastMediaExists: Boolean = mediaInfo != null
         fun updateMediaViews() {
             runCatching { mediaRepo.refresh() }
             val cur = MediaState.current.value
+            // vc123 LIVE MEDIA CARD (user, 28/10):
+            // the panel used to decide the card
+            // position ONCE at build (vc108), so a
+            // session starting while the panel was
+            // already open only updated the card's
+            // text - the card stayed buried at the
+            // bottom and the Play-last pill stayed,
+            // until a full rebuild (service toggle).
+            // Now an existence transition moves
+            // the card + pill immediately (within
+            // the 1s tick, no reopen needed), and
+            // refreshes the cache snapshot so the
+            // next reopen takes the fast path with
+            // the right layout instead of a rebuild.
+            if (lastMediaExists != (cur != null)) {
+                lastMediaExists = cur != null
+                cachedMediaExists = cur != null
+                mediaCardPositionSync?.invoke(cur != null)
+            }
+            if (cur != null) {
+                cachedMediaPlaying = cur.isPlaying
+            }
             if (cur == null) {
-                // vc108 STOP: session gone while the
-                // panel is open. Card position stays
-                // as built at open (see vc108 order
-                // block), but the wave must lower
+                // vc123 STOP: session gone while the
+                // panel is open. Card position now
+                // moves live via the transition
+                // block above (card to the bottom,
+                // pill back), and the wave lowers
                 // down to the timeline instead of
                 // freezing at full height.
                 mediaProgress.wavePlaying = false
@@ -2062,12 +2095,15 @@ object CoverControlCenterManager {
         // Layout is decided at panel open, from
         // mediaInfo at that moment - like the rest
         // of this panel, which builds once and only
-        // ticks text/progress/wave while open. If a
-        // session starts/ends while the panel is
-        // open, close and reopen to get the new
-        // card position (wave lowering on stop,
-        // vc108, DOES update while open - see
-        // updateMediaViews null branch).
+        // ticks text/progress/wave while open.
+        // vc123 LIVE (user, 28/10): a session
+        // starting/ending while the panel is open
+        // NO LONGER needs close + reopen - the
+        // 1s tick spots the existence transition
+        // in updateMediaViews() and moves the card
+        // + pill immediately via the sync lambda
+        // below (wave lowering on stop already
+        // updated while open since vc108).
         if (mediaInfo != null) {
             controlContent.addView(combinedRow)
             controlContent.addView(tileCard)
@@ -2089,6 +2125,50 @@ object CoverControlCenterManager {
         controlContent.addView(View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
         })
+        // vc123 LIVE MEDIA CARD (see updateMediaViews transition
+        // block): the same two layouts the vc108 build-time block
+        // above chooses, but applied while the panel is open.
+        // Defined here - after every view it touches exists - and
+        // assigned to mediaCardPositionSync so the earlier-defined
+        // updateMediaViews() can invoke it without a forward
+        // reference; cachedReopen re-assigns it before its own
+        // updateMediaViews() call (see below).
+        val syncMediaCardPosition = { hasSession: Boolean ->
+            if (hasSession) {
+                if (mediaCard.parent !== combinedRow) {
+                    (mediaCard.parent as? android.view.ViewGroup)?.removeView(mediaCard)
+                    mediaCard.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 3f)
+                    combinedRow.addView(mediaCard, 0)
+                    mediaCard.alpha = 0f
+                    mediaCard.translationY = -dp(10).toFloat()
+                    mediaCard.scaleX = 0.985f
+                    mediaCard.scaleY = 0.985f
+                    mediaCard.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                        .setDuration(190L)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator())
+                        .start()
+                }
+                playLastPill.visibility = View.GONE
+            } else {
+                if (mediaCard.parent !== controlContent) {
+                    (mediaCard.parent as? android.view.ViewGroup)?.removeView(mediaCard)
+                    mediaCard.layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(0, 0, 0, dp(12))
+                    }
+                    val widget = widgetCardDeferred
+                    val insertAt = if (widget != null) {
+                        val wi = controlContent.indexOfChild(widget)
+                        if (wi >= 0) wi + 1 else controlContent.childCount
+                    } else {
+                        (controlContent.childCount - 1).coerceAtLeast(0)
+                    }
+                    controlContent.addView(mediaCard, insertAt)
+                }
+                playLastPill.visibility = View.VISIBLE
+            }
+        }
+        mediaCardPositionSync = syncMediaCardPosition
 
         // ---- Tab 2: Thông báo ---- (vc44 lazy, like apps:
         // notification rows used to build on EVERY panel open even
@@ -2266,6 +2346,7 @@ object CoverControlCenterManager {
             appsContent.removeAllViews()
             refreshBright2()
             refreshVol2()
+            mediaCardPositionSync = syncMediaCardPosition
             updateMediaViews()
             // vc111: clock widget refresh on reopen
             // (time / date / notification count /
