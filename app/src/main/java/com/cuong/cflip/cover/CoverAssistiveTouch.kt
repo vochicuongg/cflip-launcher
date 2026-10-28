@@ -414,6 +414,10 @@ object CoverAssistiveTouchManager {
             .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
         Log.i(TAG, "Bubble type=${params.type} (a11yAlive=${a11ySvc != null})")
         wm = manager; button = btn; bubbleParams = params; displayId = display.displayId
+        // vc141: hold the manual brightness on the cover after the panel
+        // closes (see CoverBrightnessHolder). Best effort only.
+        runCatching { CoverBrightnessHolder.show(appContext, display) }
+            .onFailure { Log.w(TAG, "Brightness holder failed", it) }
         // Apply the saved cover brightness immediately, not only after
         // the panel is opened once.
         runCatching {
@@ -438,6 +442,7 @@ object CoverAssistiveTouchManager {
             button = null; wm = null; bubbleParams = null; displayId = -1
             Log.i(TAG, "AssistiveTouch hidden")
         }
+        CoverBrightnessHolder.hide()
     }
 
     private fun isKeyguardLocked(context: Context): Boolean {

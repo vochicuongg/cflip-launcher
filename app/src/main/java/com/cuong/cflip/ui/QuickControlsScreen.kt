@@ -132,6 +132,7 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
                         com.cuong.cflip.cover.CoverControlCenterManager.applyPanelBrightness(context.applicationContext)
                         com.cuong.cflip.cover.CoverAssistiveTouchManager.applyCoverBrightness(context.applicationContext)
                         com.cuong.cflip.cover.CoverSwipeIndicatorManager.applyBarBrightness(context.applicationContext)
+                        com.cuong.cflip.cover.CoverBrightnessHolder.apply(context.applicationContext)
                     }
                 },
                     onValueChangeFinished = {

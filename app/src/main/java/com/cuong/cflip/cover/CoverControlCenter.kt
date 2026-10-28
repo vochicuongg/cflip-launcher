@@ -1507,6 +1507,10 @@ object CoverControlCenterManager {
             val (v, m) = QuickControls.volume(ctx)
             volSlider2?.setValue(if (m > 0) v.toFloat() / m else 0f, animate = false)
         }
+        // vc141: tracks whether the system half of the brightness sync
+        // failed (no WRITE_SETTINGS permission) so onDragEnd can toast
+        // once instead of spamming on every drag step.
+        var brightnessSyncFailed = false
         brightSlider2 = NineFlipSlider(ctx).apply {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
@@ -1530,6 +1534,7 @@ object CoverControlCenterManager {
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
                 CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
+                CoverBrightnessHolder.apply(ctx.applicationContext)
                 // vc140 SYNC (user, 29/10): CFlip brightness and system
                 // brightness follow each other - dragging the panel slider
                 // also writes the system value when the WRITE_SETTINGS
@@ -1538,9 +1543,23 @@ object CoverControlCenterManager {
                 // QUICK tab grant button is the way to enable the system
                 // half). This also puts the system in manual mode,
                 // otherwise auto-brightness would override the value.
-                QuickControls.setBrightness(ctx, (v * 255).toInt().coerceIn(0, 255))
+                // vc141: a failed system write is remembered for the
+                // once-per-drag toast in onDragEnd below.
+                if (!QuickControls.setBrightness(ctx, (v * 255).toInt().coerceIn(0, 255))) brightnessSyncFailed = true
             }
-            onDragEnd = { resetTimer() }
+            onDragEnd = {
+                // vc141: the system half of the sync fails silently without
+                // the WRITE_SETTINGS permission - say so once when the
+                // drag ends (same once-per-drag pattern as the QUICK tab),
+                // instead of spamming a toast on every drag step.
+                if (brightnessSyncFailed) {
+                    brightnessSyncFailed = false
+                    android.widget.Toast.makeText(ctx,
+                        "Chưa đồng bộ độ sáng hệ thống: cần cấp quyền sửa cài đặt hệ thống (tab QUICK → Cấp quyền chỉnh độ sáng hệ thống)",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
+                resetTimer()
+            }
             // vc118: base sun icon now toggles
             // manual / auto (was the tip auto
             // icon's job). Manual state still shows
@@ -1557,6 +1576,7 @@ object CoverControlCenterManager {
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
                 CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
+                CoverBrightnessHolder.apply(ctx.applicationContext)
                 refreshBright2(); resetTimer()
                 android.widget.Toast.makeText(ctx,
                     if (nextManual) "Đã bật Độ sáng thủ công" else "Đã bật Độ sáng tự động",

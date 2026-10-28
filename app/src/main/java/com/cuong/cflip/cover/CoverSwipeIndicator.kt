@@ -346,6 +346,11 @@ object CoverSwipeIndicatorManager {
         }
         manager.addView(container, params)
         wm = manager; bar = container; displayId = display.displayId; barParams = params
+        // vc141: hold the manual brightness on the cover after the panel
+        // closes (the tiny bar window alone does not hold it). Best
+        // effort: a holder failure must never break the opener itself.
+        runCatching { CoverBrightnessHolder.show(appContext, display) }
+            .onFailure { Log.w(TAG, "Brightness holder failed", it) }
         armDim()
         // 9Flip pj.a(): keep system gestures from
         // stealing the bar's touches. Posted so
@@ -380,5 +385,6 @@ object CoverSwipeIndicatorManager {
             if (v != null && w != null) w.removeView(v)
         }
         bar = null; wm = null; displayId = -1
+        CoverBrightnessHolder.hide()
     }
 }
