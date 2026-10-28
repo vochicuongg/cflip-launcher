@@ -707,17 +707,18 @@ class MediaProgressBar(context: Context) : View(context) {
         // vc147 TRACK STARTS FROM THE HALO, HIDDEN CONVEX (user,
         // 29/10 - correcting vc146): the segment behind the cursor
         // is NOT drawn from the cursor centre. Its left end is a
-        // convex dome (the pill's own rounded cap) whose tip sits
-        // inside the cursor halo - the last pill-radius of the glow
-        // radius - so the dome is veiled by the translucent halo
-        // instead of being cut into a concave crescent the way a
-        // bar running fully under a disc would be. The dome tip
-        // shows through the halo tint, then the bar continues at
-        // full height from the halo edge. (The glow is drawn later,
-        // on top, which is what veils the dome.)
+        // convex dome (the pill's own rounded cap) starting from
+        // the cursor halo, instead of a concave crescent cut the
+        // way a bar running fully under a disc would be.
+        // vc148 MORE DISTANCE (user, 29/10: vc147's concept was
+        // right, just a bit more gap): the track starts exactly at
+        // the halo edge - 2dp further out than vc147, where the
+        // dome tip sat one pill-radius inside the halo. The dome
+        // tip now touches the halo edge, and the gap between ring
+        // and track grows by 2dp.
         if (progressX < right) {
             val haloR = dp(12) * (if (isSeeking) 1.25f else 1f)
-            val pillLeft = progressX + haloR - radius
+            val pillLeft = progressX + haloR
             if (pillLeft < right) {
                 trackRect.set(pillLeft, pillTop, right, pillBottom)
                 canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
