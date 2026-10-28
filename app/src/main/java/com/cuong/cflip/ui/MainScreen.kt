@@ -375,7 +375,7 @@ fun MainScreen(
                             settings = settings.copy(coverWidgets = next.sorted().joinToString(","))
                             settingsStore.save(settings)
                         }
-                        HubSwitch("Widget Lưới ứng dụng yêu thích", "appgrid" in chosen) { toggleWidget("appgrid", it) }
+                        HubSwitch("Kích hoạt Widget màn hình ngoài", "appgrid" in chosen) { toggleWidget("appgrid", it) }
                     }
                     Text("Chưa bật gì thì panel không tự hiện Widget.",
                         fontSize = 12.sp, color = CFlipColors.TextFaint)
@@ -483,58 +483,48 @@ fun MainScreen(
                                     if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
                                         Intent(context, CoverForegroundService::class.java))
                                 })
-                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài: vuốt vào trong (hoặc chạm) để mở panel. Kéo ngang để chuyển thanh sang cạnh còn lại; nhả tay thanh tự dính vào cạnh gần nhất. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài: vuốt vào trong (hoặc chạm) để mở panel. Kéo ngang để chuyển thanh sang cạnh còn lại, kéo dọc để dời thanh lên xuống; nhả tay thanh tự dính vào cạnh gần nhất. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
                                 fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                            // qp-mode-anim
-                            AnimatedVisibility(
-                                visible = settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.ASSISTIVE_TOUCH,
-                                enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
-                                exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
-                                    // auto-dim, and position reset. vc133: size applies
-                                    // immediately - picking it hides the opener and pokes
-                                    // the service, which re-shows it at the new size.
-                                    Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
-                                        for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
-                                            val selected = settings.assistiveTouchSize == size
-                                            Box(modifier = Modifier.weight(1f).clip(CircleShape)
-                                                .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                                                .clickable {
-                                                    settings = settings.copy(assistiveTouchSize = size)
-                                                    settingsStore.save(settings)
-                                                    // vc133 SIZE LIVE (user, 29/10: size picks
-                                                    // did nothing): show() sizes the button once
-                                                    // at creation, and while the bubble was up the
-                                                    // service guard returned early, so a new size
-                                                    // never took effect. Hide the opener and poke
-                                                    // the service: tryShow re-shows it at the
-                                                    // new size right away.
-                                                    if (settings.assistiveTouchEnabled) {
-                                                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                                        com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
-                                                        ContextCompat.startForegroundService(context,
-                                                            Intent(context, CoverForegroundService::class.java))
-                                                    }
-                                                }
-                                                .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                                Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                                    color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
+                            // vc136 SYNC: size + auto-dim are shared by both openers -
+                            // they sit outside the bubble-only block, so changing
+                            // them in either mode applies to bubble AND bar.
+                            Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+                                for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
+                                    val selected = settings.assistiveTouchSize == size
+                                    Box(modifier = Modifier.weight(1f).clip(CircleShape)
+                                        .background(if (selected) CFlipColors.Accent else Color.Transparent)
+                                        .clickable {
+                                            settings = settings.copy(assistiveTouchSize = size)
+                                            settingsStore.save(settings)
+                                            // vc133 SIZE LIVE (user, 29/10: size picks
+                                            // did nothing): show() sizes the button once
+                                            // at creation, and while the bubble was up the
+                                            // service guard returned early, so a new size
+                                            // never took effect. Hide the opener and poke
+                                            // the service: tryShow re-shows it at the
+                                            // new size right away.
+                                            if (settings.assistiveTouchEnabled) {
+                                                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                                ContextCompat.startForegroundService(context,
+                                                    Intent(context, CoverForegroundService::class.java))
                                             }
                                         }
+                                        .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                            color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                                     }
-                                    HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
-                                        settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
-                                    }
-                                    TextButton(onClick = {
-                                        context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                                            .edit().clear().apply()
-                                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                        toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
-                                    }, modifier = Modifier.align(Alignment.Start)) {
-                                        Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                                    }
+                                }
+                            }
+                            HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
+                                settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                                // vc136 SYNC: re-show both openers at once so the bar
+                                // follows the same auto-dim switch as the bubble.
+                                if (settings.assistiveTouchEnabled) {
+                                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                    com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                    ContextCompat.startForegroundService(context,
+                                        Intent(context, CoverForegroundService::class.java))
                                 }
                             }
                             // vc134: touch actions are bubble-only - the whole block
@@ -574,6 +564,14 @@ fun MainScreen(
                                         onExpand = { bubbleMenuExpanded = "long" },
                                         onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
                                         onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                                    TextButton(onClick = {
+                                        context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                                            .edit().clear().apply()
+                                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                        toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
+                                    }, modifier = Modifier.align(Alignment.Start)) {
+                                        Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }

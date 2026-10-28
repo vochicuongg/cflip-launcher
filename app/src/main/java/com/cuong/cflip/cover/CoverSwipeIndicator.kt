@@ -36,7 +36,8 @@ import com.cuong.cflip.service.MyAccessibilityService
  *
  * CFlip's version, own drawing and gestures:
  * a vertical side handle on the cover - a
- * 48x160dp touch area with a 6x72dp white pill
+ * 40x128dp touch area with a 5x56dp white pill
+ * (scaled by the shared size setting, like the bubble)
  * centred in it, so a finger finds it easily.
  * Swipe INWARD on it opens the Full Panel; a plain
  * tap does the same as a fallback (small cover,
@@ -60,6 +61,10 @@ import com.cuong.cflip.service.MyAccessibilityService
  * across the screen and it snaps to the nearest side on release; a
  * drag that stays on the same half (or a tap) opens the panel. Dim
  * deepened to 25% after 2.5s.
+ *
+ * vc136: smaller (40x128dp base), draggable up/down along the edge
+ * (height remembered, scaled to the display), and size + auto-dim
+ * read from the shared settings so bar and bubble stay in sync.
  */
 object CoverSwipeIndicatorManager {
     private const val TAG = "CFlipSwipeIndicator"
@@ -91,12 +96,18 @@ object CoverSwipeIndicatorManager {
         fun dp(v: Int) = (v * density).toInt()
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
         // vc135 SIDE BAR (user, 29/10): the bar no longer lives at the
-        // bottom - it is a vertical handle on the left or right edge,
-        // vertically centred, never at the top or bottom. Drag it across
-        // the screen and it snaps to the nearest side on release.
-        val barW = dp(48)
-        val barH = dp(160)
+        // bottom - it is a vertical handle on the left or right edge.
+        // Drag it across the screen and it snaps to the nearest side
+        // on release; drag it up/down to move it along the edge.
+        // vc136: smaller base size, and size + auto-dim read from the
+        // shared settings so bar and bubble stay in sync both ways.
+        val coverSettings = runCatching { com.cuong.cflip.data.SettingsStore(appContext).load() }.getOrNull()
+        val sizeScale = when (coverSettings?.assistiveTouchSize) { 0 -> 0.8f; 2 -> 1.2f; else -> 1.0f }
+        val autoDimEnabled = coverSettings?.assistiveTouchAutoDim ?: true
+        val barW = (dp(40) * sizeScale).toInt()
+        val barH = (dp(128) * sizeScale).toInt()
         val dispW = displayContext.resources.displayMetrics.widthPixels
+        val dispH = displayContext.resources.displayMetrics.heightPixels
         val edgeMargin = dp(8)
         val barPrefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // Migrate vc134's bottom offset ("x") to a side: a negative
@@ -105,6 +116,12 @@ object CoverSwipeIndicatorManager {
             if (s >= 0) s else if (barPrefs.contains("x") && barPrefs.getInt("x", 0) < 0) 0 else 1
         }
         val startOnRight = savedSide != 0
+        // Height: restored (scaled to the current display height),
+        // centred by default, clamped so the bar stays on screen.
+        val savedY = barPrefs.getInt("y", -1)
+        val savedH = barPrefs.getInt("h", 0)
+        val startY = (if (savedY >= 0 && savedH > 0) savedY * dispH / savedH else (dispH - barH) / 2)
+            .coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
         // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
         // 9Flip's indicator draws a chevron affordance (^) over a pill
         // with contrast layers, so it reads on light wallpapers too.
@@ -119,7 +136,7 @@ object CoverSwipeIndicatorManager {
             private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFFFFFFFF.toInt()
                 style = android.graphics.Paint.Style.STROKE
-                strokeWidth = dp(3).toFloat()
+                strokeWidth = (dp(3) * sizeScale).toFloat()
                 strokeCap = android.graphics.Paint.Cap.ROUND
                 strokeJoin = android.graphics.Paint.Join.ROUND
                 setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
@@ -138,42 +155,48 @@ object CoverSwipeIndicatorManager {
                 canvas.restore()
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER }
+            layoutParams = LinearLayout.LayoutParams((dp(20) * sizeScale).toInt(), (dp(20) * sizeScale).toInt()).apply { gravity = Gravity.CENTER }
         }
         val pill = View(displayContext).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(3).toFloat()
+                cornerRadius = (dp(3) * sizeScale).toFloat()
                 setColor(0xB3FFFFFF.toInt())
             }
-            layoutParams = android.widget.FrameLayout.LayoutParams(dp(6), dp(72)).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams((dp(5) * sizeScale).toInt(), (dp(56) * sizeScale).toInt()).apply {
                 gravity = Gravity.CENTER
             }
         }
         val halo = android.widget.FrameLayout(displayContext).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(8).toFloat()
+                cornerRadius = (dp(8) * sizeScale).toFloat()
                 setColor(0x66000000.toInt())
             }
-            layoutParams = LinearLayout.LayoutParams(dp(16), dp(88)).apply { gravity = Gravity.CENTER }
+            layoutParams = LinearLayout.LayoutParams((dp(14) * sizeScale).toInt(), (dp(72) * sizeScale).toInt()).apply { gravity = Gravity.CENTER }
             addView(pill)
         }
         val container = LinearLayout(displayContext).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(8), dp(4), dp(8))
+            setPadding((dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt(), (dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt())
             // Chevron on the inner side: left of the pill on the right
             // edge, right of the pill on the left edge.
             if (startOnRight) { addView(chevron); addView(halo) } else { addView(halo); addView(chevron) }
         }
         var downRawX = 0f
-        var dragging = false
+        var downRawY = 0f
+        var startY = 0
+        var dragH = false
+        var dragV = false
         var opened = false
         var switched = false
         // vc135 DIM (user, 29/10: a little fainter): the bar fades to
         // 25% after 2.5s without a touch, and comes back on touch.
+        // vc136: the dim follows the shared auto-dim switch - off
+        // means the bar never dims, like the bubble.
         fun armDim() {
+            if (!autoDimEnabled) return
             dimRunnable?.let { dimHandler.removeCallbacks(it) }
             val r = Runnable { container.alpha = 0.25f }
             dimRunnable = r
@@ -187,15 +210,17 @@ object CoverSwipeIndicatorManager {
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downRawX = e.rawX
-                    dragging = false; opened = false; switched = false
+                    downRawX = e.rawX; downRawY = e.rawY
+                    startY = barParams?.y ?: 0
+                    dragH = false; dragV = false; opened = false; switched = false
                     // Work in left-edge coordinates during the drag so
                     // the bar can travel the full width: if it sits on
                     // the right edge, re-anchor its params to the left
-                    // (same on-screen position, different gravity).
+                    // (same on-screen position, different gravity; the
+                    // TOP-anchored y needs no conversion).
                     val params = barParams
                     if (params != null && (params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT) {
-                        params.gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+                        params.gravity = Gravity.TOP or Gravity.LEFT
                         params.x = dispW - edgeMargin - barW
                         runCatching { manager.updateViewLayout(container, params) }
                     }
@@ -205,13 +230,14 @@ object CoverSwipeIndicatorManager {
                 MotionEvent.ACTION_MOVE -> {
                     if (!opened) {
                         val dxRaw = e.rawX - downRawX
-                        if (!dragging && kotlin.math.abs(dxRaw) > touchSlop) dragging = true
-                        if (dragging) {
-                            val params = barParams
-                            if (params != null) {
-                                params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
-                                runCatching { manager.updateViewLayout(container, params) }
-                            }
+                        val dyRaw = e.rawY - downRawY
+                        if (!dragH && kotlin.math.abs(dxRaw) > touchSlop) dragH = true
+                        if (!dragV && kotlin.math.abs(dyRaw) > touchSlop) dragV = true
+                        val params = barParams
+                        if (params != null && (dragH || dragV)) {
+                            if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
+                            if (dragV) params.y = (startY + (e.rawY - downRawY)).toInt().coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
+                            runCatching { manager.updateViewLayout(container, params) }
                         }
                     }
                     true
@@ -220,15 +246,23 @@ object CoverSwipeIndicatorManager {
                     val params = barParams
                     if (params != null && !opened) {
                         val endOnRight = params.x + barW / 2 > dispW / 2
-                        if (dragging && endOnRight != startOnRight) {
+                        if (dragH && endOnRight != startOnRight) {
                             // Crossed the middle: switch sides and rebuild
                             // (the chevron flips to point inward again).
-                            barPrefs.edit().putInt("side", if (endOnRight) 1 else 0).apply()
+                            barPrefs.edit().putInt("side", if (endOnRight) 1 else 0)
+                                .putInt("y", params.y).putInt("h", dispH).apply()
                             switched = true
                             show(appContext, display)
+                        } else if (dragV && !dragH) {
+                            // Pure vertical move: stay on the same side,
+                            // snap back to the edge, remember the height.
+                            params.x = edgeMargin
+                            runCatching { manager.updateViewLayout(container, params) }
+                            barPrefs.edit().putInt("y", params.y).putInt("h", dispH).apply()
                         } else {
-                            // Same half after a drag = an inward swipe,
-                            // and no drag at all = a tap: both open the panel.
+                            // Same half after a horizontal drag = an inward
+                            // swipe, and no drag at all = a tap: both open
+                            // the panel.
                             opened = true
                             openPanel(appContext, display)
                         }
@@ -240,9 +274,9 @@ object CoverSwipeIndicatorManager {
                 else -> true
             }
         }
-        // Window size IS the touch area (48x160dp):
+        // Window size IS the touch area (40x128dp at default size):
         // WRAP_CONTENT would shrink it to the
-        // pill + padding (22x88dp) and make the
+        // pill + padding (20x84dp) and make the
         // swipe hard to land on a small cover.
         val params = WindowManager.LayoutParams(
             barW,
@@ -251,9 +285,9 @@ object CoverSwipeIndicatorManager {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
+            gravity = Gravity.TOP or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
             x = edgeMargin
-            y = 0
+            y = startY
         }
         manager.addView(container, params)
         wm = manager; bar = container; displayId = display.displayId; barParams = params

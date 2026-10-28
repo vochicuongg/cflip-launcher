@@ -2142,15 +2142,15 @@ object CoverControlCenterManager {
             controlContent.addView(tileCard)
             widgetCardDeferred?.let { controlContent.addView(it) }
         } else {
+            // vc136 (user, 29/10: delete the bottom Âm thanh card):
+            // with no session the card no longer sits at the bottom
+            // of the panel - the sliders + tiles + widgets are the
+            // whole default view. The card comes back to the top row
+            // when a session starts (sync lambda below).
             combinedRow.removeView(mediaCard)
             controlContent.addView(combinedRow)
             controlContent.addView(tileCard)
             widgetCardDeferred?.let { controlContent.addView(it) }
-            mediaCard.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, dp(12))
-            }
-            controlContent.addView(mediaCard)
         }
         // vc41: bottom spacer so the last card (Function island or
         // Widget) is never hidden behind the cover's bottom gesture
@@ -2183,21 +2183,11 @@ object CoverControlCenterManager {
                 }
                 playLastPill.visibility = View.GONE
             } else {
-                if (mediaCard.parent !== controlContent) {
-                    (mediaCard.parent as? android.view.ViewGroup)?.removeView(mediaCard)
-                    mediaCard.layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                        setMargins(0, 0, 0, dp(12))
-                    }
-                    val widget = widgetCardDeferred
-                    val insertAt = if (widget != null) {
-                        val wi = controlContent.indexOfChild(widget)
-                        if (wi >= 0) wi + 1 else controlContent.childCount
-                    } else {
-                        (controlContent.childCount - 1).coerceAtLeast(0)
-                    }
-                    controlContent.addView(mediaCard, insertAt)
-                }
+                // vc136: no bottom Âm thanh card anymore - when the
+                // session ends the card leaves the panel instead of
+                // moving to the bottom; it comes back to the top row
+                // when a session starts again.
+                (mediaCard.parent as? android.view.ViewGroup)?.removeView(mediaCard)
                 playLastPill.visibility = View.VISIBLE
             }
         }
