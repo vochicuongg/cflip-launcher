@@ -11,6 +11,10 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -193,16 +197,24 @@ fun MainScreen(
             toast("Không mở được trang Accessibility trên máy này.")
     }
 
-    // vc134 GRADIENT + BLUR (user, 29/10): the settings screen gets the
-    // app theme treatment - a mint-tinted vertical gradient wash plus two
-    // soft blurred ambient blobs behind the content (static, outside the
-    // scroll, so no per-frame blur cost while scrolling).
+    // vc135 ANIMATED BACKGROUND (user, 29/10): the two ambient blobs
+    // gently morph square -> circle (corner percent 0 -> 50) and drift
+    // a few dp, each on its own slow cycle so they never move in sync.
+    // They stay outside the scroll, so the animation costs one small
+    // layer, not a per-frame blur while scrolling.
+    val bgTransition = rememberInfiniteTransition(label = "cflip-bg")
+    val morph1 by bgTransition.animateFloat(0f, 50f, infiniteRepeatable(tween(5000), RepeatMode.Reverse), label = "morph1")
+    val driftX1 by bgTransition.animateFloat(0f, 24f, infiniteRepeatable(tween(7000), RepeatMode.Reverse), label = "driftX1")
+    val driftY1 by bgTransition.animateFloat(0f, 16f, infiniteRepeatable(tween(9000), RepeatMode.Reverse), label = "driftY1")
+    val morph2 by bgTransition.animateFloat(0f, 50f, infiniteRepeatable(tween(6500), RepeatMode.Reverse), label = "morph2")
+    val driftX2 by bgTransition.animateFloat(0f, -20f, infiniteRepeatable(tween(8000), RepeatMode.Reverse), label = "driftX2")
+    val driftY2 by bgTransition.animateFloat(0f, 12f, infiniteRepeatable(tween(11000), RepeatMode.Reverse), label = "driftY2")
     Box(modifier = Modifier.fillMaxSize().background(
         Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0B1512))))) {
-        Box(modifier = Modifier.size(280.dp).offset(x = 180.dp, y = (-60).dp)
-            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.13f), CircleShape))
-        Box(modifier = Modifier.size(220.dp).offset(x = (-80).dp, y = 420.dp)
-            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), CircleShape))
+        Box(modifier = Modifier.size(280.dp).offset(x = (180f + driftX1).dp, y = (-60f + driftY1).dp)
+            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.13f), RoundedCornerShape(morph1.toInt())))
+        Box(modifier = Modifier.size(220.dp).offset(x = (-80f + driftX2).dp, y = (420f + driftY2).dp)
+            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), RoundedCornerShape(morph2.toInt())))
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
                 .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -347,16 +359,22 @@ fun MainScreen(
                 .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
                 .padding(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Hiện trong panel AssistiveTouch khi bật:",
+                    Text("Hiện Widget trong màn hình phụ",
                         fontSize = 13.sp, color = CFlipColors.TextPrimary)
                     run {
                         val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                        // vc135: the Clock & Battery switch is gone - drop the key from
+                        // saved widgets so a previously-enabled clock widget does not
+                        // stay on with no switch to turn it off.
+                        if ("clock" in chosen) {
+                            val nextWidgets = (chosen - "clock").sorted().joinToString(",")
+                            settings = settings.copy(coverWidgets = nextWidgets); settingsStore.save(settings)
+                        }
                         fun toggleWidget(key: String, on: Boolean) {
                             val next = if (on) chosen + key else chosen - key
                             settings = settings.copy(coverWidgets = next.sorted().joinToString(","))
                             settingsStore.save(settings)
                         }
-                        HubSwitch("Widget Đồng hồ & Pin", "clock" in chosen) { toggleWidget("clock", it) }
                         HubSwitch("Widget Lưới ứng dụng yêu thích", "appgrid" in chosen) { toggleWidget("appgrid", it) }
                     }
                     Text("Chưa bật gì thì panel không tự hiện Widget.",
@@ -465,7 +483,7 @@ fun MainScreen(
                                     if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
                                         Intent(context, CoverForegroundService::class.java))
                                 })
-                            Text("Thanh Vuốt là thanh nhỏ ở đáy màn cover: vuốt lên (hoặc chạm) để mở panel đầy đủ. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài: vuốt vào trong (hoặc chạm) để mở panel. Kéo ngang để chuyển thanh sang cạnh còn lại; nhả tay thanh tự dính vào cạnh gần nhất. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
                                 fontSize = 12.sp, color = CFlipColors.TextSecondary)
                             // qp-mode-anim
                             AnimatedVisibility(

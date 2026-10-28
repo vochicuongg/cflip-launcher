@@ -35,10 +35,10 @@ import com.cuong.cflip.service.MyAccessibilityService
  * menu (reason "indicator_swipe").
  *
  * CFlip's version, own drawing and gestures:
- * a small bottom-centre bar on the cover - a
- * 160x48dp touch area with a 72x6dp white pill
+ * a vertical side handle on the cover - a
+ * 48x160dp touch area with a 6x72dp white pill
  * centred in it, so a finger finds it easily.
- * Swipe UP on it opens the Full Panel; a plain
+ * Swipe INWARD on it opens the Full Panel; a plain
  * tap does the same as a fallback (small cover,
  * swipe can be hard to land first try). The bar
  * never shows together with the bubble: the
@@ -54,6 +54,12 @@ import com.cuong.cflip.service.MyAccessibilityService
  *
  * vc134: drag sideways to hug either edge (snaps + remembers position),
  * and auto-dim to 35% after 2.5s without a touch.
+ *
+ * vc135: the bar moves to the sides - a vertical handle on the left or
+ * right edge, vertically centred, never at the top or bottom. Drag it
+ * across the screen and it snaps to the nearest side on release; a
+ * drag that stays on the same half (or a tap) opens the panel. Dim
+ * deepened to 25% after 2.5s.
  */
 object CoverSwipeIndicatorManager {
     private const val TAG = "CFlipSwipeIndicator"
@@ -84,16 +90,21 @@ object CoverSwipeIndicatorManager {
         val density = displayContext.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
-        // vc134 DRAG (user, 29/10): the bar can be dragged sideways to hug
-        // either edge of the cover. Position is an offset from centre,
-        // restored (scaled to the current display width) on every show.
-        val barW = dp(160)
+        // vc135 SIDE BAR (user, 29/10): the bar no longer lives at the
+        // bottom - it is a vertical handle on the left or right edge,
+        // vertically centred, never at the top or bottom. Drag it across
+        // the screen and it snaps to the nearest side on release.
+        val barW = dp(48)
+        val barH = dp(160)
         val dispW = displayContext.resources.displayMetrics.widthPixels
-        val maxOffset = maxOf(0, (dispW - barW) / 2 - dp(8))
+        val edgeMargin = dp(8)
         val barPrefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val savedX = barPrefs.getInt("x", 0)
-        val savedW = barPrefs.getInt("w", 0)
-        val startX = (if (savedW > 0) savedX * dispW / savedW else 0).coerceIn(-maxOffset, maxOffset)
+        // Migrate vc134's bottom offset ("x") to a side: a negative
+        // offset meant the left half, anything else the right half.
+        val savedSide = barPrefs.getInt("side", -1).let { s ->
+            if (s >= 0) s else if (barPrefs.contains("x") && barPrefs.getInt("x", 0) < 0) 0 else 1
+        }
+        val startOnRight = savedSide != 0
         // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
         // 9Flip's indicator draws a chevron affordance (^) over a pill
         // with contrast layers, so it reads on light wallpapers too.
@@ -101,6 +112,9 @@ object CoverSwipeIndicatorManager {
         // edge - white-on-white on a light cover wallpaper. Own drawing:
         // a drawn ^ chevron (no font dependency) with a dark shadow,
         // over a white pill set in a larger dark halo pill.
+        // vc135: the chevron points INWARD (toward the screen centre):
+        // right on the left edge, left on the right edge. Drawn by
+        // rotating the same ^ path, so it stays font-independent.
         val chevron = object : View(displayContext) {
             private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFFFFFFFF.toInt()
@@ -113,15 +127,18 @@ object CoverSwipeIndicatorManager {
             override fun onDraw(canvas: android.graphics.Canvas) {
                 super.onDraw(canvas)
                 val w = width.toFloat(); val h = height.toFloat()
+                canvas.save()
+                canvas.rotate(if (startOnRight) -90f else 90f, w / 2f, h / 2f)
                 val path = android.graphics.Path().apply {
                     moveTo(w * 0.15f, h * 0.8f)
                     lineTo(w * 0.5f, h * 0.2f)
                     lineTo(w * 0.85f, h * 0.8f)
                 }
                 canvas.drawPath(path, paint)
+                canvas.restore()
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(24), dp(12)).apply { gravity = Gravity.CENTER }
+            layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply { gravity = Gravity.CENTER }
         }
         val pill = View(displayContext).apply {
             background = GradientDrawable().apply {
@@ -129,7 +146,7 @@ object CoverSwipeIndicatorManager {
                 cornerRadius = dp(3).toFloat()
                 setColor(0xB3FFFFFF.toInt())
             }
-            layoutParams = android.widget.FrameLayout.LayoutParams(dp(72), dp(6)).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams(dp(6), dp(72)).apply {
                 gravity = Gravity.CENTER
             }
         }
@@ -139,27 +156,26 @@ object CoverSwipeIndicatorManager {
                 cornerRadius = dp(8).toFloat()
                 setColor(0x66000000.toInt())
             }
-            layoutParams = LinearLayout.LayoutParams(dp(88), dp(16)).apply { gravity = Gravity.CENTER }
+            layoutParams = LinearLayout.LayoutParams(dp(16), dp(88)).apply { gravity = Gravity.CENTER }
             addView(pill)
         }
         val container = LinearLayout(displayContext).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(4), dp(8), dp(6))
-            addView(chevron)
-            addView(halo)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            // Chevron on the inner side: left of the pill on the right
+            // edge, right of the pill on the left edge.
+            if (startOnRight) { addView(chevron); addView(halo) } else { addView(halo); addView(chevron) }
         }
-        var downX = 0f
-        var downY = 0f
         var downRawX = 0f
-        var startOffsetX = 0
-        var swiped = false
         var dragging = false
-        // vc134 DIM (user, 29/10): the bar fades to 35% after 2.5s without
-        // a touch, like the bubble's auto-dim, and comes back on touch.
+        var opened = false
+        var switched = false
+        // vc135 DIM (user, 29/10: a little fainter): the bar fades to
+        // 25% after 2.5s without a touch, and comes back on touch.
         fun armDim() {
             dimRunnable?.let { dimHandler.removeCallbacks(it) }
-            val r = Runnable { container.alpha = 0.35f }
+            val r = Runnable { container.alpha = 0.25f }
             dimRunnable = r
             dimHandler.postDelayed(r, 2500L)
         }
@@ -171,72 +187,73 @@ object CoverSwipeIndicatorManager {
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.x; downY = e.y; downRawX = e.rawX
-                    startOffsetX = barParams?.x ?: 0
-                    swiped = false; dragging = false
+                    downRawX = e.rawX
+                    dragging = false; opened = false; switched = false
+                    // Work in left-edge coordinates during the drag so
+                    // the bar can travel the full width: if it sits on
+                    // the right edge, re-anchor its params to the left
+                    // (same on-screen position, different gravity).
+                    val params = barParams
+                    if (params != null && (params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT) {
+                        params.gravity = Gravity.CENTER_VERTICAL or Gravity.LEFT
+                        params.x = dispW - edgeMargin - barW
+                        runCatching { manager.updateViewLayout(container, params) }
+                    }
                     cancelDim()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!dragging && !swiped) {
+                    if (!opened) {
                         val dxRaw = e.rawX - downRawX
-                        val dx = e.x - downX; val dy = e.y - downY
-                        if (kotlin.math.abs(dxRaw) > touchSlop && kotlin.math.abs(dxRaw) > kotlin.math.abs(dy) * 1.1f) {
-                            dragging = true
-                        } else if (dy < -touchSlop && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.1f) {
-                            swiped = true
-                            openPanel(appContext, display)
-                        }
-                    }
-                    if (dragging) {
-                        val params = barParams
-                        if (params != null) {
-                            params.x = (startOffsetX + (e.rawX - downRawX)).toInt().coerceIn(-maxOffset, maxOffset)
-                            runCatching { manager.updateViewLayout(container, params) }
+                        if (!dragging && kotlin.math.abs(dxRaw) > touchSlop) dragging = true
+                        if (dragging) {
+                            val params = barParams
+                            if (params != null) {
+                                params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
+                                runCatching { manager.updateViewLayout(container, params) }
+                            }
                         }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (dragging) {
-                        // Snap to the nearest side edge and remember it.
-                        val params = barParams
-                        if (params != null) {
-                            params.x = if (params.x >= 0) maxOffset else -maxOffset
-                            runCatching { manager.updateViewLayout(container, params) }
-                            barPrefs.edit().putInt("x", params.x).putInt("w", dispW).apply()
-                        }
-                    } else if (!swiped) {
-                        // Tap fallback: a tap that never
-                        // became a swipe still opens the
-                        // panel, so a missed swipe is not
-                        // a dead tap on a small cover.
-                        val dx = e.x - downX; val dy = e.y - downY
-                        if (kotlin.math.hypot(dx, dy) <= touchSlop) {
+                    val params = barParams
+                    if (params != null && !opened) {
+                        val endOnRight = params.x + barW / 2 > dispW / 2
+                        if (dragging && endOnRight != startOnRight) {
+                            // Crossed the middle: switch sides and rebuild
+                            // (the chevron flips to point inward again).
+                            barPrefs.edit().putInt("side", if (endOnRight) 1 else 0).apply()
+                            switched = true
+                            show(appContext, display)
+                        } else {
+                            // Same half after a drag = an inward swipe,
+                            // and no drag at all = a tap: both open the panel.
+                            opened = true
                             openPanel(appContext, display)
                         }
                     }
-                    armDim()
+                    if (!opened && !switched) armDim()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> { armDim(); true }
                 else -> true
             }
         }
-        // Window size IS the touch area (160x48dp):
+        // Window size IS the touch area (48x160dp):
         // WRAP_CONTENT would shrink it to the
-        // pill + padding (88x22dp) and make the
+        // pill + padding (22x88dp) and make the
         // swipe hard to land on a small cover.
         val params = WindowManager.LayoutParams(
-            dp(160),
-            dp(48),
+            barW,
+            barH,
             barType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            x = startX
-            y = dp(16)
+            gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
+            x = edgeMargin
+            y = 0
         }
         manager.addView(container, params)
         wm = manager; bar = container; displayId = display.displayId; barParams = params
