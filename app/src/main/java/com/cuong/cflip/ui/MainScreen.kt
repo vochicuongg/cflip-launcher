@@ -359,8 +359,6 @@ fun MainScreen(
                 .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
                 .padding(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Hiện Widget trong màn hình phụ",
-                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
                     run {
                         val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
                         // vc135: the Clock & Battery switch is gone - drop the key from
@@ -483,7 +481,7 @@ fun MainScreen(
                                     if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
                                         Intent(context, CoverForegroundService::class.java))
                                 })
-                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài: vuốt vào trong (hoặc chạm) để mở panel. Kéo ngang để chuyển thanh sang cạnh còn lại, kéo dọc để dời thanh lên xuống; nhả tay thanh tự dính vào cạnh gần nhất. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài, hành vi chạm giống hệt bong bóng (chạm 1 lần, chạm 2 lần, giữ lâu theo đúng cài đặt bên dưới). Kéo ngang để chuyển thanh sang cạnh còn lại, kéo dọc để dời thanh lên xuống; kéo để di chuyển thì không mở panel. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
                                 fontSize = 12.sp, color = CFlipColors.TextSecondary)
                             // vc136 SYNC: size + auto-dim are shared by both openers -
                             // they sit outside the bubble-only block, so changing
@@ -527,52 +525,48 @@ fun MainScreen(
                                         Intent(context, CoverForegroundService::class.java))
                                 }
                             }
-                            // vc134: touch actions are bubble-only - the whole block
-                            // is hidden in swipe-bar mode (it used to show in both
-                            // modes, where the rows did nothing).
-                            AnimatedVisibility(
-                                visible = settings.panelOpenMode == com.cuong.cflip.data.PanelOpenMode.ASSISTIVE_TOUCH,
-                                enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
-                                exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                // vc117 DROPDOWN (user, 27/10):
-                                    // tap-to-cycle rows were easy to
-                                    // overshoot (e.g. cycling past to
-                                    // NONE, then long-press looked dead).
-                                    // Each row now opens a dropdown with
-                                    // all 5 actions, so the choice is
-                                    // visible before it is made. Defaults:
-                                    // tap = Home, double-tap = Full panel,
-                                    // long-press = Recents.
-                                    // vc134: bubble-only now - in Swipe-bar mode this
-                                    // whole block is hidden (the rows did nothing there).
-                                    Text("Thay đổi hành vi AssistiveTouch",
-                                        fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                                    BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
-                                        expanded = bubbleMenuExpanded == "tap",
-                                        onExpand = { bubbleMenuExpanded = "tap" },
-                                        onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
-                                        onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                                    BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
-                                        expanded = bubbleMenuExpanded == "double",
-                                        onExpand = { bubbleMenuExpanded = "double" },
-                                        onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
-                                        onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                                    BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
-                                        expanded = bubbleMenuExpanded == "long",
-                                        onExpand = { bubbleMenuExpanded = "long" },
-                                        onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
-                                        onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                                    TextButton(onClick = {
-                                        context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                                            .edit().clear().apply()
-                                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                        toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
-                                    }, modifier = Modifier.align(Alignment.Start)) {
-                                        Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                                    }
-                                }
+                            // vc138 SYNC (user, 29/10: the bar is only a style,
+                            // not an independent function): touch actions now
+                            // apply to BOTH openers, so this block is shown
+                            // in both modes instead of bubble-only.
+                            // vc117 DROPDOWN (user, 27/10):
+                            // tap-to-cycle rows were easy to
+                            // overshoot (e.g. cycling past to
+                            // NONE, then long-press looked dead).
+                            // Each row now opens a dropdown with
+                            // all 5 actions, so the choice is
+                            // visible before it is made. Defaults:
+                            // tap = Home, double-tap = Full panel,
+                            // long-press = Recents.
+                            // vc138 SYNC: these rows now apply to both openers -
+                            // the bar is only a style, not an independent function.
+                            Text("Thay đổi hành vi AssistiveTouch",
+                                fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                            BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                                expanded = bubbleMenuExpanded == "tap",
+                                onExpand = { bubbleMenuExpanded = "tap" },
+                                onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                                onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                            BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                                expanded = bubbleMenuExpanded == "double",
+                                onExpand = { bubbleMenuExpanded = "double" },
+                                onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                                onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                            BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                                expanded = bubbleMenuExpanded == "long",
+                                onExpand = { bubbleMenuExpanded = "long" },
+                                onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                                onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                            TextButton(onClick = {
+                                context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
+                                context.getSharedPreferences("swipe_indicator", Context.MODE_PRIVATE)
+                                    .edit().clear().apply()
+                                    .edit().clear().apply()
+                                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
+                            }, modifier = Modifier.align(Alignment.Start)) {
+                                Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
                             }
                         }
                     }

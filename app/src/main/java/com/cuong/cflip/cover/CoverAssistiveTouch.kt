@@ -495,7 +495,9 @@ object CoverAssistiveTouchManager {
     // still handled at the call sites (unlock
     // activity), exactly as before - this function
     // only dispatches the chosen action.
-    private fun performBubbleAction(action: Int, context: Context, displayId: Int) {
+    // vc138: shared with the swipe bar - the bar is only a style,
+    // so it performs gestures through this same dispatcher, not its own.
+    fun performBubbleAction(action: Int, context: Context, displayId: Int) {
         when (action) {
             com.cuong.cflip.data.BubbleActions.HOME -> doHome(context, displayId)
             com.cuong.cflip.data.BubbleActions.RECENTS -> doRecents(context)

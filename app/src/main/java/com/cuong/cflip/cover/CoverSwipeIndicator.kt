@@ -65,6 +65,11 @@ import com.cuong.cflip.service.MyAccessibilityService
  * vc136: smaller (40x128dp base), draggable up/down along the edge
  * (height remembered, scaled to the display), and size + auto-dim
  * read from the shared settings so bar and bubble stay in sync.
+ *
+ * vc138: chevron removed (pill only); gestures are the bubble's
+ * (tap / double-tap / long-press via the shared dispatcher, read
+ * at fire time); dragging to move never opens the panel or fires
+ * an action.
  */
 object CoverSwipeIndicatorManager {
     private const val TAG = "CFlipSwipeIndicator"
@@ -129,34 +134,6 @@ object CoverSwipeIndicatorManager {
         // edge - white-on-white on a light cover wallpaper. Own drawing:
         // a drawn ^ chevron (no font dependency) with a dark shadow,
         // over a white pill set in a larger dark halo pill.
-        // vc135: the chevron points INWARD (toward the screen centre):
-        // right on the left edge, left on the right edge. Drawn by
-        // rotating the same ^ path, so it stays font-independent.
-        val chevron = object : View(displayContext) {
-            private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0xFFFFFFFF.toInt()
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = (dp(3) * sizeScale).toFloat()
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-                setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), 0x99000000.toInt())
-            }
-            override fun onDraw(canvas: android.graphics.Canvas) {
-                super.onDraw(canvas)
-                val w = width.toFloat(); val h = height.toFloat()
-                canvas.save()
-                canvas.rotate(if (startOnRight) -90f else 90f, w / 2f, h / 2f)
-                val path = android.graphics.Path().apply {
-                    moveTo(w * 0.15f, h * 0.8f)
-                    lineTo(w * 0.5f, h * 0.2f)
-                    lineTo(w * 0.85f, h * 0.8f)
-                }
-                canvas.drawPath(path, paint)
-                canvas.restore()
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams((dp(20) * sizeScale).toInt(), (dp(20) * sizeScale).toInt()).apply { gravity = Gravity.CENTER }
-        }
         val pill = View(displayContext).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -180,17 +157,22 @@ object CoverSwipeIndicatorManager {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding((dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt(), (dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt())
-            // Chevron on the inner side: left of the pill on the right
-            // edge, right of the pill on the left edge.
-            if (startOnRight) { addView(chevron); addView(halo) } else { addView(halo); addView(chevron) }
+            // vc138: no chevron anymore - the pill alone is the bar.
+            addView(halo)
         }
         var downRawX = 0f
         var downRawY = 0f
         var dragStartY = 0
         var dragH = false
         var dragV = false
-        var opened = false
         var switched = false
+        var longPressed = false
+        var pendingSingleTap = false
+        var doubleTapOpened = false
+        var longPressRunnable: Runnable? = null
+        var singleTapRunnable: Runnable? = null
+        val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
         // vc135 DIM (user, 29/10: a little fainter): the bar fades to
         // 25% after 2.5s without a touch, and comes back on touch.
         // vc136: the dim follows the shared auto-dim switch - off
@@ -207,32 +189,70 @@ object CoverSwipeIndicatorManager {
             dimRunnable = null
             container.alpha = 1f
         }
+        fun cancelTapRunnables() {
+            longPressRunnable?.let { dimHandler.removeCallbacks(it) }
+            singleTapRunnable?.let { dimHandler.removeCallbacks(it) }
+            longPressRunnable = null; singleTapRunnable = null
+        }
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downRawX = e.rawX; downRawY = e.rawY
-                    dragStartY = barParams?.y ?: 0
-                    dragH = false; dragV = false; opened = false; switched = false
-                    // Work in left-edge coordinates during the drag so
-                    // the bar can travel the full width: if it sits on
-                    // the right edge, re-anchor its params to the left
-                    // (same on-screen position, different gravity; the
-                    // TOP-anchored y needs no conversion).
-                    val params = barParams
-                    if (params != null && (params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT) {
-                        params.gravity = Gravity.TOP or Gravity.LEFT
-                        params.x = dispW - edgeMargin - barW
-                        runCatching { manager.updateViewLayout(container, params) }
-                    }
                     cancelDim()
-                    true
+                    // vc138 SYNC (user, 29/10: the bar is only a style,
+                    // not an independent function): gestures are the
+                    // bubble's - fast double-tap fires on the second
+                    // DOWN, exactly like the bubble (vc41).
+                    if (pendingSingleTap) {
+                        pendingSingleTap = false
+                        singleTapRunnable?.let { dimHandler.removeCallbacks(it) }
+                        singleTapRunnable = null
+                        doubleTapOpened = true
+                        val dtAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleDoubleTapAction
+                        CoverAssistiveTouchManager.performBubbleAction(dtAction, appContext, display.displayId)
+                        armDim()
+                        true
+                    } else {
+                        downRawX = e.rawX; downRawY = e.rawY
+                        dragStartY = barParams?.y ?: 0
+                        dragH = false; dragV = false; longPressed = false; doubleTapOpened = false
+                        // Work in left-edge coordinates during the drag so
+                        // the bar can travel the full width: if it sits on
+                        // the right edge, re-anchor its params to the left
+                        // (same on-screen position, different gravity; the
+                        // TOP-anchored y needs no conversion).
+                        val params = barParams
+                        if (params != null && (params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT) {
+                            params.gravity = Gravity.TOP or Gravity.LEFT
+                            params.x = dispW - edgeMargin - barW
+                            runCatching { manager.updateViewLayout(container, params) }
+                        }
+                        val r = Runnable {
+                            longPressed = true
+                            val action = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleLongPressAction
+                            CoverAssistiveTouchManager.performBubbleAction(action, appContext, display.displayId)
+                        }
+                        longPressRunnable = r
+                        dimHandler.postDelayed(r, longPressTimeout)
+                        true
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!opened) {
+                    if (!doubleTapOpened) {
+                        // Bubble vc117: cancel long-press only past HALF
+                        // the slop, so a trembling finger still holds.
+                        if (longPressRunnable != null) {
+                            val mdx = e.rawX - downRawX; val mdy = e.rawY - downRawY
+                            if (kotlin.math.hypot(mdx, mdy) > touchSlop / 2f) {
+                                dimHandler.removeCallbacks(longPressRunnable!!)
+                                longPressRunnable = null
+                            }
+                        }
                         val dxRaw = e.rawX - downRawX
                         val dyRaw = e.rawY - downRawY
+                        val wasDragging = dragH || dragV
                         if (!dragH && kotlin.math.abs(dxRaw) > touchSlop) dragH = true
                         if (!dragV && kotlin.math.abs(dyRaw) > touchSlop) dragV = true
+                        if ((dragH || dragV) && !wasDragging) cancelTapRunnables()
                         val params = barParams
                         if (params != null && (dragH || dragV)) {
                             if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
@@ -243,37 +263,66 @@ object CoverSwipeIndicatorManager {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val params = barParams
-                    if (params != null && !opened) {
-                        val endOnRight = params.x + barW / 2 > dispW / 2
-                        if (dragH && endOnRight != startOnRight) {
-                            // Crossed the middle: switch sides and rebuild
-                            // (the chevron flips to point inward again).
-                            barPrefs.edit().putInt("side", if (endOnRight) 1 else 0)
-                                .putInt("y", params.y).putInt("h", dispH).apply()
-                            switched = true
-                            show(appContext, display)
-                        } else if (dragV && !dragH) {
-                            // Pure vertical move: stay on the same side,
-                            // snap back to the edge, remember the height.
-                            params.x = edgeMargin
-                            runCatching { manager.updateViewLayout(container, params) }
-                            barPrefs.edit().putInt("y", params.y).putInt("h", dispH).apply()
+                    if (doubleTapOpened) {
+                        // UP belonging to the DOWN that already fired the
+                        // double-tap action must not start a pending single
+                        // (bubble vc41: it would later fire Home over the panel).
+                        doubleTapOpened = false
+                        armDim()
+                        true
+                    } else {
+                        cancelTapRunnables()
+                        val params = barParams
+                        if (params != null && (dragH || dragV)) {
+                            // vc138 MOVE ONLY (user, 29/10): dragging to
+                            // move the bar never opens the panel and never
+                            // fires an action - the vc136 same-half drag
+                            // opening the panel is gone.
+                            val endOnRight = params.x + barW / 2 > dispW / 2
+                            if (dragH && endOnRight != startOnRight) {
+                                barPrefs.edit().putInt("side", if (endOnRight) 1 else 0)
+                                    .putInt("y", params.y).putInt("h", dispH).apply()
+                                switched = true
+                                show(appContext, display)
+                            } else {
+                                // Same side: snap x back to the ORIGINAL edge.
+                                // vc136 bug fix: a right-edge bar's params are
+                                // in left coords after the DOWN re-anchor, so
+                                // snapping to edgeMargin would wrongly jump it
+                                // to the left edge - restore its own edge.
+                                params.x = if (startOnRight) dispW - edgeMargin - barW else edgeMargin
+                                runCatching { manager.updateViewLayout(container, params) }
+                                barPrefs.edit().putInt("y", params.y).putInt("h", dispH).apply()
+                            }
+                        } else if (longPressed) {
+                            // Long-press already fired on the timeout; the
+                            // UP itself does nothing more.
                         } else {
-                            // Same half after a horizontal drag = an inward
-                            // swipe, and no drag at all = a tap: both open
-                            // the panel.
-                            opened = true
-                            openPanel(appContext, display)
+                            // Tap: schedule the single-tap action after the
+                            // double-tap window, so a second DOWN can still
+                            // turn it into a double-tap (bubble behaviour).
+                            pendingSingleTap = true
+                            val r = Runnable {
+                                pendingSingleTap = false
+                                val tapAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleTapAction
+                                CoverAssistiveTouchManager.performBubbleAction(tapAction, appContext, display.displayId)
+                            }
+                            singleTapRunnable = r
+                            dimHandler.postDelayed(r, doubleTapTimeout)
                         }
+                        if (!switched) armDim()
+                        true
                     }
-                    if (!opened && !switched) armDim()
-                    true
                 }
-                MotionEvent.ACTION_CANCEL -> { armDim(); true }
+                MotionEvent.ACTION_CANCEL -> {
+                    doubleTapOpened = false
+                    cancelTapRunnables(); pendingSingleTap = false
+                    armDim(); true
+                }
                 else -> true
             }
         }
+
         // Window size IS the touch area (40x128dp at default size):
         // WRAP_CONTENT would shrink it to the
         // pill + padding (20x84dp) and make the
@@ -304,10 +353,6 @@ object CoverSwipeIndicatorManager {
         Log.i(TAG, "Swipe indicator shown on display ${display.displayId}")
     }
 
-    private fun openPanel(appContext: Context, display: Display) {
-        runCatching { CoverControlCenterManager.show(appContext, display) }
-            .onFailure { Log.w(TAG, "Swipe indicator panel open failed", it) }
-    }
 
     fun hide() {
         dimRunnable?.let { dimHandler.removeCallbacks(it) }
