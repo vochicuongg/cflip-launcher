@@ -1,6 +1,8 @@
 package com.cuong.cflip.ui
 
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -63,6 +65,7 @@ import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.MyAccessibilityService
+import com.cuong.cflip.service.MyNotificationListenerService
 import com.cuong.cflip.service.NotificationController
 
 /**
@@ -150,6 +153,38 @@ fun MainScreen(
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
+    // vc126 PERMISSION DEEP LINKS (9Flip pattern, clean-room):
+    // for each special permission, try the most specific settings
+    // page first and fall back to the generic page; if no candidate
+    // resolves on this OEM build, toast instead of crashing.
+    // (Special permissions cannot be batch-granted by Android - each
+    // still needs its own settings page; the win is fewer taps to
+    // the right page, not fewer pages.)
+    fun openFirstSettingsPage(vararg intents: Intent): Boolean {
+        for (intent in intents) {
+            try { context.startActivity(intent); return true }
+            catch (_: ActivityNotFoundException) { /* try next candidate */ }
+        }
+        return false
+    }
+    fun openNotificationSettings() {
+        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+            .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                ComponentName(context, MyNotificationListenerService::class.java).flattenToString())
+        val list = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        if (!openFirstSettingsPage(detail, list)) toast("Không mở được trang cài đặt thông báo trên máy này.")
+    }
+    fun openOverlaySettings() {
+        val withPkg = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + context.packageName))
+        val generic = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+        if (!openFirstSettingsPage(withPkg, generic)) toast("Không mở được trang hiển thị trên app khác trên máy này.")
+    }
+    fun openAccessibilitySettings() {
+        if (!openFirstSettingsPage(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
+            toast("Không mở được trang Accessibility trên máy này.")
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)
             .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -171,25 +206,67 @@ fun MainScreen(
             }
         }
 
-        // vc122 PERMISSIONS FIRST (user, 28/10):
-        // the Permissions island moves to the top
-        // of the app (right after the top bar),
-        // so granting comes before everything else.
-        // Permissions: compact rows, chevron only, no per-row buttons.
+        // vc126 WARNING FIRST (user, 29/10):
+        // the GoodLock warning moves to the very top
+        // of the app (above Permissions) and gets a
+        // danger-tinted card so it cannot be missed.
+        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(CFlipColors.Danger.copy(alpha = 0.12f))
+            .border(1.dp, CFlipColors.Danger.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+            .padding(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("\u26a0", fontSize = 18.sp)
+                    Text("CẢNH BÁO", fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        color = CFlipColors.Danger, letterSpacing = 1.2.sp)
+                }
+                Text("Không thêm CFlip vào GoodLock.",
+                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
+                Text("CFlip chạy độc lập trên màn phụ, không cần GoodLock hay MultiStar. Thêm vào GoodLock không làm CFlip chạy tốt hơn.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                Text("Mở panel bằng AssistiveTouch hoặc Thanh Vuốt trong mục Quick Panel, không qua GoodLock.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+            }
+        }
+
+        // vc126 PERMISSIONS (9Flip pattern, clean-room):
+        // deep-link page first, generic page as fallback, toast if
+        // none resolves; the "Cấp quyền còn thiếu" button jumps to
+        // the first missing permission in row order, and the vc115
+        // ON_RESUME refresh makes each return land on the next one.
+        // (Warning now sits above this island, vc126.)
+        // Permissions: compact rows, chevron only, plus that button.
         SectionLabel("Quyền")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 8.dp)) {
             Column {
+                if (statuses.grantedCount < 5) {
+                    Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
+                        .clickable {
+                            when {
+                                !statuses.notifications -> openNotificationSettings()
+                                !statuses.accessibility -> openAccessibilitySettings()
+                                !statuses.overlay -> openOverlaySettings()
+                                !statuses.usage -> QuickControls.openUsageAccessSettings(context)
+                                !statuses.writeSettings -> QuickControls.openWriteSettingsPermission(context)
+                            }
+                        }
+                        .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                        Text("Cấp quyền còn thiếu (${statuses.grantedCount}/5) →",
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 PermissionRow("Thông báo", statuses.notifications) {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    openNotificationSettings()
                 }
                 PermissionRow("Accessibility", statuses.accessibility) {
-                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    openAccessibilitySettings()
                 }
                 PermissionRow("Hiển thị trên app khác", statuses.overlay) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + context.packageName)))
+                    openOverlaySettings()
                 }
                 PermissionRow("Usage Access", statuses.usage) {
                     QuickControls.openUsageAccessSettings(context)
@@ -200,22 +277,6 @@ fun MainScreen(
             }
         }
 
-        // vc122 GOODLOCK WARNING (user, 28/10):
-        // CFlip runs standalone on the cover and
-        // never routes through GoodLock/MultiStar.
-        // The warning sits with Permissions at the
-        // top so a new user sees it before trying
-        // to add CFlip to GoodLock.
-        Island("Cảnh báo") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Không thêm CFlip vào GoodLock.",
-                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
-                Text("CFlip chạy độc lập trên màn phụ, không cần GoodLock hay MultiStar. Thêm vào GoodLock không làm CFlip chạy tốt hơn.",
-                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                Text("Mở panel bằng AssistiveTouch hoặc Thanh Vuốt trong mục Quick Panel, không qua GoodLock.",
-                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
-            }
-        }
 
 
         // Status: three quiet stats, one small refresh action.
@@ -252,7 +313,7 @@ fun MainScreen(
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Widget màn phụ (hiện trong panel AssistiveTouch, chỉ khi bạn bật):",
+                Text("Hiện trong panel AssistiveTouch khi bật:",
                     fontSize = 13.sp, color = CFlipColors.TextPrimary)
                 run {
                     val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
@@ -264,18 +325,12 @@ fun MainScreen(
                     HubSwitch("Widget Đồng hồ & Pin", "clock" in chosen) { toggleWidget("clock", it) }
                     HubSwitch("Widget Lưới ứng dụng yêu thích", "appgrid" in chosen) { toggleWidget("appgrid", it) }
                 }
-                Text("Chưa bật Widget nào thì panel AssistiveTouch sẽ ghi rõ là chưa thêm Widget — không tự hiện gì cả.",
+                Text("Chưa bật gì thì panel không tự hiện Widget.",
                     fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("Widget màn phụ Samsung (không dùng Ghim nữa):",
-                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                Text("Nút Ghim cũ đã gỡ, vì Ghim là hộp thoại của màn hình chính: nó luôn bắt “Mở điện thoại để tiếp tục” và gắn Widget lên màn hình chính, không bao giờ lên màn phụ. 9Flip cũng không dùng Ghim cho Widget màn phụ.",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("Cách thêm đúng, theo decompile 9Flip:",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("1) Trực tiếp trên màn phụ, không cần mở máy: gập máy lại, vuốt Widget màn phụ tới cuối, bấm +, chọn Widget CFlip trong danh sách Widget Samsung.",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
-                Text("2) Hoặc mở Cài đặt Widget màn phụ Samsung 1 lần (trang này của Samsung chỉ mở được trên màn chính), chọn Widget CFlip ở đó, rồi gập máy lại là thấy trên màn phụ.",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
+                Text("Thêm Widget Samsung trên màn phụ: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                Text("Hoặc mở cài đặt Widget Samsung bên dưới (chỉ mở được trên màn chính).",
+                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
                 TextButton(onClick = {
                     com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
                 }, modifier = Modifier.align(Alignment.Start)) {
@@ -315,7 +370,18 @@ fun MainScreen(
                 // itself never shows a bubble — it is custom/settings only.
                 HubSwitch("AssistiveTouch trên màn phụ", settings.assistiveTouchEnabled) {
                     settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
-                    if (!it) com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                    if (it) {
+                        // vc126 AUTO-START (user, 29/10): the Cover
+                        // Services island is gone - enabling
+                        // AssistiveTouch starts the cover service
+                        // itself (if not already running); the
+                        // service shows the opener on the cover.
+                        if (!isServiceRunning(context, CoverForegroundService::class.java)) {
+                            ContextCompat.startForegroundService(context,
+                                Intent(context, CoverForegroundService::class.java))
+                        }
+                        statusVersion++
+                    } else com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
                 }
                 // 2.7.0 redesign: size (small 0.8 / default 1.0 / large 1.2),
                 // auto-dim, and position reset. Size/auto-dim only take
@@ -403,67 +469,6 @@ fun MainScreen(
             }
         }
 
-        // Service: one toggle button + one quiet text action.
-        SectionLabel("Dịch vụ cover")
-        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .padding(16.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape)
-                        .background(if (statuses.serviceRunning) CFlipColors.Accent else CFlipColors.TextFaint))
-                    Text(if (statuses.serviceRunning) "Đang chạy — gập máy để thử cover"
-                        else "Chưa chạy", fontSize = 14.sp, color = CFlipColors.TextPrimary,
-                        modifier = Modifier.weight(1f))
-                }
-                Box(modifier = Modifier.fillMaxWidth().clip(CircleShape)
-                    .background(if (statuses.serviceRunning) CFlipColors.Surface else CFlipColors.Accent)
-                    .border(1.dp, if (statuses.serviceRunning) CFlipColors.CardStroke else Color.Transparent, CircleShape)
-                    .clickable {
-                        if (statuses.serviceRunning) {
-                            context.stopService(Intent(context, CoverForegroundService::class.java))
-                        } else {
-                            ContextCompat.startForegroundService(context, Intent(context, CoverForegroundService::class.java))
-                            toast("Đã chạy dịch vụ — gập máy lại để thử")
-                        }
-                        statusVersion++
-                    }
-                    .padding(vertical = 13.dp), contentAlignment = Alignment.Center) {
-                    Text(if (statuses.serviceRunning) "Dừng dịch vụ" else "Bắt đầu dịch vụ",
-                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        color = if (statuses.serviceRunning) CFlipColors.TextPrimary else CFlipColors.AccentDark)
-                }
-                TextButton(onClick = {
-                    // 3.0.0: Presentation deleted. This test button now
-                    // shows ONLY the AssistiveTouch button on the cover
-                    // display, then opens its 4-tab Widget panel there.
-                    // No Presentation, no full-screen overlay launcher.
-                    if (!Settings.canDrawOverlays(context)) {
-                        toast("Chưa cấp quyền Hiển thị trên app khác — cấp ở mục Quyền rồi thử lại.")
-                        return@TextButton
-                    }
-                    val secondary = displayRepo.secondaryDisplay()
-                    if (secondary == null) {
-                        toast("Chưa thấy màn hình phụ. Gập máy lại để thấy.")
-                    } else {
-                        val atResult = com.cuong.cflip.cover.CoverAssistiveTouchManager
-                            .show(context.applicationContext, secondary)
-                        if (atResult.isSuccess) {
-                            com.cuong.cflip.cover.CoverControlCenterManager
-                                .show(context.applicationContext, secondary)
-                            toast("Đã mở Widget AssistiveTouch (4 tab) lên màn phụ.")
-                        } else {
-                            toast("AssistiveTouch bị chặn: ${atResult.exceptionOrNull()?.message ?: "không rõ"}")
-                        }
-                    }
-                }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Mở Widget AssistiveTouch lên màn phụ →", color = CFlipColors.Accent, fontSize = 13.sp)
-                }
-                Text("Widget màn phụ: chính là panel 4 tab của AssistiveTouch (Điều khiển / Thông báo / Ứng dụng / CFlip) — đúp nút C trên màn phụ để mở, không còn giao diện cover toàn màn hình nữa.",
-                    fontSize = 12.sp, color = CFlipColors.TextFaint)
-            }
-        }
         Spacer(Modifier.height(8.dp))
     }
 }
