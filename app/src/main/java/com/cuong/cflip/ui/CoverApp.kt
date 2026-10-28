@@ -276,7 +276,8 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                                 appsVersion++
                             })
                     }
-                }            }
+                }
+            }
             PillNav(
                 tabs = tabs, current = tab,
                 notifCount = notifications.size,

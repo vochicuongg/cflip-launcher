@@ -279,7 +279,8 @@ fun MainScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                     }
-                }                PermissionRow("Thông báo", statuses.notifications) {
+                }
+                PermissionRow("Thông báo", statuses.notifications) {
                     openNotificationSettings()
                 }
                 PermissionRow("Accessibility", statuses.accessibility) {
@@ -468,7 +469,8 @@ fun MainScreen(
                                     Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
                                 }
                             }
-                        }                    // vc117 DROPDOWN (user, 27/10):
+                        }
+                    // vc117 DROPDOWN (user, 27/10):
                         // tap-to-cycle rows were easy to
                         // overshoot (e.g. cycling past to
                         // NONE, then long-press looked dead).
@@ -498,7 +500,8 @@ fun MainScreen(
                             onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
                             onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                     }
-                }            }
+                }
+            }
         }
 
         Spacer(Modifier.height(8.dp))
