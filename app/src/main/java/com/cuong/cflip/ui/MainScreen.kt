@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -103,7 +104,7 @@ fun MainScreen(
 
     if (showCover) {
         BackHandler { showCover = false }
-        Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)) {
+        Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()) {
             TextButton(onClick = { showCover = false }) { Text("← Quay lại", color = CFlipColors.Accent) }
             CoverApp(modifier = Modifier.weight(1f),
                 targetDisplayId = displayRepo.secondaryDisplay()?.displayId,
@@ -182,7 +183,7 @@ fun MainScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)
+        modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
@@ -213,7 +214,7 @@ fun MainScreen(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("\u26a0", fontSize = 18.sp)
+                    Text("\u26a0", fontSize = 18.sp, color = CFlipColors.Danger)
                     Text("CẢNH BÁO", fontSize = 13.sp, fontWeight = FontWeight.Bold,
                         color = CFlipColors.Danger, letterSpacing = 1.2.sp)
                 }
@@ -309,7 +310,7 @@ fun MainScreen(
         //    picker on the folded phone lists them. CFlip now does the same.
         //  - The cover widgets below live inside CFlip's own AssistiveTouch
         //    panel, and only after the user adds them there.
-        SectionLabel("Widget — chỉ thêm khi bạn tự thêm")
+        SectionLabel("Widget")
         Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
             .padding(16.dp)) {
