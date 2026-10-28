@@ -557,17 +557,6 @@ fun MainScreen(
                                 onExpand = { bubbleMenuExpanded = "long" },
                                 onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
                                 onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                            TextButton(onClick = {
-                                context.getSharedPreferences("assistive_touch", Context.MODE_PRIVATE)
-                                    .edit().clear().apply()
-                                context.getSharedPreferences("swipe_indicator", Context.MODE_PRIVATE)
-                                    .edit().clear().apply()
-                                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
-                                toast("Đã đặt lại vị trí AssistiveTouch về cạnh phải, giữa màn hình ngoài.")
-                            }, modifier = Modifier.align(Alignment.Start)) {
-                                Text("Đặt lại vị trí AssistiveTouch", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
                         }
                     }
                 }
