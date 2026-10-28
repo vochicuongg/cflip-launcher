@@ -704,19 +704,24 @@ class MediaProgressBar(context: Context) : View(context) {
         // goes 128 -> 0 and pillAlpha goes back to
         // 150 - the wave lowers into the pill.
         val waveVisible = fadeIn * waveHeightFactor
-        // vc146 SOLID TRACK BEHIND THE CURSOR + HIDDEN ROUNDED CORNER
-        // (user, 29/10, One UI reference): the segment behind the
-        // cursor is a solid pill again, and its left end is drawn
-        // from the cursor CENTRE (progressX), not from the ring edge.
-        // That puts the pill's rounded left cap underneath the cursor
-        // assembly (dot + ring + glow are drawn later, on top), so
-        // the corner itself stays hidden - the bar looks like it
-        // disappears behind the ring, exactly as in the reference,
-        // instead of ending in a visible square cut or a gap at the
-        // ring's edge.
+        // vc147 TRACK STARTS FROM THE HALO, HIDDEN CONVEX (user,
+        // 29/10 - correcting vc146): the segment behind the cursor
+        // is NOT drawn from the cursor centre. Its left end is a
+        // convex dome (the pill's own rounded cap) whose tip sits
+        // inside the cursor halo - the last pill-radius of the glow
+        // radius - so the dome is veiled by the translucent halo
+        // instead of being cut into a concave crescent the way a
+        // bar running fully under a disc would be. The dome tip
+        // shows through the halo tint, then the bar continues at
+        // full height from the halo edge. (The glow is drawn later,
+        // on top, which is what veils the dome.)
         if (progressX < right) {
-            trackRect.set(progressX, pillTop, right, pillBottom)
-            canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
+            val haloR = dp(12) * (if (isSeeking) 1.25f else 1f)
+            val pillLeft = progressX + haloR - radius
+            if (pillLeft < right) {
+                trackRect.set(pillLeft, pillTop, right, pillBottom)
+                canvas.drawRoundRect(trackRect, radius, radius, trackPaint)
+            }
         }
         // Progress pill: played segment, fading out
         // as the wave fades in, fading back in as
