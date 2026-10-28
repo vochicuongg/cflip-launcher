@@ -1487,11 +1487,21 @@ object CoverControlCenterManager {
         }
         var brightSlider2: NineFlipSlider? = null
         var volSlider2: NineFlipSlider? = null
+        // vc140: the slider shows the EFFECTIVE brightness - the stored
+        // CFlip value when manual, the live system value when auto (the
+        // window follows system in auto, so showing the stored default
+        // while the panel actually sat at system level was a visible
+        // mismatch between the slider and the real brightness).
+        fun effectivePanelBrightness(): Float {
+            val st = store.load()
+            return if (st.panelBrightnessManual) st.panelBrightness
+            else (QuickControls.brightness(ctx) / 255f).coerceIn(0.05f, 1.0f)
+        }
         fun refreshBright2() {
             val st = store.load()
             brightSlider2?.setManual(st.panelBrightnessManual)
             brightSlider2?.minValue = 0.05f
-            brightSlider2?.setValue(st.panelBrightness, animate = false)
+            brightSlider2?.setValue(effectivePanelBrightness(), animate = false)
         }
         fun refreshVol2() {
             val (v, m) = QuickControls.volume(ctx)
@@ -1507,7 +1517,7 @@ object CoverControlCenterManager {
             // sun icon below (setLeftClickListener).
             hideRightIcon()
             minValue = 0.05f
-            setValue(store.load().panelBrightness, animate = false)
+            setValue(effectivePanelBrightness(), animate = false)
             setManual(store.load().panelBrightnessManual)
             onValueChanged = { v ->
                 var cur = store.load()
@@ -1519,6 +1529,16 @@ object CoverControlCenterManager {
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
+                // vc140 SYNC (user, 29/10): CFlip brightness and system
+                // brightness follow each other - dragging the panel slider
+                // also writes the system value when the WRITE_SETTINGS
+                // permission is granted (setBrightness returns false
+                // without it, so the panel still dims on its own; the
+                // QUICK tab grant button is the way to enable the system
+                // half). This also puts the system in manual mode,
+                // otherwise auto-brightness would override the value.
+                QuickControls.setBrightness(ctx, (v * 255).toInt().coerceIn(0, 255))
             }
             onDragEnd = { resetTimer() }
             // vc118: base sun icon now toggles
@@ -1536,6 +1556,7 @@ object CoverControlCenterManager {
                 store.save(cur.copy(panelBrightnessManual = nextManual))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
                 refreshBright2(); resetTimer()
                 android.widget.Toast.makeText(ctx,
                     if (nextManual) "Đã bật Độ sáng thủ công" else "Đã bật Độ sáng tự động",
@@ -2369,6 +2390,10 @@ object CoverControlCenterManager {
             appsContent.removeAllViews()
             refreshBright2()
             refreshVol2()
+            // vc140: the ringer-mode icon is re-read on reopen, like the
+            // sliders - a cached panel otherwise kept the icon from build
+            // time even after the mode changed elsewhere.
+            refreshVolModeIcon()
             mediaCardPositionSync = syncMediaCardPosition
             updateMediaViews()
             // vc111: clock widget refresh on reopen

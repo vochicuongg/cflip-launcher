@@ -337,6 +337,12 @@ object CoverSwipeIndicatorManager {
             gravity = Gravity.TOP or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
             x = edgeMargin
             y = startY
+            // vc140: the bar window follows the same CFlip brightness as
+            // the bubble (manual -> stored value, auto -> system), so
+            // switching openers no longer changes the cover brightness.
+            screenBrightness = coverSettings?.let {
+                if (it.panelBrightnessManual) it.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+            } ?: -1f
         }
         manager.addView(container, params)
         wm = manager; bar = container; displayId = display.displayId; barParams = params
@@ -353,6 +359,18 @@ object CoverSwipeIndicatorManager {
         Log.i(TAG, "Swipe indicator shown on display ${display.displayId}")
     }
 
+
+    // vc140: mirror of the bubble's applyCoverBrightness - the bar window
+    // follows the same CFlip brightness, so switching openers no longer
+    // changes the cover brightness (before vc140 only the bubble window
+    // was updated, the bar always sat at system brightness).
+    fun applyBarBrightness(appContext: Context) {
+        val params = barParams; val v = bar; val manager = wm
+        if (params == null || v == null || manager == null) return
+        val st = com.cuong.cflip.data.SettingsStore(appContext).load()
+        params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+        runCatching { manager.updateViewLayout(v, params) }
+    }
 
     fun hide() {
         dimRunnable?.let { dimHandler.removeCallbacks(it) }

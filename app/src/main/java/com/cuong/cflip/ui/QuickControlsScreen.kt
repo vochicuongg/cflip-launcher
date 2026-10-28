@@ -118,6 +118,21 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
                 }
                 Slider(value = brightness, onValueChange = { brightness = it
                     if (!QuickControls.setBrightness(context, it.toInt())) brightnessFailed = true
+                    // vc140 SYNC: the system value also becomes CFlip's
+                    // panel brightness, so the panel slider shows the same
+                    // level on its next open (the manual/auto flag is left
+                    // alone: manual panels show this value, auto panels
+                    // follow system anyway, and both now agree with this
+                    // slider). The panel/bubble/bar windows follow at once
+                    // through the apply calls below when they are shown.
+                    runCatching {
+                        val store = com.cuong.cflip.data.SettingsStore(context)
+                        val cur = store.load()
+                        store.save(cur.copy(panelBrightness = (it / 255f).coerceIn(0.05f, 1.0f)))
+                        com.cuong.cflip.cover.CoverControlCenterManager.applyPanelBrightness(context.applicationContext)
+                        com.cuong.cflip.cover.CoverAssistiveTouchManager.applyCoverBrightness(context.applicationContext)
+                        com.cuong.cflip.cover.CoverSwipeIndicatorManager.applyBarBrightness(context.applicationContext)
+                    }
                 },
                     onValueChangeFinished = {
                         if (brightnessFailed) { brightnessFailed = false
