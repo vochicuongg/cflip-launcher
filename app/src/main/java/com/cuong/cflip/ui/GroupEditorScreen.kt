@@ -170,7 +170,9 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     val listState = rememberLazyListState()
     // vc166 TRASH PAGE: tapping Thùng rác opens a full page like
     // the member editor (back returns to the list), instead of
-    // the vc165 expandable zone below the footer.
+    // the vc165 expandable zone below the footer. vc167: deleting
+    // never auto-opens it — the user enters trash manually, only
+    // when they want to restore or delete permanently.
     var showTrashPage by remember { mutableStateOf(false) }
     // vc157 drag state (member grid long-press drag)
     var dragPkg by remember { mutableStateOf<String?>(null) }
@@ -552,10 +554,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 }
                                 TextButton(onClick = {
                                     // Soft-delete: the row leaves the
-                                    // main list for the trash page;
-                                    // open it so the move is visible.
+                                    // main list for the trash page.
+                                    // vc167: no auto-open — the user
+                                    // enters trash manually, only
+                                    // when they want to restore or
+                                    // delete permanently.
                                     persistDeleted(deletedSections + ("custom:" + g.id))
-                                    showTrashPage = true
                                 }) {
                                     Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
@@ -613,9 +617,8 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                     // now lives on the trash page's
                                     // Xóa hẳn). Order, override and
                                     // hidden flag stay, so Restore is
-                                    // exact.
+                                    // exact. vc167: no auto-open.
                                     persistDeleted(deletedSections + ("auto:" + ag.name))
-                                    showTrashPage = true
                                 }) {
                                     Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
@@ -654,7 +657,11 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { showTrashPage = true }) {
-                    Text("🗑 Thùng rác", color = CFlipColors.Danger, fontSize = 13.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TrashIcon()
+                        Spacer(Modifier.width(4.dp))
+                        Text("Thùng rác", color = CFlipColors.Danger, fontSize = 13.sp)
+                    }
                 }
             }
         } else {
@@ -1175,4 +1182,35 @@ private fun OrderArrow(text: String, enabled: Boolean, onClick: () -> Unit) {
             .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
             .padding(horizontal = 6.dp, vertical = 12.dp),
     )
+}
+
+// vc167 TRASH ICON: self-drawn in code, in the thin-outline style
+// of Samsung SystemUI (lid + handle + tapered bin + two slits).
+// It is NOT Samsung's asset file — the shape is drawn here, so
+// nothing copyrighted is copied into the repo.
+@Composable
+private fun TrashIcon(modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier = modifier.size(18.dp)) {
+        val stroke = 1.6.dp.toPx()
+        val w = size.width
+        val h = size.height
+        val color = CFlipColors.Danger
+        // Handle above the lid.
+        drawLine(color, Offset(w * 0.42f, h * 0.10f), Offset(w * 0.58f, h * 0.10f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        // Lid.
+        drawLine(color, Offset(w * 0.18f, h * 0.24f), Offset(w * 0.82f, h * 0.24f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        // Tapered bin, open at top, rounded bottom.
+        val body = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.24f, h * 0.30f)
+            lineTo(w * 0.30f, h * 0.88f)
+            quadraticBezierTo(w * 0.30f, h * 0.94f, w * 0.36f, h * 0.94f)
+            lineTo(w * 0.64f, h * 0.94f)
+            quadraticBezierTo(w * 0.70f, h * 0.94f, w * 0.70f, h * 0.88f)
+            lineTo(w * 0.76f, h * 0.30f)
+        }
+        drawPath(body, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        // Two inner slits.
+        drawLine(color, Offset(w * 0.42f, h * 0.42f), Offset(w * 0.44f, h * 0.80f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(color, Offset(w * 0.58f, h * 0.42f), Offset(w * 0.56f, h * 0.80f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+    }
 }
