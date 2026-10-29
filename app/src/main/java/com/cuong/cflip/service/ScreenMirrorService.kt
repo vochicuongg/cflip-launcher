@@ -721,8 +721,18 @@ class ScreenMirrorService : Service() {
             // vc85 LOCK FIX: same show-over-lock + turn-on flags as
             // MirrorPresentation, so the overlay fallback cannot be
             // hidden behind the cover lock screen either.
+            // vc171 HW FIX: a TextureView only creates its
+            // SurfaceTexture inside a hardware-accelerated window.
+            // Service-added overlay windows do NOT get hardware
+            // acceleration by default (Activity windows do), so
+            // without this flag the overlay TextureView stayed
+            // surface-less forever: status stuck at "waiting
+            // surface...", black feed, no virtual display. This
+            // flag is the standard route for overlay windows
+            // carrying a TextureView.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
             // vc72: same orientation preserve as Presentation,
@@ -738,6 +748,17 @@ class ScreenMirrorService : Service() {
                 hideCoverBubble()
                 statusView.text = "Mirror: overlay OK, waiting surface..."
                 Log.i(TAG, "Mirror overlay added on cover display ${secondary.displayId}")
+                // vc171: if the surface still is not ready 3s
+                // after the overlay appeared, say so plainly
+                // instead of leaving a silent black screen.
+                // (Before this flag fix, this is exactly where
+                // the overlay got stuck.)
+                handler.postDelayed({
+                    if (sessionGen == mirrorGeneration && overlayView == root && mirrorSurface == null) {
+                        statusView.text = "Mirror: overlay surface chưa sẵn sàng — thử tắt/mở lại phản chiếu"
+                        Log.w(TAG, "Mirror overlay surface not ready in 3s")
+                    }
+                }, 3000)
             }
             .onFailure { e -> Log.w(TAG, "System refused mirror overlay on cover", e); showFailurePillAndStop(secondary, "Mirror failed: overlay refused: " + (e.message ?: "unknown")) }
     }
