@@ -89,6 +89,14 @@ class ScreenMirrorService : Service() {
     // release) a new session's virtual display (9Flip
     // snapshot-token rule, own code).
     private var mirrorGeneration = 0
+    // vc184 9FLIP SELF-HEAL (l4.f2401f equivalent): true
+    // while a stop is intentional (cleanup, 3s fallback),
+    // so an onStop from our own dismiss never triggers a
+    // re-show loop. Reset to false on every startMirroring.
+    private var mirrorIntentionalStop = false
+    // vc184: re-show attempts for the current stop, capped
+    // at 8 like 9Flip's l4.f2403h, reset on a healed show.
+    private var mirrorReshowAttempts = 0
     // vc169 SOURCE TRACKING: main display size/dpi last seen by
     // the source listener below. A change resizes the virtual
     // display instead of leaving a stale-size feed.
@@ -431,6 +439,9 @@ class ScreenMirrorService : Service() {
         // every surface callback and watchdog compares against.
         mirrorGeneration++
         val sessionGen = mirrorGeneration
+        // vc184: fresh session, stops are unintentional until proven otherwise.
+        mirrorIntentionalStop = false
+        mirrorReshowAttempts = 0
 
         val mpm = getSystemService(MediaProjectionManager::class.java)
         projection = mpm?.getMediaProjection(resultCode, resultData)
@@ -583,17 +594,21 @@ class ScreenMirrorService : Service() {
             // already sets active=false synchronously) becomes a no-op here.
             pres.setOnDismissListener {
                 val gen = sessionGen
-                handler.post {
+                // vc184: delayed 300ms (after the 250ms heal
+                // below) and skipped if the heal re-showed the
+                // Presentation, so an unintentional dismiss
+                // heals instead of cleaning up immediately.
+                handler.postDelayed({
                     // vc182: also require this pres to still be the
                     // current one, so the 3s surface-fallback dismiss
                     // (which nulls mirrorPresentation, then builds
                     // the overlay) cannot post a cleanup that kills
                     // the fallback overlay a moment later.
-                    if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == pres) {
+                    if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == pres && !pres.isShowing) {
                         android.util.Log.i("CFlipMirror", "Mirror Presentation dismissed by system, cleaning up")
                         cleanupAndDisableDual()
                     }
-                }
+                }, 300)
             }
             // vc182 DETACH NET (log-8, VD25/VD26): vc181's onDismiss
             // only fires on dismiss(). In the freeze, the system
@@ -662,6 +677,17 @@ class ScreenMirrorService : Service() {
                     }, 1000)
                 }
             })
+            // vc184 9FLIP SELF-HEAL (p4 onStop -> l4.d()):
+            // an unintentional stop re-shows after 250ms,
+            // up to 8 attempts; intentional stops (cleanup,
+            // fallback) never reach here.
+            pres.onStopped = {
+                val gen = sessionGen
+                Log.i(TAG, "Mirror Presentation onStop, intentional=" + mirrorIntentionalStop)
+                if (!mirrorIntentionalStop) {
+                    scheduleMirrorReshow(gen, pres)
+                }
+            }
             mirrorPresentation = pres
             MirrorState.active = true
             hideCoverBubble()
@@ -681,6 +707,7 @@ class ScreenMirrorService : Service() {
             handler.postDelayed({
                 if (mirrorSurface == null && mirrorPresentation?.isShowing == true) {
                     Log.i(TAG, "Mirror Presentation surface not ready in 3s, falling back to overlay")
+                    mirrorIntentionalStop = true
                     runCatching { mirrorPresentation?.dismiss() }
                     mirrorPresentation = null
                     runCatching { createOverlayMirror(proj, secondary, coverCtx, sessionGen) }
@@ -1573,6 +1600,8 @@ class ScreenMirrorService : Service() {
 
     private fun cleanupSession() {
         android.util.Log.i("CFlipMirror", "Mirror cleanupSession active=" + com.cuong.cflip.mirror.MirrorState.active)
+        // vc184: every cleanup dismiss is intentional.
+        mirrorIntentionalStop = true
         // vc169: invalidate any late surface callback from the
         // session being torn down, and stop source tracking.
         mirrorGeneration++
@@ -1653,6 +1682,35 @@ class ScreenMirrorService : Service() {
             Log.w(TAG, "Mirror stop lock failed (vc103)", e)
             false
         }
+    }
+
+    // vc184 9FLIP SELF-HEAL (l4.d() + s runnable case 1,
+    // own code): re-show an unintentionally stopped
+    // Presentation after 250ms, up to 8 attempts. A healed
+    // show resets the counter (like l4.f2403h = 0 on show).
+    // If re-show fails, fall back to full cleanup so the
+    // user gets the bubble back instead of a dead state.
+    private fun scheduleMirrorReshow(gen: Int, stoppedPres: com.cuong.cflip.mirror.MirrorPresentation) {
+        handler.postDelayed({
+            if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == stoppedPres && DualDisplayHelper.isDualOn()) {
+                if (stoppedPres.isShowing) {
+                    mirrorReshowAttempts = 0
+                } else if (mirrorReshowAttempts >= 8) {
+                    Log.i(TAG, "Mirror re-show attempts exhausted, cleaning up")
+                    cleanupAndDisableDual()
+                } else {
+                    mirrorReshowAttempts++
+                    Log.i(TAG, "Mirror Presentation unintentional stop, re-showing attempt " + mirrorReshowAttempts + "/8")
+                    val ok = runCatching { stoppedPres.show() }.isSuccess && stoppedPres.isShowing
+                    if (ok) {
+                        mirrorReshowAttempts = 0
+                    } else {
+                        Log.i(TAG, "Mirror re-show failed, cleaning up")
+                        cleanupAndDisableDual()
+                    }
+                }
+            }
+        }, 250)
     }
 
     private fun cleanupAndDisableDual() {

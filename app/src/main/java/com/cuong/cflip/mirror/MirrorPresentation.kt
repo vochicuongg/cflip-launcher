@@ -120,6 +120,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     var onSurfaceReady: ((Surface) -> Unit)? = null
     /** Called when the surface goes away; the service must release the virtual display. */
     var onSurfaceGone: (() -> Unit)? = null
+    // vc184 9FLIP SELF-HEAL: fired from onStop() so the
+    // service can re-show an unintentionally stopped
+    // Presentation instead of only cleaning up (9Flip p4
+    // onStop -> l4.d(), own code, same structure).
+    var onStopped: (() -> Unit)? = null
 
     var rotationDeg: Int = 0
         private set
@@ -871,6 +876,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // vc184 9FLIP PARITY (p4 onCreate): a mirror
+        // dialog must never be cancelable - BACK or an
+        // outside touch must not dismiss the feed.
+        setCancelable(false)
+        setCanceledOnTouchOutside(false)
         // vc85 LOCK FIX (PowerFlip lesson, own code): vc84 test showed
         // the dialog fine, then the screen LOCKED immediately after
         // agree — the feed window never got to stay visible. A
@@ -1382,5 +1392,20 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // vc94: same as above - force redraw on next frame,
         // do not wait for the next MediaProjection frame.
         tv.postInvalidateOnAnimation()
+    }
+
+    // vc184 9FLIP SELF-HEAL: log the Dialog lifecycle so a
+    // freeze test shows whether the system actually stops
+    // this Presentation (heal path) or only hides it (no
+    // onStop, heal cannot trigger - that itself is data).
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.i("CFlipMirror", "Mirror Presentation onStart")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.i("CFlipMirror", "Mirror Presentation onStop")
+        onStopped?.invoke()
     }
 }
