@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 
 /** Lists every app that can be launched - the data source for the cover app drawer. */
@@ -119,6 +120,10 @@ class AppRepository(private val context: Context) {
                     packageName = pkg,
                     label = runCatching { ri.loadLabel(pm).toString() }.getOrDefault(pkg),
                     icon = runCatching { ri.loadIcon(pm) }.getOrNull(),
+                    // vc149 APP GROUPS: declared category for the
+                    // grouper (UNDEFINED when the app declares none).
+                    category = runCatching { ri.activityInfo.applicationInfo.category }
+                        .getOrDefault(ApplicationInfo.CATEGORY_UNDEFINED),
                 )
             }
             .distinctBy { it.packageName }

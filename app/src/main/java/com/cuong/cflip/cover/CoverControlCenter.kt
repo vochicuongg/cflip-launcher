@@ -888,6 +888,49 @@ object CoverControlCenterManager {
                     widgetCard.addView(clockDetailView)
                 }
                 if ("appgrid" in chosen) {
+                    // vc149 APP GROUPS (user, 29/10): the widget
+                    // groups apps into the curated important groups
+                    // (AppGroups) instead of one flat favorites grid.
+                    // loadLaunchableApps is cached (vc111), so this
+                    // second call is cheap. When no group has any
+                    // app, the else below keeps the exact old
+                    // favorites behavior so the widget never empties.
+                    val groupedApps = run {
+                        val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
+                        val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
+                        com.cuong.cflip.data.AppGroups.groupedApps(all)
+                    }
+                    if (groupedApps.isNotEmpty()) {
+                        widgetCard.addView(TextView(ctx).apply {
+                            text = "Nhóm ứng dụng"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+                        })
+                        for ((group, members) in groupedApps) {
+                            widgetCard.addView(TextView(ctx).apply {
+                                text = group.title; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                            })
+                            val groupGrid = GridLayout(ctx).apply { columnCount = 4 }
+                            for (app in members) {
+                                groupGrid.addView(Button(ctx).apply {
+                                    text = app.label; textSize = 10f; isAllCaps = false
+                                    background = rounded(0xFF23262B.toInt(), 12)
+                                    setTextColor(0xFFFFFFFF.toInt())
+                                    if (app.icon != null) {
+                                        val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
+                                        d.setBounds(0, 0, dp(40), dp(40))
+                                        setCompoundDrawables(null, d, null, null)
+                                    }
+                                    setOnClickListener {
+                                        com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
+                                        hide()
+                                    }
+                                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                            }
+                            widgetCard.addView(groupGrid)
+                        }
+                        widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
+                            setOnClickListener { selectTab(2) }
+                        })
+                    } else {
                     widgetCard.addView(TextView(ctx).apply {
                         text = "Ứng dụng yêu thích"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
                     })
@@ -984,6 +1027,7 @@ object CoverControlCenterManager {
                     widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
                         setOnClickListener { selectTab(2) }
                     })
+                    } // vc149: end else (no groups -> favorites fallback)
                 }
             }
             if (chosen.isNotEmpty()) {
