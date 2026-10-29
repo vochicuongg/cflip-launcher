@@ -920,14 +920,40 @@ class ScreenMirrorService : Service() {
         private fun dispatchSegment(toX: Float, toY: Float, willContinue: Boolean) {
             dispatchChunk(listOf(Pair(toX, toY)), willContinue)
         }
+
+        // vc177: 1px away from streamLast, inside source
+        // bounds, so a stop-then-release final is never
+        // a zero-length segment.
+        private fun nudgedFinalPoint(): Pair<Float, Float> {
+            if (streamLastY < mainHeight - 1) return Pair(streamLastX, streamLastY + 1f)
+            if (streamLastY > 0) return Pair(streamLastX, streamLastY - 1f)
+            if (streamLastX < mainWidth - 1) return Pair(streamLastX + 1f, streamLastY)
+            return Pair(streamLastX - 1f, streamLastY)
+        }
         private fun dispatchChunk(points: List<Pair<Float, Float>>, willContinue: Boolean) {
             if (points.isEmpty()) return
             val acc = MyAccessibilityService.instance ?: return
-            val first = points.first()
+        // vc177 LOG-PROVEN (vc176 log 30/10): same as
+        // Presentation - the system cancels a zero-length
+        // continued stroke within ~2ms, the cancel clears
+        // state, the later UP is ignored, no final is
+        // sent, and the shade hangs. Never dispatch a
+        // zero-length continuation; nudge a
+        // stop-then-release final by 1px.
+        var effPoints = points
+        if (effPoints.size == 1 && effPoints[0].first == streamLastX && effPoints[0].second == streamLastY) {
+            if (!willContinue) {
+                effPoints = listOf(nudgedFinalPoint())
+                android.util.Log.i("CFlipMirror", "OV FINAL nudged to " + effPoints[0])
+            } else {
+                return
+            }
+        }
+            val first = effPoints.first()
             val moved = kotlin.math.hypot(first.first - streamLastX, first.second - streamLastY) >= 1f
             val segDuration = when {
                 streamStroke == null -> 16L
-                points.size > 1 -> points.size.toLong() * 22L
+                effPoints.size > 1 -> effPoints.size.toLong() * 22L
                 !moved -> 1L
                 else -> 16L
             }.coerceIn(1L, 220L)
@@ -944,10 +970,10 @@ class ScreenMirrorService : Service() {
         // and the never-closed stroke then blocks
         // every prepared tap behind it. A zero-length
         // lineTo is a valid segment.
-            for (pt in points) {
+            for (pt in effPoints) {
                 path.lineTo(pt.first, pt.second)
             }
-            val last = points.last()
+            val last = effPoints.last()
             val stroke = if (streamStroke == null) {
                 GestureDescription.StrokeDescription(path, 0L, segDuration, willContinue)
             } else {
@@ -959,7 +985,7 @@ class ScreenMirrorService : Service() {
             lastDispatchMs = android.os.SystemClock.uptimeMillis()
             streamInFlight = true
             val gen = generation
-            android.util.Log.i("CFlipMirror", "OV CHUNK willContinue=" + willContinue + " n=" + points.size + " first=" + points.first())
+            android.util.Log.i("CFlipMirror", "OV CHUNK willContinue=" + willContinue + " n=" + effPoints.size + " first=" + effPoints.first())
             val isFinalSegment = !willContinue
             val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
             val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {

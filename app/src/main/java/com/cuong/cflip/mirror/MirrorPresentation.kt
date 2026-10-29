@@ -493,6 +493,16 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         dispatchStreamChunk(listOf(Pair(toX, toY)), willContinue)
     }
 
+
+    // vc177: 1px away from streamLast, inside source
+    // bounds, so a stop-then-release final is never a
+    // zero-length segment.
+    private fun nudgedFinalPoint(): Pair<Float, Float> {
+        if (streamLastY < sourceH - 1) return Pair(streamLastX, streamLastY + 1f)
+        if (streamLastY > 0) return Pair(streamLastX, streamLastY - 1f)
+        if (streamLastX < sourceW - 1) return Pair(streamLastX + 1f, streamLastY)
+        return Pair(streamLastX - 1f, streamLastY)
+    }
     private fun dispatchStreamChunk(points: List<Pair<Float, Float>>, willContinue: Boolean) {
         if (points.isEmpty()) return
         val acc = MyAccessibilityService.instance
@@ -506,11 +516,32 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // continues from streamLast; every later point is
         // a lineTo in the same stroke, so the system plays
         // them continuously with no callback gaps.
-        val first = points.first()
+        // vc177 LOG-PROVEN (vc176 log 30/10): the system
+        // CANCELS a continued stroke whose path has zero
+        // length (same point as streamLast) within ~2ms.
+        // The cancel clears CFlip state, so the later UP
+        // is ignored and no final segment is ever sent:
+        // a stop-then-release shade drag hangs at ~50%.
+        // vc175's zero-length lineTo did NOT help: the
+        // system still sees zero movement and cancels.
+        // So: never dispatch a zero-length continuation
+        // (a stationary finger sends no events, like a
+        // real finger), and nudge a stop-then-release
+        // FINAL by 1px so the system accepts the end.
+        var effPoints = points
+        if (effPoints.size == 1 && effPoints[0].first == streamLastX && effPoints[0].second == streamLastY) {
+            if (!willContinue) {
+                effPoints = listOf(nudgedFinalPoint())
+                android.util.Log.i("CFlipMirror", "PRES FINAL nudged to " + effPoints[0])
+            } else {
+                return
+            }
+        }
+        val first = effPoints.first()
         val moved = kotlin.math.hypot(first.first - streamLastX, first.second - streamLastY) >= 1f
         val segDuration = when {
             streamStroke == null -> 16L
-            points.size > 1 -> points.size.toLong() * 22L
+            effPoints.size > 1 -> effPoints.size.toLong() * 22L
             !moved -> 1L
             else -> 16L
         }.coerceIn(1L, 220L)
@@ -527,10 +558,10 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // and the never-closed stroke then blocks
         // every prepared tap behind it. A zero-length
         // lineTo is a valid segment.
-        for (pt in points) {
+        for (pt in effPoints) {
             path.lineTo(pt.first, pt.second)
         }
-        val last = points.last()
+        val last = effPoints.last()
         val stroke = if (streamStroke == null) {
             GestureDescription.StrokeDescription(path, 0L, segDuration, willContinue)
         } else {
@@ -542,7 +573,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         touchLastDispatchMs = android.os.SystemClock.uptimeMillis()
         streamInFlight = true
         val gen = streamGeneration
-        android.util.Log.i("CFlipMirror", "PRES CHUNK willContinue=" + willContinue + " n=" + points.size + " first=" + points.first())
+        android.util.Log.i("CFlipMirror", "PRES CHUNK willContinue=" + willContinue + " n=" + effPoints.size + " first=" + effPoints.first())
         val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
         // vc98: 9Flip f4.i() passes an explicit main-looper
