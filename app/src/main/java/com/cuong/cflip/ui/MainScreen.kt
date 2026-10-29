@@ -373,8 +373,8 @@ fun MainScreen(
                 .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
                 .padding(16.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
                     run {
-                        val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
                         // vc135: the Clock & Battery switch is gone - drop the key from
                         // saved widgets so a previously-enabled clock widget does not
                         // stay on with no switch to turn it off.
@@ -389,25 +389,37 @@ fun MainScreen(
                         }
                         HubSwitch("Kích hoạt Widget màn hình ngoài", "appgrid" in chosen) { toggleWidget("appgrid", it) }
                     }
-                    Text("Chưa bật gì thì panel không tự hiện Widget.",
-                        fontSize = 12.sp, color = CFlipColors.TextFaint)
-                    Text("Thêm Widget Samsung trên màn hình ngoài: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
-                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                    Text("Hoặc mở cài đặt Widget Samsung bên dưới (chỉ mở được trên màn chính).",
-                        fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                    TextButton(onClick = {
-                        com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
-                    }, modifier = Modifier.align(Alignment.Start)) {
-                        Text("Mở Cài đặt Widget màn hình ngoài Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                    TextButton(onClick = {
-                        toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
-                    }, modifier = Modifier.align(Alignment.Start)) {
-                        Text("Kiểm tra Widget màn hình ngoài đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                    TextButton(onClick = { showGroupEditor = true },
-                        modifier = Modifier.align(Alignment.Start)) {
-                        Text("Tùy chỉnh nhóm ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
+                    // vc165 WIDGET LIKE QUICK PANEL (user, 29/10):
+                    // the switch stays, the details only show while
+                    // it is on — same expand/fade as the Quick Panel
+                    // island, instead of always showing everything.
+                    AnimatedVisibility(
+                        visible = "appgrid" in chosen,
+                        enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Chưa bật gì thì panel không tự hiện Widget.",
+                                fontSize = 12.sp, color = CFlipColors.TextFaint)
+                            Text("Thêm Widget Samsung trên màn hình ngoài: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
+                                fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                            Text("Hoặc mở cài đặt Widget Samsung bên dưới (chỉ mở được trên màn chính).",
+                                fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                            TextButton(onClick = {
+                                com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
+                            }, modifier = Modifier.align(Alignment.Start)) {
+                                Text("Mở Cài đặt Widget màn hình ngoài Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
+                            }
+                            TextButton(onClick = {
+                                toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
+                            }, modifier = Modifier.align(Alignment.Start)) {
+                                Text("Kiểm tra Widget màn hình ngoài đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
+                            }
+                            TextButton(onClick = { showGroupEditor = true },
+                                modifier = Modifier.align(Alignment.Start)) {
+                                Text("Tùy chỉnh nhóm ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -499,7 +511,7 @@ fun MainScreen(
                                     if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
                                         Intent(context, CoverForegroundService::class.java))
                                 })
-                            Text("Thanh Vuốt là thanh nhỏ ở cạnh trái hoặc phải màn hình ngoài, hành vi chạm giống hệt bong bóng (chạm 1 lần, chạm 2 lần, giữ lâu theo đúng cài đặt bên dưới). Kéo ngang để chuyển thanh sang cạnh còn lại, kéo dọc để dời thanh lên xuống; kéo để di chuyển thì không mở panel. Chọn Thanh Vuốt thì bong bóng sẽ ẩn đi, chọn AssistiveTouch thì thanh sẽ ẩn đi.",
+                            Text("Thanh nhỏ ở cạnh màn hình ngoài, chạm giống hệt bong bóng. Kéo ngang đổi cạnh, kéo dọc dời thanh, kéo không mở panel; chọn Thanh Vuốt thì bong bóng ẩn đi và ngược lại.",
                                 fontSize = 12.sp, color = CFlipColors.TextSecondary)
                             // vc136 SYNC: size + auto-dim are shared by both openers -
                             // they sit outside the bubble-only block, so changing
