@@ -137,10 +137,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         }
         list
     }
-    // Trash entries: EVERY deleted group (custom + default) in
-    // unified order, so Restore puts each back exactly where it
-    // was, plus any deleted group the order forgot (defensive).
-    // Entries are "c:<id>" / "a:<NAME>", like displayEntries.
+    // Trash entries: EVERY restorable deleted group (custom +
+    // default) in unified order, so Restore puts each back
+    // exactly where it was, plus any deleted custom the order
+    // forgot (defensive). Entries are "c:<id>" / "a:<NAME>",
+    // like displayEntries. A default in deletedSections but NOT
+    // in unified is permanently deleted and listed nowhere.
     val trashEntries: List<String> = run {
         val list = unified.filter { e ->
             (e.startsWith("c:") && groups.any { it.id == e.removePrefix("c:") } &&
@@ -152,10 +154,9 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             val e = "c:" + g.id
             if (e !in list && "custom:" + g.id in deletedSections) list.add(e)
         }
-        for (ag in AppGroup.values()) {
-            val e = "a:" + ag.name
-            if (e !in list && "auto:" + ag.name in deletedSections) list.add(e)
-        }
+        // No defensive append for defaults: a default with a
+        // tombstone but no order entry is permanently deleted —
+        // listing it here would make Xóa hẳn look broken.
         list
     }
     // Ids of soft-deleted customs, for membership logic that must
@@ -469,11 +470,23 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                         Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
                                     }
                                     TextButton(onClick = {
-                                        // vc164 COMPLETE DELETE, now
+                                        // vc168 COMPLETE DELETE, now
                                         // from trash: purge order,
-                                        // override and hidden flag;
-                                        // only the tombstone stays.
-                                        persistDeleted(deletedSections - ("auto:" + ag.name))
+                                        // override and hidden flag,
+                                        // but KEEP the tombstone.
+                                        // vc166/167 dropped it here,
+                                        // so the missing-append
+                                        // resurrected the group and
+                                        // Xóa hẳn looked broken.
+                                        // Defaults always exist in
+                                        // the enum, so the tombstone
+                                        // is the only thing keeping
+                                        // a purged default gone;
+                                        // trashEntries only lists
+                                        // defaults whose order entry
+                                        // still exists, so this row
+                                        // leaves trash for good.
+                                        persistDeleted(deletedSections + ("auto:" + ag.name))
                                         persistUnified(unified.filter { it != entry })
                                         persistOverrides(overrides - ag.name)
                                         persistHidden(hiddenAuto - ag.name)
