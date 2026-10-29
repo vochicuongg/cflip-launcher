@@ -769,6 +769,11 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // The root FrameLayout above is already black, so the
         // TextureView needs no background of its own.
         textureView = TextureView(context).apply {
+            // vc169 9Flip i4 parity: the mirror surface is opaque
+            // content (black root behind it). An opaque surface
+            // lets the compositor skip blending, which 9Flip gets
+            // from setOpaque(true) and CFlip was missing.
+            setOpaque(true)
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                     val (bw, bh) = bufferSize()

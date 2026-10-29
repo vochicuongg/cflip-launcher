@@ -79,16 +79,22 @@ class ScreenMirrorService : Service() {
     private var mirrorPresentation: com.cuong.cflip.mirror.MirrorPresentation? = null
     private var mirrorTexture: TextureView? = null
     private var mirrorSurface: Surface? = null
-    // vc63 TOUCH: cover -> main forwarding state for the overlay
-    // path (Presentation path has its own copy in
-    // MirrorPresentation). Same tap/swipe dispatch via
-    // MyAccessibilityService.dispatchGesture.
-    private var touchStartX = 0f
-    private var touchStartY = 0f
-    private var touchLastX = 0f
-    private var touchLastY = 0f
-    private var touchStartTime = 0L
-    private var touchActive = false
+    // vc169 OVERLAY TOUCH lives in OverlayTouchForwarder below
+    // (live machine, 9Flip u2/f4 model). The vc63 UP-only fields
+    // are gone with dispatchOverlayGesture.
+    // vc169 MIRROR GENERATION: bumped on every startMirroring
+    // and every cleanupSession. Surface callbacks capture the
+    // generation they belong to and ignore stale ones, so a
+    // surface from a dead session can never attach to (or
+    // release) a new session's virtual display (9Flip
+    // snapshot-token rule, own code).
+    private var mirrorGeneration = 0
+    // vc169 SOURCE TRACKING: main display size/dpi last seen by
+    // the source listener below. A change resizes the virtual
+    // display instead of leaving a stale-size feed.
+    private var sourceLastW = 0
+    private var sourceLastH = 0
+    private var sourceLastDpi = 0
     private var mainWidth: Int = 0
     private var mainHeight: Int = 0
     private var mainDpi: Int = 0
@@ -129,6 +135,52 @@ class ScreenMirrorService : Service() {
             if (tv != null && overlayView != null) applyFitTransform(tv, tv.width, tv.height)
         }
     }
+    // vc169 SOURCE LISTENER (9Flip s4/l DisplayListener, own
+    // code): the main display can rotate or resize while
+    // mirroring (user turns the phone). The old code only
+    // watched the cover display, so a main rotation left a
+    // stale-size virtual display (stretched feed, wrong touch
+    // mapping). On a real size/dpi change: update source size,
+    // grow the TextureView buffers, resize the virtual display
+    // (recreate on the current surface if resize fails), and
+    // re-apply both windows' transforms with the new size.
+    private val mirrorSourceListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            val proj = projection ?: return
+            if (!MirrorState.active) return
+            val dm = getSystemService(DisplayManager::class.java) ?: return
+            val main = dm.getDisplay(Display.DEFAULT_DISPLAY) ?: return
+            val m = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION") main.getRealMetrics(m)
+            val w = m.widthPixels.coerceAtLeast(1)
+            val h = m.heightPixels.coerceAtLeast(1)
+            val dpi = m.densityDpi.coerceAtLeast(120)
+            if (w == sourceLastW && h == sourceLastH && dpi == sourceLastDpi) return
+            sourceLastW = w; sourceLastH = h; sourceLastDpi = dpi
+            mainWidth = w; mainHeight = h; mainDpi = dpi
+            mirrorPresentation?.textureView?.surfaceTexture?.setDefaultBufferSize(w, h)
+            mirrorTexture?.surfaceTexture?.setDefaultBufferSize(w, h)
+            val vd = virtualDisplay
+            val surface = mirrorSurface
+            if (vd != null && surface != null) {
+                runCatching { vd.resize(w, h, dpi) }.onFailure {
+                    Log.w(TAG, "Virtual display resize failed, recreating", it)
+                    virtualDisplay?.release(); virtualDisplay = null
+                    createVirtualDisplay(proj, surface)
+                }
+            }
+            mirrorPresentation?.let { pres ->
+                pres.sourceW = w; pres.sourceH = h
+                pres.applyRotation(mirrorContentDeg)
+            }
+            val tv = mirrorTexture
+            if (tv != null && overlayView != null) applyFitTransform(tv, tv.width, tv.height)
+        }
+    }
+
     private fun computeContentDeg(secondary: Display): Int {
         val desiredDeg = when (mirrorWinOrient) {
             android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT -> 0
@@ -220,6 +272,11 @@ class ScreenMirrorService : Service() {
     }
 
     private fun startMirroring(intent: Intent) {
+        // vc169: new session, new generation (see
+        // mirrorGeneration above). Captured as sessionGen and
+        // checked by every surface callback below.
+        mirrorGeneration++
+        val sessionGen = mirrorGeneration
         // vc47: mirror notification now has a STOP action
         // (like 9Flip's), so the user can stop from the shade
         // as a third exit path besides the overlay button and
@@ -391,6 +448,11 @@ class ScreenMirrorService : Service() {
         mainHeight = realMetrics.heightPixels.coerceAtLeast(1)
         mainDpi = realMetrics.densityDpi.coerceAtLeast(120)
         Log.i(TAG, "Main display source size ${mainWidth}x$mainHeight @${mainDpi}dpi, cover id ${secondary.displayId}")
+        // vc169: track main size/rotation from here on (see
+        // mirrorSourceListener above); stale callbacks from an
+        // earlier session are invalidated by the generation.
+        sourceLastW = mainWidth; sourceLastH = mainHeight; sourceLastDpi = mainDpi
+        runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(mirrorSourceListener, handler) }
 
         // vc58 PRESENTATION FIRST (full 9Flip decompile):
         // 9Flip mirror UI lives in a Presentation (p4) created
@@ -478,15 +540,20 @@ class ScreenMirrorService : Service() {
                 sourceW = mainWidth; sourceH = mainHeight
                 windowOrientation = mirrorWinOrient
                 onSurfaceReady = { surface ->
-                    mirrorSurface = surface
-                    setStatus("Mirror: Presentation surface ready, virtual display starting...")
-                    createVirtualDisplay(proj, surface)
-                    setStatus("Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show")
-                    Log.i(TAG, "Mirror Presentation surface ready, virtual display started")
+                    // vc169: ignore a surface from a dead session.
+                    if (sessionGen == mirrorGeneration) {
+                        mirrorSurface = surface
+                        setStatus("Mirror: Presentation surface ready, virtual display starting...")
+                        createVirtualDisplay(proj, surface)
+                        setStatus("Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show")
+                        Log.i(TAG, "Mirror Presentation surface ready, virtual display started")
+                    }
                 }
                 onSurfaceGone = {
-                    mirrorSurface = null
-                    virtualDisplay?.release(); virtualDisplay = null
+                    if (sessionGen == mirrorGeneration) {
+                        mirrorSurface = null
+                        virtualDisplay?.release(); virtualDisplay = null
+                    }
                 }
             }
             // vc79: rotate CONTENT by the diff computed above.
@@ -516,7 +583,7 @@ class ScreenMirrorService : Service() {
                     Log.i(TAG, "Mirror Presentation surface not ready in 3s, falling back to overlay")
                     runCatching { mirrorPresentation?.dismiss() }
                     mirrorPresentation = null
-                    runCatching { createOverlayMirror(proj, secondary, coverCtx) }
+                    runCatching { createOverlayMirror(proj, secondary, coverCtx, sessionGen) }
                         .onFailure { Log.w(TAG, "Mirror overlay fallback failed", it); showFailurePillAndStop(secondary, "Mirror failed: overlay error") }
                 }
             }, 3000)
@@ -548,7 +615,7 @@ class ScreenMirrorService : Service() {
         // buffer is the main size, TextureView scales it down.
         // vc87: wrapped so an overlay bug becomes a failure pill,
         // never a FATAL EXCEPTION that kills the service process.
-        runCatching { createOverlayMirror(proj, secondary, coverCtx) }
+        runCatching { createOverlayMirror(proj, secondary, coverCtx, sessionGen) }
             .onFailure { Log.w(TAG, "Mirror overlay failed", it); showFailurePillAndStop(secondary, "Mirror failed: overlay error") }
     }
 
@@ -559,7 +626,7 @@ class ScreenMirrorService : Service() {
     // path without duplicating the block. Params are the
     // projection, cover display and its display context;
     // main size / handler / mirror state are fields.
-    private fun createOverlayMirror(proj: MediaProjection, secondary: Display, coverCtx: Context) {
+    private fun createOverlayMirror(proj: MediaProjection, secondary: Display, coverCtx: Context, sessionGen: Int) {
         val wm = coverCtx.getSystemService(WindowManager::class.java)
         if (wm == null) { Log.w(TAG, "No WindowManager for cover display"); showFailurePillAndStop(secondary, "Mirror failed: no WindowManager for cover"); return }
         val root = FrameLayout(coverCtx).apply { setBackgroundColor(0xFF000000.toInt()) }
@@ -571,6 +638,9 @@ class ScreenMirrorService : Service() {
         // every attempt, including the 2nd. Root FrameLayout above
         // is already black; TextureView needs no background.
         val tv = TextureView(coverCtx)
+        // vc169: same 9Flip i4 opaque-surface parity as the
+        // Presentation path (see MirrorPresentation).
+        tv.setOpaque(true)
         root.addView(tv, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         // vc55 STATUS TEXT (temporary diagnostic, top-left over
@@ -600,54 +670,43 @@ class ScreenMirrorService : Service() {
             gravity = Gravity.TOP or Gravity.END
             setMargins(12, 12, 12, 12)
         })
-        // vc63 TOUCH: forward overlay touches to main. Stop button
-        // sits above this TextureView, so its taps still stop.
-        tv.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    val main = overlayViewToMain(event.x, event.y, tv) ?: return@setOnTouchListener false
-                    touchStartX = main.first; touchStartY = main.second
-                    touchLastX = main.first; touchLastY = main.second
-                    touchStartTime = event.eventTime
-                    touchActive = true
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!touchActive) return@setOnTouchListener false
-                    val main = overlayViewToMain(event.x, event.y, tv)
-                    if (main != null) { touchLastX = main.first; touchLastY = main.second }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!touchActive) return@setOnTouchListener false
-                    touchActive = false
-                    val main = overlayViewToMain(event.x, event.y, tv)
-                    if (main != null) { touchLastX = main.first; touchLastY = main.second }
-                    val durationMs = (event.eventTime - touchStartTime).coerceIn(50L, 800L)
-                    dispatchOverlayGesture(durationMs)
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> { touchActive = false; true }
-                else -> false
-            }
-        }
+        // vc169 LIVE TOUCH (9Flip u2/f4 model, own code): the vc63
+        // overlay touch only dispatched ONE gesture at UP time, so
+        // on the overlay path every drag felt delayed and never
+        // followed the finger. This forwarder mirrors the
+        // Presentation path (vc103/vc104): slop-gated live stream,
+        // latest-only 16/1ms segments, tap 42ms, long-press
+        // timeout+80, swipe dist/2.4 clamp 120-650, prepared queue
+        // cap 12, single in-flight, main handler + callbacks.
+        // Second finger cancels the live stream (9Flip u2 feed
+        // is single-pointer; pinch stays a Presentation extra).
+        // Stop button sits above this TextureView, so its taps
+        // still stop.
+        val overlayTouch = OverlayTouchForwarder()
+        tv.setOnTouchListener { _, event -> overlayTouch.onTouch(tv, event) }
+
         tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                 st.setDefaultBufferSize(mainWidth, mainHeight)
                 applyFitTransform(tv, tv.width, tv.height)
                 tv.post { applyFitTransform(tv, tv.width, tv.height) }
-                val surface = Surface(st)
-                mirrorSurface = surface
-                handler.post { statusView.text = "Mirror: surface ready, virtual display starting..." }
-                createVirtualDisplay(proj, surface)
-                handler.post { statusView.text = "Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show" }
-                handler.postDelayed({ statusView.visibility = View.GONE }, 3000)
-                Log.i(TAG, "Mirror overlay surface ready, virtual display started")
+                // vc169: ignore a surface from a dead session.
+                if (sessionGen == mirrorGeneration) {
+                    val surface = Surface(st)
+                    mirrorSurface = surface
+                    handler.post { statusView.text = "Mirror: surface ready, virtual display starting..." }
+                    createVirtualDisplay(proj, surface)
+                    handler.post { statusView.text = "Mirror: virtual display OK ${mainWidth}x${mainHeight} - feed should show" }
+                    handler.postDelayed({ statusView.visibility = View.GONE }, 3000)
+                    Log.i(TAG, "Mirror overlay surface ready, virtual display started")
+                }
             }
             override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { applyFitTransform(tv, w, h) }
             override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
-                mirrorSurface = null
-                virtualDisplay?.release(); virtualDisplay = null
+                if (sessionGen == mirrorGeneration) {
+                    mirrorSurface = null
+                    virtualDisplay?.release(); virtualDisplay = null
+                }
                 return true
             }
             override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
@@ -719,19 +778,436 @@ class ScreenMirrorService : Service() {
         return Pair(mainX, mainY)
     }
 
-    private fun dispatchOverlayGesture(durationMs: Long) {
-        val acc = MyAccessibilityService.instance ?: return
-        val path = Path()
-        path.moveTo(touchStartX, touchStartY)
-        val dist = kotlin.math.hypot(touchLastX - touchStartX, touchLastY - touchStartY)
-        if (dist < 1f) {
-            path.lineTo(touchStartX + 1f, touchStartY)
-        } else {
-            path.lineTo(touchLastX, touchLastY)
+    // vc169 OVERLAY LIVE TOUCH (9Flip u2/f4 model, own code):
+    // same machine as MirrorPresentation's vc103/vc104 path,
+    // minus pinch (overlay feed is single-pointer like 9Flip
+    // u2) and minus the icon column. One instance per overlay
+    // creation, so its state never leaks across sessions.
+    private inner class OverlayTouchForwarder {
+        private var active = false
+        private var liveStarted = false
+        private var multiFlag = false
+        private var longPressFlag = false
+        private var doubleTapCandidate = false
+        private var replayMode = false
+        private var lastUpMs = 0L
+        private var slop = 0f
+        private var lastViewX = 0f
+        private var lastViewY = 0f
+        private var totalMove = 0f
+        private var lastMainX = 0f
+        private var lastMainY = 0f
+        private val pointList = ArrayList<Pair<Float, Float>>()
+        private val chunkPoints = ArrayDeque<Pair<Float, Float>>()
+        private var streamStroke: GestureDescription.StrokeDescription? = null
+        private var streamLastX = 0f
+        private var streamLastY = 0f
+        private var streamInFlight = false
+        private var pendingFinal = false
+        private var generation = 0
+        private var lastDispatchMs = 0L
+        private var loopRunning = false
+        private val preparedQueue = ArrayDeque<GestureDescription>()
+        private var preparedInFlight = false
+
+        // vc102 explicit type: a Runnable that posts itself
+        // inside its own initializer must not infer its type
+        // from itself (Kotlin recursive-type error, vc92/vc101).
+        private val loopRunnable: Runnable = Runnable {
+            loopRunning = false
+            if (!active) return@Runnable
+            if (chunkPoints.isNotEmpty() && !streamInFlight) {
+                dispatchNextChunk()
+            } else if (liveStarted && chunkPoints.isEmpty() && !pendingFinal) {
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastDispatchMs > 1000L && streamStroke != null && !streamInFlight) {
+                    dispatchSegment(streamLastX, streamLastY, true)
+                }
+            }
+            if (active) {
+                loopRunning = true
+                handler.postDelayed(loopRunnable, 25L)
+            }
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
-        val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
-        acc.dispatchGesture(gesture, null, null)
+        private fun startLoop() {
+            if (!loopRunning) {
+                loopRunning = true
+                handler.postDelayed(loopRunnable, 25L)
+            }
+        }
+        private fun stopLoop() {
+            loopRunning = false
+            handler.removeCallbacks(loopRunnable)
+        }
+
+        private val longPressRunnable: Runnable = Runnable {
+            if (!active || multiFlag || liveStarted) return@Runnable
+            if (totalMove > slop) return@Runnable
+            val first = pointList.firstOrNull() ?: return@Runnable
+            longPressFlag = true
+            val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+            val path = Path(); path.moveTo(first.first, first.second)
+            val gesture = GestureDescription.Builder().setDisplayId(0)
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
+                .build()
+            dispatchPrepared(gesture)
+        }
+
+        private fun dispatchPrepared(gesture: GestureDescription) {
+            val acc = MyAccessibilityService.instance ?: return
+            if (streamStroke != null || streamInFlight || preparedInFlight) {
+                if (preparedQueue.size >= 12) preparedQueue.removeFirst()
+                preparedQueue.addLast(gesture)
+                return
+            }
+            preparedInFlight = true
+            val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    preparedInFlight = false
+                    dispatchNextPrepared()
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    preparedInFlight = false
+                    dispatchNextPrepared()
+                }
+            }, handler)
+            if (!ok) {
+                preparedInFlight = false
+                dispatchNextPrepared()
+            }
+        }
+        private fun dispatchNextPrepared() {
+            if (preparedInFlight) return
+            if (streamStroke != null || streamInFlight) return
+            val next = preparedQueue.removeFirstOrNull() ?: return
+            dispatchPrepared(next)
+        }
+
+        private fun dispatchSegment(toX: Float, toY: Float, willContinue: Boolean) {
+            dispatchChunk(listOf(Pair(toX, toY)), willContinue)
+        }
+        private fun dispatchChunk(points: List<Pair<Float, Float>>, willContinue: Boolean) {
+            if (points.isEmpty()) return
+            val acc = MyAccessibilityService.instance ?: return
+            val first = points.first()
+            val moved = kotlin.math.hypot(first.first - streamLastX, first.second - streamLastY) >= 1f
+            val segDuration = when {
+                streamStroke == null -> 16L
+                points.size > 1 -> points.size.toLong() * 22L
+                !moved -> 1L
+                else -> 16L
+            }.coerceIn(1L, 220L)
+            val path = Path()
+            path.moveTo(streamLastX, streamLastY)
+            for (pt in points) {
+                if (pt.first != streamLastX || pt.second != streamLastY) path.lineTo(pt.first, pt.second)
+            }
+            val last = points.last()
+            val stroke = if (streamStroke == null) {
+                GestureDescription.StrokeDescription(path, 0L, segDuration, willContinue)
+            } else {
+                streamStroke!!.continueStroke(path, 0L, segDuration, willContinue)
+            }
+            streamStroke = stroke
+            streamLastX = last.first
+            streamLastY = last.second
+            lastDispatchMs = android.os.SystemClock.uptimeMillis()
+            streamInFlight = true
+            val gen = generation
+            val isFinalSegment = !willContinue
+            val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
+            val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    if (gen != generation) return
+                    streamInFlight = false
+                    if (isFinalSegment) {
+                        streamStroke = null
+                        replayMode = false
+                        dispatchNextPrepared()
+                        return
+                    }
+                    dispatchNextChunk()
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    if (gen != generation) return
+                    streamInFlight = false
+                    streamStroke = null
+                    active = false
+                    multiFlag = false
+                    pendingFinal = false
+                    chunkPoints.clear()
+                    replayMode = false
+                }
+            }, handler)
+            if (!ok) {
+                android.util.Log.w("CFlipMirror", "dispatchGesture rejected, overlay touch stream dropped")
+                streamInFlight = false
+                streamStroke = null
+                active = false
+                pendingFinal = false
+                chunkPoints.clear()
+            }
+        }
+        private fun dispatchNextChunk() {
+            if (chunkPoints.isEmpty()) {
+                if (pendingFinal) {
+                    pendingFinal = false
+                    dispatchSegment(lastMainX, lastMainY, false)
+                }
+                return
+            }
+            if (replayMode) {
+                val chunk = mutableListOf<Pair<Float, Float>>()
+                while (chunk.size < 8 && chunkPoints.isNotEmpty()) {
+                    chunk.add(chunkPoints.removeFirst())
+                }
+                val isFinal = pendingFinal && chunkPoints.isEmpty()
+                if (isFinal) pendingFinal = false
+                dispatchChunk(chunk, !isFinal)
+                return
+            }
+            val last = chunkPoints.last()
+            chunkPoints.clear()
+            val isFinal = pendingFinal
+            if (isFinal) pendingFinal = false
+            dispatchChunk(listOf(last), !isFinal)
+        }
+        private fun queueSegment(toX: Float, toY: Float, final: Boolean) {
+            if (final) pendingFinal = true
+            if (!final) {
+                // Latest-only: overwrite the single queued point,
+                // never replay a backlog (vc103 lesson).
+                chunkPoints.clear()
+                chunkPoints.addLast(Pair(toX, toY))
+            } else {
+                if (chunkPoints.isEmpty() || chunkPoints.last() != Pair(toX, toY)) {
+                    chunkPoints.addLast(Pair(toX, toY))
+                }
+            }
+            if (!streamInFlight) {
+                dispatchNextChunk()
+            }
+        }
+        private fun dispatchK4Replay() {
+            val acc = MyAccessibilityService.instance ?: return
+            if (pointList.size < 2) return
+            val first = pointList.first()
+            val remaining = pointList.drop(1)
+            val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+            val holdPath = Path(); holdPath.moveTo(first.first, first.second)
+            val holdStroke = GestureDescription.StrokeDescription(holdPath, 0L, timeout + 80L, true)
+            streamStroke = holdStroke
+            streamLastX = first.first; streamLastY = first.second
+            streamInFlight = true
+            replayMode = true
+            pendingFinal = true
+            chunkPoints.clear()
+            remaining.forEach { chunkPoints.addLast(it) }
+            val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(holdStroke).build()
+            val gen = generation
+            val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    if (gen != generation) return
+                    streamInFlight = false
+                    dispatchNextChunk()
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    if (gen != generation) return
+                    streamInFlight = false
+                    streamStroke = null
+                    replayMode = false
+                    chunkPoints.clear()
+                }
+            }, handler)
+            if (!ok) {
+                streamInFlight = false
+                streamStroke = null
+                replayMode = false
+                chunkPoints.clear()
+            }
+        }
+        private fun dispatchU2Fallback() {
+            val acc = MyAccessibilityService.instance ?: return
+            val slopPx = android.view.ViewConfiguration.get(applicationContext).scaledTouchSlop.toFloat()
+            if (totalMove <= slopPx || pointList.size < 2) {
+                val pt = pointList.lastOrNull() ?: return
+                val path = Path()
+                path.moveTo(pt.first, pt.second)
+                val gesture = GestureDescription.Builder().setDisplayId(0)
+                    .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                    .build()
+                dispatchPrepared(gesture)
+                return
+            }
+            var dist = 0.0
+            for (i in 1 until pointList.size) {
+                val a = pointList[i - 1]; val b = pointList[i]
+                dist += kotlin.math.hypot(b.first - a.first, b.second - a.second)
+            }
+            val duration = dist.toLong().let { (it / 2.4).toLong() }.coerceIn(120L, 650L)
+            val path = Path()
+            val first = pointList.first()
+            path.moveTo(first.first, first.second)
+            for (i in 1 until pointList.size) {
+                val pt = pointList[i]
+                path.lineTo(pt.first, pt.second)
+            }
+            val gesture = GestureDescription.Builder().setDisplayId(0)
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, duration))
+                .build()
+            dispatchPrepared(gesture)
+        }
+
+        fun onTouch(tv: TextureView, event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    runCatching { tv.parent?.requestDisallowInterceptTouchEvent(true) }
+                    val main = overlayViewToMain(event.x, event.y, tv) ?: return false
+                    lastMainX = main.first; lastMainY = main.second
+                    lastViewX = event.x; lastViewY = event.y
+                    totalMove = 0f
+                    liveStarted = false
+                    slop = android.view.ViewConfiguration.get(applicationContext).scaledTouchSlop.toFloat()
+                    val dt = event.eventTime - lastUpMs
+                    doubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
+                    longPressFlag = false
+                    multiFlag = false
+                    replayMode = false
+                    pointList.clear()
+                    pointList.add(Pair(main.first, main.second))
+                    active = true
+                    streamStroke = null
+                    streamLastX = main.first; streamLastY = main.second
+                    streamInFlight = false
+                    pendingFinal = false
+                    chunkPoints.clear()
+                    generation++
+                    handler.removeCallbacks(longPressRunnable)
+                    handler.postDelayed(longPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                    true
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    // 9Flip u2: second finger cancels the live
+                    // stream; the whole gesture is dead until
+                    // the next DOWN (UP with multi set resets).
+                    if (!active) return true
+                    handler.removeCallbacks(longPressRunnable)
+                    multiFlag = true
+                    longPressFlag = false
+                    doubleTapCandidate = false
+                    if (liveStarted) queueSegment(lastMainX, lastMainY, true)
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!active) return false
+                    if (multiFlag || event.pointerCount != 1) return true
+                    totalMove += kotlin.math.hypot(event.x - lastViewX, event.y - lastViewY)
+                    lastViewX = event.x; lastViewY = event.y
+                    if (totalMove > slop) {
+                        handler.removeCallbacks(longPressRunnable)
+                    }
+                    val main = overlayViewToMain(event.x, event.y, tv)
+                    if (main != null) {
+                        lastMainX = main.first; lastMainY = main.second
+                        if (pointList.size >= 96) pointList.removeAt(1)
+                        pointList.add(Pair(main.first, main.second))
+                        if (!liveStarted && !longPressFlag && totalMove > slop) {
+                            liveStarted = true
+                            startLoop()
+                            val first = pointList.first()
+                            queueSegment(first.first, first.second, false)
+                        } else if (liveStarted) {
+                            queueSegment(main.first, main.second, false)
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_POINTER_UP -> true
+                MotionEvent.ACTION_UP -> {
+                    if (!active) return false
+                    if (multiFlag) {
+                        // Cancelled gesture: reset, no tap/drag.
+                        handler.removeCallbacks(longPressRunnable)
+                        active = false
+                        liveStarted = false
+                        longPressFlag = false
+                        multiFlag = false
+                        doubleTapCandidate = false
+                        totalMove = 0f
+                        pointList.clear()
+                        stopLoop()
+                        return true
+                    }
+                    handler.removeCallbacks(longPressRunnable)
+                    val main = overlayViewToMain(event.x, event.y, tv)
+                    if (main != null) {
+                        lastMainX = main.first; lastMainY = main.second
+                        if (pointList.size >= 96) pointList.removeAt(1)
+                        pointList.add(Pair(main.first, main.second))
+                    }
+                    if (liveStarted) {
+                        queueSegment(lastMainX, lastMainY, true)
+                        if (longPressFlag || totalMove > slop) {
+                            lastUpMs = 0L
+                        } else {
+                            lastUpMs = event.eventTime
+                        }
+                        if (chunkPoints.isNotEmpty() && !streamInFlight) dispatchNextChunk()
+                    } else if (longPressFlag) {
+                        lastUpMs = 0L
+                    } else if (doubleTapCandidate && totalMove > slop && pointList.size >= 2) {
+                        dispatchK4Replay()
+                        lastUpMs = 0L
+                    } else if (totalMove <= slop) {
+                        val pt = pointList.lastOrNull()
+                        if (pt != null) {
+                            val path = Path(); path.moveTo(pt.first, pt.second)
+                            val gesture = GestureDescription.Builder().setDisplayId(0)
+                                .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                                .build()
+                            dispatchPrepared(gesture)
+                        }
+                        lastUpMs = event.eventTime
+                    } else if (pointList.size >= 2) {
+                        dispatchU2Fallback()
+                        lastUpMs = 0L
+                    } else {
+                        val pt = pointList.lastOrNull()
+                        if (pt != null) {
+                            val path = Path(); path.moveTo(pt.first, pt.second)
+                            val gesture = GestureDescription.Builder().setDisplayId(0)
+                                .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
+                                .build()
+                            dispatchPrepared(gesture)
+                        }
+                        lastUpMs = event.eventTime
+                    }
+                    active = false
+                    liveStarted = false
+                    longPressFlag = false
+                    multiFlag = false
+                    doubleTapCandidate = false
+                    totalMove = 0f
+                    pointList.clear()
+                    stopLoop()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(longPressRunnable)
+                    if (active && liveStarted) queueSegment(lastMainX, lastMainY, true)
+                    active = false
+                    liveStarted = false
+                    longPressFlag = false
+                    multiFlag = false
+                    doubleTapCandidate = false
+                    totalMove = 0f
+                    pointList.clear()
+                    stopLoop()
+                    true
+                }
+                else -> false
+            }
+        }
     }
 
     // vc62 DISPLAY LAYER (9Flip i4.a fit mode, same math as
@@ -767,20 +1243,32 @@ class ScreenMirrorService : Service() {
     }
 
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
-        virtualDisplay = proj.createVirtualDisplay(
-            "CFlipMirror", mainWidth, mainHeight, mainDpi,
-            // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
-            // correlated with vc79 mirror disconnect + second-attempt
-            // crash, and PowerFlip's 17 is proven only from an
-            // Activity context, not from a service. Back to the
-            // vc62-proven AUTO_MIRROR (16) only, which did show a
-            // feed. Content rotation (vc79) is kept; only the
-            // unproven flag is removed, so vc80 isolates the fix
-            // to the fighting-hosts root cause.
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            surface, null, handler,
-        )
-        Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size, flags AUTO_MIRROR=16)")
+        // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
+        // correlated with vc79 mirror disconnect + second-attempt
+        // crash, and PowerFlip's 17 is proven only from an
+        // Activity context, not from a service. Back to the
+        // vc62-proven AUTO_MIRROR (16) only, which did show a
+        // feed. Content rotation (vc79) is kept; only the
+        // unproven flag is removed, so vc80 isolates the fix
+        // to the fighting-hosts root cause.
+        // vc169: a dead projection used to throw out of here and
+        // kill the service process. Now it becomes a failure
+        // pill + stop, like every other mirror failure path.
+        runCatching {
+            virtualDisplay = proj.createVirtualDisplay(
+                "CFlipMirror", mainWidth, mainHeight, mainDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                surface, null, handler,
+            )
+        }.onSuccess {
+            Log.i(TAG, "Virtual display created ${mainWidth}x${mainHeight} @${mainDpi}dpi (source size, flags AUTO_MIRROR=16)")
+        }.onFailure { e ->
+            Log.w(TAG, "Virtual display create failed", e)
+            virtualDisplay = null
+            val sec = DisplayRepository(this).secondaryDisplay()
+            if (sec != null) showFailurePillAndStop(sec, "Mirror failed: virtual display error")
+            else stopSelf()
+        }
     }
 
     // vc66 FAILURE PILL: post-gate failures used to stopSelf()
@@ -820,7 +1308,11 @@ class ScreenMirrorService : Service() {
     }
 
     private fun cleanupSession() {
+        // vc169: invalidate any late surface callback from the
+        // session being torn down, and stop source tracking.
+        mirrorGeneration++
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorDisplayListener) }
+        runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorSourceListener) }
         mirrorSecondaryId = -1
         removeFailurePill()
         // vc62 SECOND-START FIX: cancel any pending handler
