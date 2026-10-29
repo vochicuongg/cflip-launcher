@@ -164,7 +164,9 @@ object CustomGroupStore {
      * ("custom:<id>" / "auto:<NAME>") for groups the user removed
      * from display. Custom groups soft-delete (their row stays
      * with a Restore button); default groups true-delete (their
-     * row is gone, restored in bulk). sections() skips any id in
+     * row is gone, nothing restorable — vc164 also purges their
+     * order entry, override and hidden flag; only this tombstone
+     * stays, so they never resurrect). sections() skips any id in
      * this set, so a deleted group's apps fall back to auto
      * groups / ungrouped exactly like a hidden group's do.
      */

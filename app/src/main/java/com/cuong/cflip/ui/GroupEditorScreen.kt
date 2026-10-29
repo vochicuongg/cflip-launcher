@@ -109,9 +109,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         )
     }
     // vc163 DELETED SECTIONS: soft-deleted customs (row stays
-    // with Restore) and true-deleted defaults (row gone, bulk
-    // restore below the list). sections() skips both, so their
-    // apps fall back to auto groups / ungrouped.
+    // with Restore) and true-deleted defaults (row gone, nothing
+    // restorable — vc164: only the tombstone stays, so they never
+    // resurrect). sections() skips both, so their apps fall back
+    // to auto groups / ungrouped.
     var deletedSections by remember { mutableStateOf(CustomGroupStore.loadDeletedSections(context)) }
     // Display order: unified minus stale entries and truly
     // deleted defaults, plus any group the list forgot
@@ -467,7 +468,15 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                     )
                                 }
                                 TextButton(onClick = {
+                                    // vc164 COMPLETE DELETE: a deleted
+                                    // default leaves nothing restorable
+                                    // behind — order entry, edited
+                                    // override and hidden flag are all
+                                    // purged. Only the tombstone stays.
                                     persistDeleted(deletedSections + ("auto:" + ag.name))
+                                    persistUnified(unified.filter { it != entry })
+                                    persistOverrides(overrides - ag.name)
+                                    persistHidden(hiddenAuto - ag.name)
                                 }) {
                                     Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
@@ -475,21 +484,6 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                             HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
                         }
                     }
-                }
-            }
-            val deletedAutoCount = deletedSections.count { it.startsWith("auto:") }
-            if (deletedAutoCount > 0) {
-                TextButton(
-                    onClick = {
-                        persistDeleted(deletedSections.filter { !it.startsWith("auto:") }.toSet())
-                    },
-                    modifier = Modifier.align(Alignment.Start),
-                ) {
-                    Text(
-                        "Khôi phục $deletedAutoCount nhóm mặc định đã xóa",
-                        color = CFlipColors.Accent,
-                        fontSize = 13.sp,
-                    )
                 }
             }
             TextButton(
