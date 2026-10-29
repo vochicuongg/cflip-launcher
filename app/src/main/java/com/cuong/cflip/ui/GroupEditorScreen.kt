@@ -3,6 +3,7 @@ package com.cuong.cflip.ui
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.Image
@@ -269,6 +270,13 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         search = ""
     }
 
+    // vc161 BACK: inside the member editor, back goes to the
+    // group list (draft discarded, like Hủy) instead of exiting
+    // to settings. In the list view this handler is disabled, so
+    // MainScreen's handler exits to settings as before.
+    val inEditor = editing != null || editingAuto != null
+    BackHandler(enabled = inEditor) { closeEditor(false) }
+
     fun move(pkg: String, delta: Int) {
         val list = draftOrder.toMutableList()
         val i = list.indexOf(pkg)
@@ -285,7 +293,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             .statusBarsPadding()
             .padding(16.dp)
     ) {
-        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.Start)) {
+        TextButton(
+            onClick = {
+                if (inEditor) closeEditor(false) else onBack()
+            },
+            modifier = Modifier.align(Alignment.Start),
+        ) {
             Text("← Quay lại", color = CFlipColors.Accent)
         }
         if (editing == null && editingAuto == null) {
@@ -297,7 +310,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Thứ tự dưới đây là thứ tự hiện ở cả thẻ Widget trong panel lẫn widget Samsung. App trong nhóm tự tạo sẽ không còn ở nhóm tự động nữa. Xóa nhóm chỉ gỡ nhóm, không xóa app.",
+                "Thứ tự dưới đây là thứ tự hiện ở cả thẻ Widget trong panel lẫn widget Samsung. Nhóm tự tạo và nhóm mặc định xếp chung một danh sách — bấm ↑ ↓ để đổi vị trí bất kỳ, kể cả chuyển nhóm qua lại giữa hai cụm. Xóa nhóm tự tạo là gỡ nhóm, không xóa app; xóa nhóm mặc định chỉ ẩn nhóm, khôi phục được bất cứ lúc nào. App trong nhóm tự tạo sẽ không còn ở nhóm tự động nữa.",
                 color = CFlipColors.TextSecondary,
                 fontSize = 12.sp,
             )
@@ -313,19 +326,6 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                item {
-                    Text(
-                        "Nhóm ứng dụng",
-                        color = CFlipColors.TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "Một danh sách chung: nhóm tự tạo và nhóm mặc định xếp chung, bấm ↑ ↓ để đổi vị trí bất kỳ — kể cả chuyển nhóm qua lại giữa hai cụm. Xóa nhóm tự tạo là gỡ nhóm; Xóa nhóm mặc định chỉ ẩn nhóm, khôi phục được bất cứ lúc nào.",
-                        color = CFlipColors.TextSecondary,
-                        fontSize = 12.sp,
-                    )
-                }
                 itemsIndexed(displayEntries, key = { _, e -> e }) { idx, entry ->
                     val customGroup = if (entry.startsWith("c:")) {
                         groups.firstOrNull { it.id == entry.removePrefix("c:") }
