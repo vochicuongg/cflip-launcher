@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.view.View
@@ -154,6 +155,25 @@ class AppGridWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.app_grid_title, title)
             val svc = Intent(context, AppGridRemoteViewsService::class.java)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            // vc158 IMMEDIATE WIDGET ICONS (user, 29/10): the adapter
+            // intent carries the live group signature as its data
+            // URI. Android identifies a RemoteViewsFactory by its
+            // intent (filterEquals ignores extras but NOT data) —
+            // so any group edit changes the signature, the system
+            // binds a FRESH factory, and onCreate loads the new
+            // icons immediately, instead of relying on the host to
+            // honor notifyAppWidgetViewDataChanged after re-setting
+            // an identical adapter. Unchanged signature = same
+            // factory (cheap); refreshAll's notify still reloads it
+            // for open/back/refresh, where the data is unchanged.
+            val sig = CustomGroupStore.signature(
+                CustomGroupStore.load(context),
+                CustomGroupStore.loadHiddenAuto(context),
+                CustomGroupStore.loadOverrides(context),
+                CustomGroupStore.loadAutoOrder(context))
+            svc.data = Uri.Builder()
+                .scheme("cflip").authority("appgrid")
+                .appendPath(id.toString()).appendPath(sig).build()
             views.setRemoteAdapter(R.id.app_grid, svc)
             views.setEmptyView(R.id.app_grid, R.id.app_grid_empty)
             // 3.5.0 click fix, decompiled from 9Flip t5.h.i():
