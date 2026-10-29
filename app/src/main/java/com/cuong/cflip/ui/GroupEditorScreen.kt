@@ -3,7 +3,9 @@ package com.cuong.cflip.ui
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -35,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuong.cflip.data.AppGroup
@@ -58,13 +62,24 @@ import com.cuong.cflip.widget.AppGridWidgetProvider
  * apps inside a group can be reordered with ↑/↓; the picker has a
  * name search bar; members are listed first as their own section
  * so ordering is done without hunting through the picker.
+ *
+ * vc156 (user, 29/10): default groups can be EDITED too (their apps
+ * are stored as an override in CustomGroupStore — the group then
+ * stops following the auto rules until reset). The member section
+ * is now the COVER GROUP VIEW: the same 4-column icon grid you see
+ * after tapping a group on the cover screen — tap a tile to select
+ * it, ← → moves it, ✕ removes it. The picker is unchanged (apps not
+ * yet in the group, tap to add).
  */
 @Composable
 fun GroupEditorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var groups by remember { mutableStateOf(CustomGroupStore.load(context)) }
     var hiddenAuto by remember { mutableStateOf(CustomGroupStore.loadHiddenAuto(context)) }
+    var overrides by remember { mutableStateOf(CustomGroupStore.loadOverrides(context)) }
     var editingId by remember { mutableStateOf<String?>(null) }
+    var editingAuto by remember { mutableStateOf<AppGroup?>(null) }
+    var selectedPkg by remember { mutableStateOf<String?>(null) }
     var draftTitle by remember { mutableStateOf("") }
     var draftOrder by remember { mutableStateOf(listOf<String>()) }
     var search by remember { mutableStateOf("") }
@@ -89,15 +104,54 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         AppGridWidgetProvider.refreshAll(context)
     }
 
+    fun persistOverrides(next: Map<String, List<String>>) {
+        CustomGroupStore.saveOverrides(context, next)
+        overrides = next
+        AppGridWidgetProvider.refreshAll(context)
+    }
+
     fun openEditor(g: CustomGroup) {
         editingId = g.id
+        editingAuto = null
+        selectedPkg = null
         draftTitle = g.title
         draftOrder = g.packages
         search = ""
     }
 
+    /** Effective members of a default group, as panel/widget show them. */
+    fun effectiveAutoMembers(ag: AppGroup): List<String> {
+        val stored = overrides[ag.name]
+        if (stored != null) return stored
+        val rest = apps.filter { app -> groups.none { g -> app.packageName in g.packages } }
+        return AppGroups.groupedApps(rest).toMap()[ag]?.map { it.packageName }
+            ?: emptyList()
+    }
+
+    fun openAutoEditor(ag: AppGroup) {
+        editingId = null
+        editingAuto = ag
+        selectedPkg = null
+        draftTitle = ag.title
+        draftOrder = effectiveAutoMembers(ag)
+        search = ""
+    }
+
     fun closeEditor(save: Boolean) {
-        if (save && editing != null) {
+        val auto = editingAuto
+        if (save && auto != null) {
+            val draft = draftOrder
+            // Single membership, both directions: the saved apps
+            // leave every custom group and every OTHER auto override.
+            val nextGroups = groups.map { g ->
+                g.copy(packages = g.packages.filter { it !in draft })
+            }
+            val nextOverrides = overrides
+                .mapValues { (k, v) -> v.filter { it !in draft } }
+                .filterValues { it.isNotEmpty() } + (auto.name to draft)
+            persist(nextGroups)
+            persistOverrides(nextOverrides)
+        } else if (save && editing != null) {
             val draft = draftOrder
             val next = groups.map { g ->
                 when {
@@ -110,13 +164,22 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                     else -> g.copy(packages = g.packages.filter { it !in draft })
                 }
             }
+            // …and every auto override (an app in a custom group
+            // must not stay claimed by an edited default group).
+            val nextOverrides = overrides
+                .mapValues { (_, v) -> v.filter { it !in draft } }
+                .filterValues { it.isNotEmpty() }
             persist(next)
+            persistOverrides(nextOverrides)
         } else {
             // Cancel reverts to the stored groups, so a group added
             // in this session but never saved simply disappears.
             groups = CustomGroupStore.load(context)
+            overrides = CustomGroupStore.loadOverrides(context)
         }
         editingId = null
+        editingAuto = null
+        selectedPkg = null
         search = ""
     }
 
@@ -139,7 +202,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         TextButton(onClick = onBack, modifier = Modifier.align(Alignment.Start)) {
             Text("← Quay lại", color = CFlipColors.Accent)
         }
-        if (editing == null) {
+        if (editing == null && editingAuto == null) {
             Text(
                 "Nhóm tùy chỉnh",
                 color = CFlipColors.TextPrimary,
@@ -153,11 +216,15 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 fontSize = 12.sp,
             )
             Spacer(Modifier.height(12.dp))
-            // Auto members ignoring the hidden filter, so a deleted
-            // default group still previews the icons it would restore.
-            val autoPreview = AppGroups.groupedApps(
-                apps.filter { app -> groups.none { g -> app.packageName in g.packages } }
-            ).toMap()
+            // Effective members ignoring the hidden filter, so a
+            // deleted default group still previews the icons it
+            // would restore — via the same sections() merge the
+            // panel and widget use, so the preview never diverges.
+            val autoPreview = CustomGroupStore.sections(
+                apps, groups, emptySet(), overrides,
+            ).first.filter { it.id.startsWith("auto:") }
+                .associate { it.id.removePrefix("auto:") to it.members }
+                .mapKeys { (k, _) -> AppGroup.values().first { it.name == k } }
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -208,7 +275,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Xóa nhóm mặc định chỉ ẩn nhóm — app trong nhóm vẫn hiện ở cuối, và khôi phục được bất cứ lúc nào.",
+                        "Xóa nhóm mặc định chỉ ẩn nhóm — app trong nhóm vẫn hiện ở cuối, và khôi phục được bất cứ lúc nào. Bấm Sửa để đổi ứng dụng trong nhóm mặc định (tên nhóm không đổi được).",
                         color = CFlipColors.TextSecondary,
                         fontSize = 12.sp,
                     )
@@ -231,6 +298,9 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 color = CFlipColors.TextSecondary,
                                 fontSize = 12.sp,
                             )
+                        }
+                        TextButton(onClick = { openAutoEditor(ag) }) {
+                            Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
                         }
                         TextButton(onClick = {
                             persistHidden(
@@ -262,6 +332,36 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 Text("＋ Thêm nhóm", color = CFlipColors.Accent, fontSize = 13.sp)
             }
         } else {
+            val auto = editingAuto
+            if (auto != null) {
+                Text(
+                    auto.title,
+                    color = CFlipColors.TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Nhóm mặc định — chỉ sửa ứng dụng trong nhóm, tên không đổi được.",
+                    color = CFlipColors.TextSecondary,
+                    fontSize = 12.sp,
+                )
+                if (auto.name in overrides) {
+                    TextButton(onClick = {
+                        persistOverrides(overrides - auto.name)
+                        // Compute directly: overrides state is stale
+                        // in this same click, so effectiveAutoMembers
+                        // would return the just-cleared list.
+                        val rest = apps.filter { app ->
+                            groups.none { g -> app.packageName in g.packages }
+                        }
+                        draftOrder = AppGroups.groupedApps(rest).toMap()[auto]
+                            ?.map { it.packageName } ?: emptyList()
+                        selectedPkg = null
+                    }) {
+                        Text("Đặt lại mặc định", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                }
+            } else {
             TextField(
                 value = draftTitle,
                 onValueChange = { draftTitle = it },
@@ -278,6 +378,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                     cursorColor = CFlipColors.Accent,
                 ),
             )
+            }
             Spacer(Modifier.height(8.dp))
             TextField(
                 value = search,
@@ -317,66 +418,144 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             ) {
                 item {
                     Text(
-                        "Ứng dụng trong nhóm (${draftOrder.size}) — bấm ↑ ↓ để đổi vị trí",
+                        "Ứng dụng trong nhóm (${draftOrder.size}) — bấm một ô để chọn, ← → để đổi vị trí, ✕ để gỡ",
                         color = CFlipColors.TextPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                items(draftOrder, key = { "m:$it" }) { pkg ->
-                    val idx = draftOrder.indexOf(pkg)
-                    val app = apps.firstOrNull { it.packageName == pkg }
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                item {
+                    if (draftOrder.isEmpty()) {
                         Text(
-                            "${idx + 1}.",
-                            color = CFlipColors.TextFaint,
+                            "Chưa có ứng dụng nào — bấm + ở mục Thêm ứng dụng bên dưới.",
+                            color = CFlipColors.TextSecondary,
                             fontSize = 12.sp,
-                            modifier = Modifier.width(28.dp),
                         )
-                        val img = remember(pkg) {
-                            app?.icon?.let { drawableBitmap(it, 96) }
-                        }
-                        if (img != null) {
-                            Image(
-                                img,
-                                contentDescription = null,
-                                modifier = Modifier.size(32.dp)
-                                    .padding(end = 8.dp),
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                app?.label ?: pkg.substringAfterLast('.'),
-                                color = CFlipColors.TextPrimary,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                            )
-                            if (app == null) {
-                                Text(
-                                    "App đã gỡ — vẫn giữ trong nhóm, cài lại sẽ hiện",
-                                    color = CFlipColors.TextFaint,
-                                    fontSize = 11.sp,
-                                )
+                    } else {
+                        // vc156 COVER GROUP VIEW: the member grid is
+                        // the same 4-column icon grid the cover shows
+                        // after tapping into a group — tap a tile to
+                        // select it, ← → (below) moves it, ✕ removes
+                        // it. Keyed remember(pkg) keeps each tile's
+                        // icon correct when the order changes.
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (rowPkgs in draftOrder.chunked(4)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    for (pkg in rowPkgs) {
+                                        val idx = draftOrder.indexOf(pkg)
+                                        val app = apps.firstOrNull { it.packageName == pkg }
+                                        val selected = selectedPkg == pkg
+                                        Box(
+                                            modifier = Modifier.weight(1f)
+                                                .background(
+                                                    if (selected) CFlipColors.AccentDeep
+                                                    else CFlipColors.Surface,
+                                                    RoundedCornerShape(12.dp),
+                                                )
+                                                .border(
+                                                    if (selected) BorderStroke(2.dp, CFlipColors.Accent)
+                                                    else BorderStroke(1.dp, CFlipColors.CardStroke),
+                                                    RoundedCornerShape(12.dp),
+                                                )
+                                                .clickable {
+                                                    selectedPkg = if (selected) null else pkg
+                                                }
+                                                .padding(6.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                            ) {
+                                                val img = remember(pkg) {
+                                                    app?.icon?.let { drawableBitmap(it, 96) }
+                                                }
+                                                if (img != null) {
+                                                    Image(
+                                                        img,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(40.dp),
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier.size(40.dp),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Text("?", color = CFlipColors.TextFaint, fontSize = 20.sp)
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(
+                                                    app?.label ?: pkg.substringAfterLast('.'),
+                                                    color = CFlipColors.TextPrimary,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            Text(
+                                                "${idx + 1}",
+                                                color = CFlipColors.TextFaint,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.align(Alignment.TopStart),
+                                            )
+                                            Box(
+                                                modifier = Modifier.align(Alignment.TopEnd)
+                                                    .clickable {
+                                                        draftOrder = draftOrder - pkg
+                                                        if (selectedPkg == pkg) selectedPkg = null
+                                                    }
+                                                    .size(20.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text("✕", color = CFlipColors.Danger, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                    repeat(4 - rowPkgs.size) {
+                                        Spacer(Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
-                        TextButton(
-                            onClick = { move(pkg, -1) },
-                            enabled = idx > 0,
+                    }
+                }
+                val sel = selectedPkg
+                if (sel != null && sel in draftOrder) {
+                    item {
+                        val idx = draftOrder.indexOf(sel)
+                        val app = apps.firstOrNull { it.packageName == sel }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("↑", color = CFlipColors.Accent, fontSize = 15.sp)
-                        }
-                        TextButton(
-                            onClick = { move(pkg, 1) },
-                            enabled = idx < draftOrder.size - 1,
-                        ) {
-                            Text("↓", color = CFlipColors.Accent, fontSize = 15.sp)
-                        }
-                        TextButton(onClick = { draftOrder = draftOrder - pkg }) {
-                            Text("✕", color = CFlipColors.Danger, fontSize = 13.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Đã chọn: " + (app?.label ?: sel.substringAfterLast('.')),
+                                    color = CFlipColors.TextPrimary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (app == null) {
+                                    Text(
+                                        "App đã gỡ — vẫn giữ trong nhóm, cài lại sẽ hiện",
+                                        color = CFlipColors.TextFaint,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = { move(sel, -1) },
+                                enabled = idx > 0,
+                            ) {
+                                Text("←", color = CFlipColors.Accent, fontSize = 15.sp)
+                            }
+                            TextButton(
+                                onClick = { move(sel, 1) },
+                                enabled = idx < draftOrder.size - 1,
+                            ) {
+                                Text("→", color = CFlipColors.Accent, fontSize = 15.sp)
+                            }
                         }
                     }
                 }
@@ -402,8 +581,14 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
                 items(filtered, key = { "p:" + it.packageName }) { app ->
                     val otherGroup = groups.firstOrNull { g ->
-                        g.id != editing.id && app.packageName in g.packages
+                        g.id != editing?.id && app.packageName in g.packages
                     }
+                    val otherAuto = if (otherGroup == null) {
+                        AppGroup.values().firstOrNull { ag ->
+                            ag.name != editingAuto?.name &&
+                                app.packageName in (overrides[ag.name] ?: emptyList())
+                        }
+                    } else null
                     Row(
                         modifier = Modifier.fillMaxWidth()
                             .clickable { draftOrder = draftOrder + app.packageName }
@@ -431,6 +616,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                             if (otherGroup != null) {
                                 Text(
                                     "đang ở “${otherGroup.title}” — bấm để chuyển qua đây",
+                                    color = CFlipColors.TextFaint,
+                                    fontSize = 11.sp,
+                                )
+                            } else if (otherAuto != null) {
+                                Text(
+                                    "đang ở “${otherAuto.title}” — bấm để chuyển qua đây",
                                     color = CFlipColors.TextFaint,
                                     fontSize = 11.sp,
                                 )

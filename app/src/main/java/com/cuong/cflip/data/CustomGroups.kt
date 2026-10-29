@@ -32,6 +32,7 @@ object CustomGroupStore {
     private const val PREFS = "custom_groups"
     private const val KEY = "groups_json"
     private const val KEY_HIDDEN_AUTO = "hidden_auto"
+    private const val KEY_OVERRIDES = "auto_overrides"
 
     fun load(context: Context): List<CustomGroup> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -85,6 +86,42 @@ object CustomGroupStore {
     }
 
     /**
+     * vc156 EDIT DEFAULT GROUPS (user, 29/10): a default group the
+     * user edited stops following the auto rules — its membership
+     * becomes exactly the stored package list (in the user's order).
+     * Stored as one JSON object: group name -> package array. An
+     * entry that becomes empty by stripping is dropped by callers,
+     * so a group reverts to auto rules; an entry saved empty from
+     * the editor is kept, so an emptied group stays empty.
+     */
+    fun loadOverrides(context: Context): Map<String, List<String>> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OVERRIDES, null) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(raw)
+            val out = mutableMapOf<String, List<String>>()
+            for (key in o.keys()) {
+                val arr = o.optJSONArray(key) ?: continue
+                val pkgs = List(arr.length()) { j -> arr.optString(j) }
+                    .filter { it.isNotEmpty() }
+                if (key.isNotEmpty()) out[key] = pkgs
+            }
+            out.toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    fun saveOverrides(context: Context, overrides: Map<String, List<String>>) {
+        val o = JSONObject()
+        for ((key, pkgs) in overrides) {
+            val arr = JSONArray()
+            for (p in pkgs) arr.put(p)
+            o.put(key, arr)
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_OVERRIDES, o.toString()).apply()
+    }
+
+    /**
      * Merge custom + auto groups over the given apps (apps are
      * expected A-Z already, as AppRepository returns them).
      * Returns (sections, ungroupedApps).
@@ -93,6 +130,7 @@ object CustomGroupStore {
         apps: List<AppInfo>,
         custom: List<CustomGroup>,
         hiddenAuto: Set<String> = emptySet(),
+        overrides: Map<String, List<String>> = emptyMap(),
     ): Pair<List<GroupSection>, List<AppInfo>> {
         val byPkg = apps.associateBy { it.packageName }
         val used = mutableSetOf<String>()
@@ -107,10 +145,25 @@ object CustomGroupStore {
             used.addAll(members.map { it.packageName })
         }
         val rest = apps.filter { it.packageName !in used }
-        for ((group, members) in AppGroups.groupedApps(rest)) {
+        val computed = AppGroups.groupedApps(rest).toMap()
+        // vc156: iterate ALL auto groups (not just computed ones),
+        // so an override can fill a group the auto rules left empty
+        // (e.g. Game with 0 apps). Values() order == groupedApps
+        // order, so the section order is unchanged.
+        for (group in AppGroup.values()) {
             if (group.name in hiddenAuto) continue
-            sections.add(GroupSection("auto:" + group.name, group.title, members))
-            used.addAll(members.map { it.packageName })
+            val effective = if (group.name in overrides) {
+                // Edited group: exactly the stored list, in order
+                // (installed only, custom-grouped apps excluded —
+                // custom groups win single-membership).
+                overrides.getValue(group.name).mapNotNull { byPkg[it] }
+                    .filter { it.packageName !in used }
+            } else {
+                computed[group] ?: emptyList()
+            }
+            if (effective.isEmpty()) continue
+            sections.add(GroupSection("auto:" + group.name, group.title, effective))
+            used.addAll(effective.map { it.packageName })
         }
         val ungrouped = rest.filter { it.packageName !in used }
         return sections to ungrouped
@@ -120,7 +173,10 @@ object CustomGroupStore {
     fun signature(
         custom: List<CustomGroup>,
         hiddenAuto: Set<String> = emptySet(),
+        overrides: Map<String, List<String>> = emptyMap(),
     ): String =
         custom.joinToString(";") { g -> g.id + "=" + g.packages.joinToString(",") } +
-            "|hidden:" + hiddenAuto.sorted().joinToString(",")
+            "|hidden:" + hiddenAuto.sorted().joinToString(",") +
+            "|overrides:" + overrides.entries.sortedBy { it.key }
+                .joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") }
 }

@@ -283,7 +283,8 @@ object CoverControlCenterManager {
                 settingsKeyFor(SettingsStore(appContext).load(),
                     com.cuong.cflip.data.CustomGroupStore.signature(
                         com.cuong.cflip.data.CustomGroupStore.load(appContext),
-                        com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(appContext)))
+                        com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(appContext),
+                        com.cuong.cflip.data.CustomGroupStore.loadOverrides(appContext)))
             }.getOrElse { "" }
             val metrics = displayContext.resources.displayMetrics
             val curAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
@@ -911,7 +912,8 @@ object CoverControlCenterManager {
                         val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
                         val custom = com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)
                         val hiddenAuto = com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)
-                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto)
+                        val overrides = com.cuong.cflip.data.CustomGroupStore.loadOverrides(ctx.applicationContext)
+                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto, overrides)
                     }
                     if (sections.isNotEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
@@ -2466,7 +2468,8 @@ object CoverControlCenterManager {
         cachedSettingsKey = settingsKeyFor(store.load(),
             com.cuong.cflip.data.CustomGroupStore.signature(
                 com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext),
-                com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)))
+                com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext),
+                com.cuong.cflip.data.CustomGroupStore.loadOverrides(ctx.applicationContext)))
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")
