@@ -940,6 +940,26 @@ class ScreenMirrorService : Service() {
         return Pair(mainX, mainY)
     }
 
+    // vc185 CLAMPED MAP (same as Presentation): bar
+    // points clamp to the nearest feed edge for MOVE
+    // on an active stream; DOWN keeps the strict map.
+    private fun overlayViewToMainClamped(viewX: Float, viewY: Float, tv: TextureView): Pair<Float, Float>? {
+        val vw = tv.width.toFloat()
+        val vh = tv.height.toFloat()
+        if (vw <= 0f || vh <= 0f || mainWidth <= 0 || mainHeight <= 0) return null
+        val m = android.graphics.Matrix()
+        tv.getTransform(m)
+        val inv = android.graphics.Matrix()
+        if (!m.invert(inv)) return null
+        val pts = floatArrayOf(viewX, viewY)
+        inv.mapPoints(pts)
+        val cx = pts[0].coerceIn(0f, vw)
+        val cy = pts[1].coerceIn(0f, vh)
+        val mainX = (cx * mainWidth / vw).coerceIn(0f, (mainWidth - 1).toFloat())
+        val mainY = (cy * mainHeight / vh).coerceIn(0f, (mainHeight - 1).toFloat())
+        return Pair(mainX, mainY)
+    }
+
     // vc169 OVERLAY LIVE TOUCH (9Flip u2/f4 model, own code):
     // same machine as MirrorPresentation's vc103/vc104 path,
     // minus pinch (overlay feed is single-pointer like 9Flip
@@ -947,6 +967,8 @@ class ScreenMirrorService : Service() {
     // creation, so its state never leaks across sessions.
     private inner class OverlayTouchForwarder {
         private var active = false
+        // vc185: pending bar-started touch (see Presentation).
+        private var pendingOutside = false
         private var liveStarted = false
         private var multiFlag = false
         private var longPressFlag = false
@@ -1351,7 +1373,33 @@ class ScreenMirrorService : Service() {
                     runCatching { tv.parent?.requestDisallowInterceptTouchEvent(true) }
                     val main = overlayViewToMain(event.x, event.y, tv)
                     android.util.Log.i("CFlipMirror", "OV DOWN view=" + event.x + "," + event.y + " main=" + main)
-                    if (main == null) return false
+                    if (main == null) {
+                        // vc185 PENDING DOWN (same as
+                        // MirrorPresentation): a swipe
+                        // starting in a black bar is
+                        // no longer dropped whole.
+                        android.util.Log.i("CFlipMirror", "OV DOWN pending outside feed")
+                        active = true
+                        pendingOutside = true
+                        lastViewX = event.x; lastViewY = event.y
+                        totalMove = 0f
+                        liveStarted = false
+                        slop = android.view.ViewConfiguration.get(applicationContext).scaledTouchSlop.toFloat()
+                        longPressFlag = false
+                        multiFlag = false
+                        doubleTapCandidate = false
+                        replayMode = false
+                        pointList.clear()
+                        streamStroke = null
+                        streamInFlight = false
+                        pendingFinal = false
+                        chunkPoints.clear()
+                        generation++
+                        handler.removeCallbacks(longPressRunnable)
+                        handler.postDelayed(longPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                        return true
+                    }
+                    pendingOutside = false
                     lastMainX = main.first; lastMainY = main.second
                     lastViewX = event.x; lastViewY = event.y
                     totalMove = 0f
@@ -1380,6 +1428,7 @@ class ScreenMirrorService : Service() {
                     // stream; the whole gesture is dead until
                     // the next DOWN (UP with multi set resets).
                     if (!active) return true
+                    if (pendingOutside) return true
                     handler.removeCallbacks(longPressRunnable)
                     multiFlag = true
                     longPressFlag = false
@@ -1395,7 +1444,34 @@ class ScreenMirrorService : Service() {
                     if (totalMove > slop) {
                         handler.removeCallbacks(longPressRunnable)
                     }
-                    val main = overlayViewToMain(event.x, event.y, tv)
+                    // vc185: pending entry + clamped
+                    // MOVE (same as Presentation).
+                    if (pendingOutside) {
+                        val entry = overlayViewToMain(event.x, event.y, tv)
+                        if (entry == null) return true
+                        android.util.Log.i("CFlipMirror", "OV ENTER feed from pending main=" + entry)
+                        pendingOutside = false
+                        lastMainX = entry.first; lastMainY = entry.second
+                        lastViewX = event.x; lastViewY = event.y
+                        totalMove = 0f
+                        liveStarted = false
+                        val dt = event.eventTime - lastUpMs
+                        doubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
+                        longPressFlag = false
+                        multiFlag = false
+                        pointList.clear()
+                        pointList.add(Pair(entry.first, entry.second))
+                        streamStroke = null
+                        streamLastX = entry.first; streamLastY = entry.second
+                        streamInFlight = false
+                        pendingFinal = false
+                        chunkPoints.clear()
+                        generation++
+                        handler.removeCallbacks(longPressRunnable)
+                        handler.postDelayed(longPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                        return true
+                    }
+                    val main = overlayViewToMainClamped(event.x, event.y, tv)
                     if (main != null) {
                         lastMainX = main.first; lastMainY = main.second
                         if (pointList.size >= 96) pointList.removeAt(1)
@@ -1414,6 +1490,21 @@ class ScreenMirrorService : Service() {
                 MotionEvent.ACTION_POINTER_UP -> true
                 MotionEvent.ACTION_UP -> {
                     if (!active) return false
+                    if (pendingOutside) {
+                        // vc185: never entered the feed,
+                        // dispatch nothing.
+                        handler.removeCallbacks(longPressRunnable)
+                        active = false
+                        pendingOutside = false
+                        liveStarted = false
+                        longPressFlag = false
+                        multiFlag = false
+                        doubleTapCandidate = false
+                        totalMove = 0f
+                        pointList.clear()
+                        stopLoop()
+                        return true
+                    }
                     if (multiFlag) {
                         // Cancelled gesture: reset, no tap/drag.
                         handler.removeCallbacks(longPressRunnable)
@@ -1487,6 +1578,7 @@ class ScreenMirrorService : Service() {
                     handler.removeCallbacks(longPressRunnable)
                     if (active && liveStarted) queueSegment(lastMainX, lastMainY, true)
                     active = false
+                    pendingOutside = false
                     liveStarted = false
                     longPressFlag = false
                     multiFlag = false

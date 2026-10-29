@@ -26,7 +26,7 @@ import kotlin.math.min
  * the system mirrors into a landscape target instead of squashing portrait
  * content into a portrait box.
  */
-class MirrorPresentation(context: Context, display: Display) : Presentation(context, display) {
+class MirrorPresentation(context: Context, display: Display) : Presentation(context, display, com.cuong.cflip.R.style.CflipMirrorTheme) {
 
     lateinit var textureView: TextureView
         private set
@@ -161,6 +161,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     private var touchLastY = 0f
     private var touchStartTime = 0L
     private var touchActive = false
+    // vc185: true while a touch that started in a
+    // black bar has not yet entered the feed strip.
+    private var touchPendingOutside = false
     private var streamStroke: GestureDescription.StrokeDescription? = null
     private var streamLastX = 0f
     private var streamLastY = 0f
@@ -564,6 +567,36 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         return Pair(mainX, mainY)
     }
 
+    // vc185 CLAMPED MAP: same inverse transform as
+    // mirrorViewToMain, but points in the black bars
+    // clamp to the nearest feed edge instead of
+    // returning null. Used ONLY for MOVE on an
+    // already-active stream: a swipe that leaves
+    // the feed strip keeps its main finger pinned
+    // at the edge (instead of stalling mid-air)
+    // until UP finalizes it there. DOWN keeps the
+    // strict map (a tap fully inside a bar must
+    // stay inert), and UP already falls back to
+    // the last mapped point.
+    private fun mirrorViewToMainClamped(viewX: Float, viewY: Float): Pair<Float, Float>? {
+        if (!::textureView.isInitialized) return null
+        val vw = textureView.width.toFloat()
+        val vh = textureView.height.toFloat()
+        val sw = sourceW; val sh = sourceH
+        if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
+        val m = Matrix()
+        textureView.getTransform(m)
+        val inv = Matrix()
+        if (!m.invert(inv)) return null
+        val pts = floatArrayOf(viewX, viewY)
+        inv.mapPoints(pts)
+        val cx = pts[0].coerceIn(0f, vw)
+        val cy = pts[1].coerceIn(0f, vh)
+        val mainX = (cx * sw / vw).coerceIn(0f, (sw - 1).toFloat())
+        val mainY = (cy * sh / vh).coerceIn(0f, (sh - 1).toFloat())
+        return Pair(mainX, mainY)
+    }
+
     private fun dispatchStreamSegment(toX: Float, toY: Float, willContinue: Boolean) {
         dispatchStreamChunk(listOf(Pair(toX, toY)), willContinue)
     }
@@ -881,6 +914,13 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // outside touch must not dismiss the feed.
         setCancelable(false)
         setCanceledOnTouchOutside(false)
+        // vc185 THEME PORT (9Flip p4 parity): a
+        // non-floating full-screen window must fill
+        // the display like p4's setLayout(-1,-1),
+        // and must not dim behind itself (p4
+        // clearFlags(2) = FLAG_DIM_BEHIND).
+        window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+        window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         // vc85 LOCK FIX (PowerFlip lesson, own code): vc84 test showed
         // the dialog fine, then the screen LOCKED immediately after
         // agree — the feed window never got to stay visible. A
@@ -977,7 +1017,54 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         // just resets, like vc102/103.
                         val main = mirrorViewToMain(event.x, event.y)
                         android.util.Log.i("CFlipMirror", "PRES DOWN view=" + event.x + "," + event.y + " main=" + main)
-                        if (main == null) return@setOnTouchListener false
+                        if (main == null) {
+                            // vc185 PENDING DOWN: a swipe
+                            // that starts in a black bar
+                            // used to be dropped whole
+                            // (DOWN returned false, so
+                            // every later MOVE was
+                            // ignored even after the
+                            // finger crossed into the
+                            // feed) — that is why home
+                            // page swipes failed while
+                            // bottom-bar gestures (whose
+                            // DOWN lands inside the
+                            // strip) worked. Now a bar
+                            // DOWN starts a pending
+                            // touch: it consumes the
+                            // event, stays inert while
+                            // the finger stays in the
+                            // bar, and becomes a real
+                            // touch at the first
+                            // in-strip MOVE (see MOVE).
+                            // A tap fully inside a bar
+                            // still dispatches nothing
+                            // (see UP).
+                            touchActive = true
+                            touchPendingOutside = true
+                            touchDownViewX = event.x; touchDownViewY = event.y
+                            touchLastViewX = event.x; touchLastViewY = event.y
+                            touchTotalViewMove = 0f
+                            touchLiveStarted = false
+                            touchSlopView = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+                            touchLongPressFlag = false
+                            touchMultiFlag = false
+                            touchDoubleTapCandidate = false
+                            touchReplayMode = false
+                            touchPointList.clear()
+                            pinchActive = false
+                            pinchPending = null
+                            streamStroke = null
+                            streamInFlight = false
+                            streamPendingX = null; streamPendingY = null
+                            streamPendingFinal = false
+                            moveChunkPoints.clear()
+                            streamGeneration++
+                            gestureHandler.removeCallbacks(touchLongPressRunnable)
+                            gestureHandler.postDelayed(touchLongPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                            return@setOnTouchListener true
+                        }
+                        touchPendingOutside = false
                         touchStartX = main.first; touchStartY = main.second
                         touchLastX = main.first; touchLastY = main.second
                         touchStartTime = event.eventTime
@@ -1010,6 +1097,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                     }
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         if (!touchActive || pinchActive) return@setOnTouchListener true
+                        if (touchPendingOutside) return@setOnTouchListener true
                         if (event.pointerCount < 2) return@setOnTouchListener true
                         // vc104 u2 POINTER_DOWN: cancel
                         // long-press, set multi flag,
@@ -1066,7 +1154,46 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             if (touchTotalViewMove > touchSlopView) {
                                 gestureHandler.removeCallbacks(touchLongPressRunnable)
                             }
-                            val main = mirrorViewToMain(event.x, event.y)
+                            // vc185: a pending touch
+                            // becomes real at the first
+                            // in-strip MOVE (the entry
+                            // point is its DOWN); a
+                            // bar-only MOVE stays
+                            // pending. An active stream
+                            // uses the clamped map so a
+                            // swipe leaving the strip
+                            // pins at the edge instead
+                            // of stalling.
+                            if (touchPendingOutside) {
+                                val entry = mirrorViewToMain(event.x, event.y)
+                                if (entry == null) return@setOnTouchListener true
+                                android.util.Log.i("CFlipMirror", "PRES ENTER feed from pending view=" + event.x + "," + event.y + " main=" + entry)
+                                touchPendingOutside = false
+                                touchStartX = entry.first; touchStartY = entry.second
+                                touchLastX = entry.first; touchLastY = entry.second
+                                touchStartTime = event.eventTime
+                                touchDownViewX = event.x; touchDownViewY = event.y
+                                touchTotalViewMove = 0f
+                                touchLiveStarted = false
+                                val dt = event.eventTime - touchLastUpMs
+                                touchDoubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
+                                touchLongPressFlag = false
+                                touchMultiFlag = false
+                                touchPointList.clear()
+                                touchPointList.add(Pair(entry.first, entry.second))
+                                streamStroke = null
+                                streamLastX = entry.first; streamLastY = entry.second
+                                streamInFlight = false
+                                streamPendingX = null; streamPendingY = null
+                                streamPendingFinal = false
+                                moveChunkPoints.clear()
+                                streamGeneration++
+                                hideStatus()
+                                gestureHandler.removeCallbacks(touchLongPressRunnable)
+                                gestureHandler.postDelayed(touchLongPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                                return@setOnTouchListener true
+                            }
+                            val main = mirrorViewToMainClamped(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
                                 if (touchPointList.size >= 96) touchPointList.removeAt(1)
@@ -1096,6 +1223,23 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         if (!touchActive) {
                             android.util.Log.i("CFlipMirror", "PRES UP ignored touchActive=false")
                             return@setOnTouchListener false
+                        }
+                        if (touchPendingOutside) {
+                            // vc185: a touch that never
+                            // entered the feed dispatches
+                            // nothing (a tap fully inside
+                            // a black bar stays inert).
+                            gestureHandler.removeCallbacks(touchLongPressRunnable)
+                            touchActive = false
+                            touchPendingOutside = false
+                            touchLiveStarted = false
+                            touchLongPressFlag = false
+                            touchMultiFlag = false
+                            touchDoubleTapCandidate = false
+                            touchTotalViewMove = 0f
+                            touchPointList.clear()
+                            stopTouchLoop()
+                            return@setOnTouchListener true
                         }
                         if (pinchActive) {
                             pinchActive = false
@@ -1184,6 +1328,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                             if (touchLiveStarted) queueStreamSegment(touchLastX, touchLastY, true)
                         }
                         touchActive = false
+                        touchPendingOutside = false
                         pinchActive = false
                         touchLiveStarted = false
                         touchLongPressFlag = false

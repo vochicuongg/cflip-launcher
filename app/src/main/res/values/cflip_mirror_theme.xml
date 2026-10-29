@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- vc185: non-floating full-screen mirror window theme, own
+         definition using only standard framework attributes (the
+         same attribute set 9Flip's CoverFloatingMenuTheme uses,
+         verified via aapt2 from its APK: parent is a non-dialog
+         translucent theme, so windowIsFloating defaults to false
+         and is set explicitly here for clarity). A floating dialog
+         window is hidden with the cover stack when SubHome takes
+         over; a non-floating window stays as its own stack entry. -->
+    <style name="CflipMirrorTheme" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>
