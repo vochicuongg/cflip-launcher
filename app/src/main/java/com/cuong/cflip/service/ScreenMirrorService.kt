@@ -272,11 +272,17 @@ class ScreenMirrorService : Service() {
     }
 
     private fun startMirroring(intent: Intent) {
-        // vc169: new session, new generation (see
-        // mirrorGeneration above). Captured as sessionGen and
-        // checked by every surface callback below.
-        mirrorGeneration++
-        val sessionGen = mirrorGeneration
+        // vc172 ORDER FIX (vc169-vc171 bug, mine, proven by
+        // reading): sessionGen MUST be captured AFTER the
+        // cleanupSession() call below, because cleanupSession
+        // bumps mirrorGeneration. vc169 captured it BEFORE
+        // (generation N), cleanup bumped to N+1, and every
+        // surface callback + the watchdog compared N == N+1
+        // and never ran — so the overlay sat at "waiting
+        // surface..." forever on every start, and even the
+        // vc171 watchdog stayed silent (its own guard failed
+        // the same way). Nothing before cleanupSession used
+        // sessionGen, so moving the capture here is safe.
         // vc47: mirror notification now has a STOP action
         // (like 9Flip's), so the user can stop from the shade
         // as a third exit path besides the overlay button and
@@ -420,6 +426,11 @@ class ScreenMirrorService : Service() {
         }
 
         cleanupSession() // in case of a restart, do NOT disable dual here (tile just enabled it), drop any previous session first
+        // vc172: capture AFTER cleanup (see the note at the
+        // top of this function) — this is the live generation
+        // every surface callback and watchdog compares against.
+        mirrorGeneration++
+        val sessionGen = mirrorGeneration
 
         val mpm = getSystemService(MediaProjectionManager::class.java)
         projection = mpm?.getMediaProjection(resultCode, resultData)
