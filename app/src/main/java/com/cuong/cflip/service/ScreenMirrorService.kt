@@ -712,7 +712,18 @@ class ScreenMirrorService : Service() {
                     Log.i(TAG, "Mirror overlay surface ready, virtual display started")
                 }
             }
-            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { applyFitTransform(tv, w, h) }
+            // vc173 FIX (touch-position bug, mine): w/h here
+            // are the SURFACE TEXTURE (buffer) size, i.e. the
+            // main-display size, NOT the view size.
+            // applyFitTransform expects VIEW size; passing
+            // buffer size rebuilt the transform as identity
+            // (f10=f12=fMin=1, dx=dy=0), so the feed
+            // fill-stretched the whole cover while the touch
+            // mapping still assumed fit - horizontal taps
+            // landed wrong, vertical drags stayed right
+            // (dy=0 both ways). Use the view size like every
+            // other applyFitTransform site in this file.
+            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { applyFitTransform(tv, tv.width, tv.height) }
             override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean {
                 if (sessionGen == mirrorGeneration) {
                     mirrorSurface = null
