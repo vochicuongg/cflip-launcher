@@ -285,7 +285,8 @@ object CoverControlCenterManager {
                         com.cuong.cflip.data.CustomGroupStore.load(appContext),
                         com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(appContext),
                         com.cuong.cflip.data.CustomGroupStore.loadOverrides(appContext),
-                        com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(appContext)))
+                        com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(appContext),
+                        com.cuong.cflip.data.CustomGroupStore.loadUnifiedOrder(appContext)))
             }.getOrElse { "" }
             val metrics = displayContext.resources.displayMetrics
             val curAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
@@ -915,7 +916,8 @@ object CoverControlCenterManager {
                         val hiddenAuto = com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)
                         val overrides = com.cuong.cflip.data.CustomGroupStore.loadOverrides(ctx.applicationContext)
                         val autoOrder = com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(ctx.applicationContext)
-                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto, overrides, autoOrder)
+                        val unifiedOrder = com.cuong.cflip.data.CustomGroupStore.loadUnifiedOrder(ctx.applicationContext)
+                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto, overrides, autoOrder, unifiedOrder)
                     }
                     if (sections.isNotEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
@@ -2472,7 +2474,8 @@ object CoverControlCenterManager {
                 com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext),
                 com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext),
                 com.cuong.cflip.data.CustomGroupStore.loadOverrides(ctx.applicationContext),
-                com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(ctx.applicationContext)))
+                com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(ctx.applicationContext),
+                com.cuong.cflip.data.CustomGroupStore.loadUnifiedOrder(ctx.applicationContext)))
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")

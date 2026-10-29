@@ -34,6 +34,7 @@ object CustomGroupStore {
     private const val KEY_HIDDEN_AUTO = "hidden_auto"
     private const val KEY_OVERRIDES = "auto_overrides"
     private const val KEY_AUTO_ORDER = "auto_order"
+    private const val KEY_GROUP_ORDER = "group_order"
 
     fun load(context: Context): List<CustomGroup> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -129,6 +130,34 @@ object CustomGroupStore {
             .edit().putString(KEY_AUTO_ORDER, order.joinToString(",")).apply()
     }
 
+    /**
+     * vc160 UNIFIED GROUP ORDER (user, 29/10): ONE display order
+     * for custom and default groups together, so a group can move
+     * to ANY position — including across the old custom/default
+     * boundary. Entries are "c:<custom-id>" or "a:<GROUP-NAME>",
+     * stored as one JSON array. Empty = legacy behaviour (custom
+     * in list order, then auto in autoOrder) until the editor
+     * migrates it once; sections() always appends any group the
+     * list forgot, so no group can ever disappear from the order.
+     */
+    fun loadUnifiedOrder(context: Context): List<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GROUP_ORDER, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            List(arr.length()) { i -> arr.optString(i) }
+                .filter { it.startsWith("c:") || it.startsWith("a:") }
+                .filter { it.length > 2 }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveUnifiedOrder(context: Context, order: List<String>) {
+        val arr = JSONArray()
+        for (e in order) arr.put(e)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_GROUP_ORDER, arr.toString()).apply()
+    }
+
     /** Stored order first (valid names only), then any missing group in enum order. */
     fun orderedAutoGroups(autoOrder: List<String>): List<AppGroup> {
         val valid = AppGroup.values().map { it.name }.toSet()
@@ -159,41 +188,90 @@ object CustomGroupStore {
         hiddenAuto: Set<String> = emptySet(),
         overrides: Map<String, List<String>> = emptyMap(),
         autoOrder: List<String> = emptyList(),
+        unifiedOrder: List<String> = emptyList(),
     ): Pair<List<GroupSection>, List<AppInfo>> {
         val byPkg = apps.associateBy { it.packageName }
         val used = mutableSetOf<String>()
         val sections = mutableListOf<GroupSection>()
-        for (g in custom) {
-            // vc153 ORDER: custom members keep their STORED order
-            // (arranged with ↑/↓ in the editor), not A-Z — so the
-            // folder preview and the group view show the user's order.
-            val members = g.packages.mapNotNull { byPkg[it] }
-            if (members.isEmpty()) continue
-            sections.add(GroupSection("custom:" + g.id, g.title, members))
-            used.addAll(members.map { it.packageName })
-        }
-        val rest = apps.filter { it.packageName !in used }
-        val computed = AppGroups.groupedApps(rest).toMap()
-        // vc156: iterate ALL auto groups (not just computed ones),
-        // so an override can fill a group the auto rules left empty
-        // (e.g. Game with 0 apps). vc157: in the user's stored
-        // order (default = enum order == groupedApps order).
-        for (group in orderedAutoGroups(autoOrder)) {
-            if (group.name in hiddenAuto) continue
-            val effective = if (group.name in overrides) {
-                // Edited group: exactly the stored list, in order
-                // (installed only, custom-grouped apps excluded —
-                // custom groups win single-membership).
-                overrides.getValue(group.name).mapNotNull { byPkg[it] }
-                    .filter { it.packageName !in used }
-            } else {
-                computed[group] ?: emptyList()
+        if (unifiedOrder.isEmpty()) {
+            // Legacy path (pre-migration): custom in list order,
+            // then auto in autoOrder. Kept verbatim so panel/widget
+            // behave identically until the editor migrates once.
+            for (g in custom) {
+                // vc153 ORDER: custom members keep their STORED
+                // order, not A-Z — so the folder preview and the
+                // group view show the user's order.
+                val members = g.packages.mapNotNull { byPkg[it] }
+                if (members.isEmpty()) continue
+                sections.add(GroupSection("custom:" + g.id, g.title, members))
+                used.addAll(members.map { it.packageName })
             }
-            if (effective.isEmpty()) continue
-            sections.add(GroupSection("auto:" + group.name, group.title, effective))
-            used.addAll(effective.map { it.packageName })
+            val rest = apps.filter { it.packageName !in used }
+            val computed = AppGroups.groupedApps(rest).toMap()
+            // vc156: iterate ALL auto groups (not just computed
+            // ones), so an override can fill a group the auto rules
+            // left empty (e.g. Game with 0 apps). vc157: in the
+            // user's stored order (default = enum order).
+            for (group in orderedAutoGroups(autoOrder)) {
+                if (group.name in hiddenAuto) continue
+                val effective = if (group.name in overrides) {
+                    // Edited group: exactly the stored list, in
+                    // order (installed only, custom-grouped apps
+                    // excluded — custom groups win single-membership).
+                    overrides.getValue(group.name).mapNotNull { byPkg[it] }
+                        .filter { it.packageName !in used }
+                } else {
+                    computed[group] ?: emptyList()
+                }
+                if (effective.isEmpty()) continue
+                sections.add(GroupSection("auto:" + group.name, group.title, effective))
+                used.addAll(effective.map { it.packageName })
+            }
+            val ungrouped = rest.filter { it.packageName !in used }
+            return sections to ungrouped
         }
-        val ungrouped = rest.filter { it.packageName !in used }
+        // vc160 UNIFIED path: one order for every group. Custom
+        // groups always own their members first (single-membership
+        // holds whatever the display order is), so auto groups are
+        // computed from the apps no custom group claims.
+        val customById = custom.associateBy { it.id }
+        val customUsed = custom.flatMap { it.packages }.toSet()
+        val rest = apps.filter { it.packageName !in customUsed }
+        val computed = AppGroups.groupedApps(rest).toMap()
+        val entries = unifiedOrder.toMutableList()
+        for (g in custom) {
+            val e = "c:" + g.id
+            if (e !in entries) entries.add(e)
+        }
+        for (ag in orderedAutoGroups(autoOrder)) {
+            val e = "a:" + ag.name
+            if (e !in entries) entries.add(e)
+        }
+        for (e in entries) {
+            if (e.startsWith("c:")) {
+                val g = customById[e.removePrefix("c:")] ?: continue
+                val members = g.packages.mapNotNull { byPkg[it] }
+                    .filter { it.packageName !in used }
+                if (members.isEmpty()) continue
+                sections.add(GroupSection("custom:" + g.id, g.title, members))
+                used.addAll(members.map { it.packageName })
+            } else {
+                val name = e.removePrefix("a:")
+                if (name in hiddenAuto) continue
+                val group = AppGroup.values().firstOrNull { it.name == name } ?: continue
+                val effective = if (name in overrides) {
+                    overrides.getValue(name).mapNotNull { byPkg[it] }
+                        .filter { it.packageName !in used }
+                } else {
+                    (computed[group] ?: emptyList())
+                        .filter { it.packageName !in used }
+                }
+                if (effective.isEmpty()) continue
+                sections.add(GroupSection("auto:" + group.name, group.title, effective))
+                used.addAll(effective.map { it.packageName })
+            }
+        }
+        val ungrouped = apps.filter { it.packageName !in used }
         return sections to ungrouped
     }
 
@@ -203,10 +281,12 @@ object CustomGroupStore {
         hiddenAuto: Set<String> = emptySet(),
         overrides: Map<String, List<String>> = emptyMap(),
         autoOrder: List<String> = emptyList(),
+        unifiedOrder: List<String> = emptyList(),
     ): String =
         custom.joinToString(";") { g -> g.id + "=" + g.packages.joinToString(",") } +
             "|hidden:" + hiddenAuto.sorted().joinToString(",") +
             "|overrides:" + overrides.entries.sortedBy { it.key }
                 .joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") } +
-            "|autoOrder:" + autoOrder.joinToString(",")
+            "|autoOrder:" + autoOrder.joinToString(",") +
+            "|unified:" + unifiedOrder.joinToString(",")
 }

@@ -88,6 +88,42 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     var hiddenAuto by remember { mutableStateOf(CustomGroupStore.loadHiddenAuto(context)) }
     var overrides by remember { mutableStateOf(CustomGroupStore.loadOverrides(context)) }
     var autoOrder by remember { mutableStateOf(CustomGroupStore.loadAutoOrder(context)) }
+    // vc160 UNIFIED ORDER: one list for custom + default groups.
+    // Migrated once from the old two orders (custom list order,
+    // then auto order); afterwards the list view, panel and widget
+    // all read this list, so a group can sit anywhere.
+    var unified by remember {
+        mutableStateOf(
+            run {
+                val stored = CustomGroupStore.loadUnifiedOrder(context)
+                if (stored.isNotEmpty()) stored
+                else {
+                    val built = groups.map { "c:" + it.id } +
+                        CustomGroupStore.orderedAutoGroups(autoOrder).map { "a:" + it.name }
+                    if (built.isNotEmpty()) CustomGroupStore.saveUnifiedOrder(context, built)
+                    built
+                }
+            }
+        )
+    }
+    // Display order: unified minus stale entries, plus any group
+    // the list forgot (defensive — creation always appends, so
+    // this only fires on a stale/foreign state).
+    val displayEntries: List<String> = run {
+        val list = unified.filter { e ->
+            (e.startsWith("c:") && groups.any { it.id == e.removePrefix("c:") }) ||
+                (e.startsWith("a:") && AppGroup.values().any { it.name == e.removePrefix("a:") })
+        }.toMutableList()
+        for (g in groups) {
+            val e = "c:" + g.id
+            if (e !in list) list.add(e)
+        }
+        for (ag in CustomGroupStore.orderedAutoGroups(autoOrder)) {
+            val e = "a:" + ag.name
+            if (e !in list) list.add(e)
+        }
+        list
+    }
     // vc157 drag state (member grid long-press drag)
     var dragPkg by remember { mutableStateOf<String?>(null) }
     var dragStart by remember { mutableStateOf(Offset.Zero) }
@@ -127,32 +163,24 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         AppGridWidgetProvider.refreshAll(context)
     }
 
-    fun persistAutoOrder(next: List<String>) {
-        CustomGroupStore.saveAutoOrder(context, next)
-        autoOrder = next
+    fun persistUnified(next: List<String>) {
+        CustomGroupStore.saveUnifiedOrder(context, next)
+        unified = next
         AppGridWidgetProvider.refreshAll(context)
     }
 
-    /** Reorder a custom group in the list (sections follow list order). */
-    fun moveGroup(id: String, delta: Int) {
-        val list = groups.toMutableList()
-        val i = list.indexOfFirst { it.id == id }
+    /** Move a group entry anywhere in the unified list — across
+     * the old custom/default boundary too. Saving the moved list
+     * also purges any stale entry, since displayEntries is the
+     * source of truth for what gets saved. */
+    fun moveUnified(entry: String, delta: Int) {
+        val list = displayEntries.toMutableList()
+        val i = list.indexOf(entry)
         val j = i + delta
         if (i < 0 || j < 0 || j >= list.size) return
-        val g = list.removeAt(i)
-        list.add(j, g)
-        persist(list)
-    }
-
-    /** Reorder a default group in the stored auto order. */
-    fun moveAuto(ag: AppGroup, delta: Int) {
-        val ordered = CustomGroupStore.orderedAutoGroups(autoOrder).map { it.name }.toMutableList()
-        val i = ordered.indexOf(ag.name)
-        val j = i + delta
-        if (i < 0 || j < 0 || j >= ordered.size) return
-        val name = ordered.removeAt(i)
-        ordered.add(j, name)
-        persistAutoOrder(ordered)
+        val e = list.removeAt(i)
+        list.add(j, e)
+        persistUnified(list)
     }
 
     fun clearDrag() {
@@ -224,11 +252,15 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 .filterValues { it.isNotEmpty() }
             persist(next)
             persistOverrides(nextOverrides)
+            // A group created in this session joins unified in
+            // memory at creation; its entry is saved here with it.
+            persistUnified(unified)
         } else {
             // Cancel reverts to the stored groups, so a group added
             // in this session but never saved simply disappears.
             groups = CustomGroupStore.load(context)
             overrides = CustomGroupStore.loadOverrides(context)
+            unified = CustomGroupStore.loadUnifiedOrder(context)
         }
         editingId = null
         editingAuto = null
@@ -265,133 +297,131 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Nhóm tự tạo hiện trước nhóm tự động, ở cả thẻ Widget trong panel lẫn widget Samsung. App trong nhóm tự tạo sẽ không còn ở nhóm tự động nữa. Xóa nhóm chỉ gỡ nhóm, không xóa app.",
+                "Thứ tự dưới đây là thứ tự hiện ở cả thẻ Widget trong panel lẫn widget Samsung. App trong nhóm tự tạo sẽ không còn ở nhóm tự động nữa. Xóa nhóm chỉ gỡ nhóm, không xóa app.",
                 color = CFlipColors.TextSecondary,
                 fontSize = 12.sp,
             )
             Spacer(Modifier.height(12.dp))
-            val autoOrdered = CustomGroupStore.orderedAutoGroups(autoOrder)
             // Effective members ignoring the hidden filter, so a
             // deleted default group still previews the icons it
             // would restore — via the same sections() merge the
             // panel and widget use, so the preview never diverges.
-            val autoPreview = CustomGroupStore.sections(
-                apps, groups, emptySet(), overrides, autoOrder,
-            ).first.filter { it.id.startsWith("auto:") }
-                .associate { it.id.removePrefix("auto:") to it.members }
-                .mapKeys { (k, _) -> AppGroup.values().first { it.name == k } }
+            val sectionsMap = CustomGroupStore.sections(
+                apps, groups, emptySet(), overrides, autoOrder, unified,
+            ).first.associateBy { it.id }
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 item {
                     Text(
-                        "Nhóm của bạn",
-                        color = CFlipColors.TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                itemsIndexed(groups, key = { _, g -> "c:" + g.id }) { idx, g ->
-                    val members = g.packages.mapNotNull { pkg ->
-                        apps.firstOrNull { it.packageName == pkg }
-                    }
-                    val installed = members.size
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            GroupIconPreview(members)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    g.title,
-                                    color = CFlipColors.TextPrimary,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    "$installed ứng dụng",
-                                    color = CFlipColors.TextSecondary,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                            OrderArrow("↑", idx > 0) { moveGroup(g.id, -1) }
-                            OrderArrow("↓", idx < groups.size - 1) { moveGroup(g.id, 1) }
-                            TextButton(onClick = { openEditor(g) }) {
-                                Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
-                            TextButton(onClick = {
-                                persist(groups.filter { it.id != g.id })
-                            }) {
-                                Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
-                            }
-                        }
-                        HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
-                    }
-                }
-                item {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Nhóm mặc định",
+                        "Nhóm ứng dụng",
                         color = CFlipColors.TextPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Xóa nhóm mặc định chỉ ẩn nhóm — app trong nhóm vẫn hiện ở cuối, và khôi phục được bất cứ lúc nào. Bấm Sửa để đổi ứng dụng trong nhóm mặc định (tên nhóm không đổi được). Bấm ↑ ↓ để đổi thứ tự các nhóm.",
+                        "Một danh sách chung: nhóm tự tạo và nhóm mặc định xếp chung, bấm ↑ ↓ để đổi vị trí bất kỳ — kể cả chuyển nhóm qua lại giữa hai cụm. Xóa nhóm tự tạo là gỡ nhóm; Xóa nhóm mặc định chỉ ẩn nhóm, khôi phục được bất cứ lúc nào.",
                         color = CFlipColors.TextSecondary,
                         fontSize = 12.sp,
                     )
                 }
-                itemsIndexed(autoOrdered, key = { _, ag -> "a:" + ag.name }) { idx, ag ->
-                    val hidden = ag.name in hiddenAuto
-                    val members = autoPreview[ag] ?: emptyList()
-                    val count = members.size
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            GroupIconPreview(members)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    ag.title,
-                                    color = CFlipColors.TextPrimary,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    if (hidden) "Đã xóa — app vẫn hiện ở cuối"
-                                    else "$count ứng dụng",
-                                    color = CFlipColors.TextSecondary,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                            OrderArrow("↑", idx > 0) { moveAuto(ag, -1) }
-                            OrderArrow("↓", idx < autoOrdered.size - 1) { moveAuto(ag, 1) }
-                            TextButton(onClick = { openAutoEditor(ag) }) {
-                                Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
-                        TextButton(onClick = {
-                            persistHidden(
-                                if (hidden) hiddenAuto - ag.name
-                                else hiddenAuto + ag.name
-                            )
-                        }) {
-                            Text(
-                                if (hidden) "Khôi phục" else "Xóa",
-                                color = if (hidden) CFlipColors.Accent
-                                else CFlipColors.Danger,
-                                fontSize = 13.sp,
-                            )
+                itemsIndexed(displayEntries, key = { _, e -> e }) { idx, entry ->
+                    val customGroup = if (entry.startsWith("c:")) {
+                        groups.firstOrNull { it.id == entry.removePrefix("c:") }
+                    } else null
+                    val autoGroup = if (entry.startsWith("a:")) {
+                        AppGroup.values().firstOrNull { it.name == entry.removePrefix("a:") }
+                    } else null
+                    if (customGroup != null) {
+                        val g = customGroup
+                        val members = g.packages.mapNotNull { pkg ->
+                            apps.firstOrNull { it.packageName == pkg }
                         }
+                        val installed = members.size
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                GroupIconPreview(members)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        g.title,
+                                        color = CFlipColors.TextPrimary,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "$installed ứng dụng",
+                                        color = CFlipColors.TextSecondary,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
+                                OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
+                                TextButton(onClick = { openEditor(g) }) {
+                                    Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
+                                }
+                                TextButton(onClick = {
+                                    persist(groups.filter { it.id != g.id })
+                                    persistUnified(unified.filter { it != entry })
+                                }) {
+                                    Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
+                                }
+                            }
+                            HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
                         }
-                        HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
+                    } else if (autoGroup != null) {
+                        val ag = autoGroup
+                        val hidden = ag.name in hiddenAuto
+                        val members = sectionsMap["auto:" + ag.name]?.members ?: emptyList()
+                        val count = members.size
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                GroupIconPreview(members)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        ag.title,
+                                        color = CFlipColors.TextPrimary,
+                                        fontSize = 15.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        if (hidden) "Đã xóa — app vẫn hiện ở cuối"
+                                        else "$count ứng dụng · Mặc định",
+                                        color = CFlipColors.TextSecondary,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
+                                OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
+                                TextButton(onClick = { openAutoEditor(ag) }) {
+                                    Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
+                                }
+                                TextButton(onClick = {
+                                    persistHidden(
+                                        if (hidden) hiddenAuto - ag.name
+                                        else hiddenAuto + ag.name
+                                    )
+                                }) {
+                                    Text(
+                                        if (hidden) "Khôi phục" else "Xóa",
+                                        color = if (hidden) CFlipColors.Accent
+                                        else CFlipColors.Danger,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
+                        }
                     }
                 }
             }
@@ -401,6 +431,17 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         groups.none { it.title == "Nhóm $k" }
                     }
                     val g = CustomGroup(CustomGroupStore.newId(), "Nhóm $n", emptyList())
+                    val entry = "c:" + g.id
+                    // New custom groups join the custom block: right
+                    // after the last custom entry, or at the top if
+                    // there is no custom entry yet. Saved together
+                    // with the group on Xong; Hủy drops both.
+                    val at = unified.indexOfLast { it.startsWith("c:") }
+                    unified = if (at >= 0) {
+                        unified.toMutableList().also { it.add(at + 1, entry) }
+                    } else {
+                        listOf(entry) + unified
+                    }
                     groups = groups + g
                     openEditor(g)
                 },
@@ -523,13 +564,46 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         val density = LocalDensity.current
                         val dragSpacingPx = with(density) { 8.dp.toPx() }
                         val dragRowHPx = with(density) { 96.dp.toPx() } + dragSpacingPx
-                        fun dragIndexAt(pos: Offset): Int? {
+                        // Tile UNDER the pointer (floor slot) — only
+                        // used to identify which tile a long-press
+                        // grabbed. The DROP position uses insertion
+                        // below, never this slot.
+                        fun dragSlotAt(pos: Offset): Int? {
                             if (gridWidthPx <= 0 || draftOrder.isEmpty()) return null
                             val tileW = (gridWidthPx - 3 * dragSpacingPx) / 4f
                             val col = (pos.x / (tileW + dragSpacingPx)).toInt().coerceIn(0, 3)
                             val rows = (draftOrder.size + 3) / 4
                             val row = (pos.y / dragRowHPx).toInt().coerceIn(0, rows - 1)
                             return (row * 4 + col).coerceIn(0, draftOrder.size - 1)
+                        }
+                        // vc160 EXACT DROP RULE (user, 29/10): the drop
+                        // position is an INSERTION index (0..size),
+                        // counted from tile CENTERS in row-major
+                        // order — the number of tiles whose center
+                        // the pointer has passed. Consequences, all
+                        // exact: held in the gap between two tiles
+                        // (every point of the gap is past the left
+                        // tile's center and before the right tile's)
+                        // lands exactly BETWEEN them; held over a
+                        // tile's left half lands before it, over its
+                        // right half lands after it; past the last
+                        // tile lands last. The old floor-slot rule
+                        // mapped the whole gap to the left tile,
+                        // which landed a backward drag one slot too
+                        // early (e.g. dragging app 4 into the gap
+                        // between apps 2 and 3 landed it between 1
+                        // and 2 instead of between 2 and 3).
+                        fun dragInsertionAt(pos: Offset): Int? {
+                            if (gridWidthPx <= 0 || draftOrder.isEmpty()) return null
+                            val tileW = (gridWidthPx - 3 * dragSpacingPx) / 4f
+                            val pitch = tileW + dragSpacingPx
+                            val rows = (draftOrder.size + 3) / 4
+                            val row = (pos.y / dragRowHPx).toInt().coerceIn(0, rows - 1)
+                            var colIns = 0
+                            for (c in 0 until 4) {
+                                if (pos.x > c * pitch + tileW / 2f) colIns = c + 1 else break
+                            }
+                            return (row * 4 + colIns).coerceIn(0, draftOrder.size)
                         }
                         // vc156 COVER GROUP VIEW: the member grid is
                         // the same 4-column icon grid the cover shows
@@ -549,32 +623,42 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                     var gestureStart = Offset.Zero
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = { pos ->
-                                            val idx = dragIndexAt(pos)
-                                            if (idx != null) {
-                                                gesturePkg = draftOrder[idx]
+                                            val slot = dragSlotAt(pos)
+                                            if (slot != null) {
+                                                gesturePkg = draftOrder[slot]
                                                 gestureStart = pos
                                                 dragPkg = gesturePkg
                                                 dragStart = pos
                                                 dragOffset = Offset.Zero
-                                                dragTarget = idx
+                                                dragTarget = dragInsertionAt(pos)
                                             }
                                         },
                                         onDrag = { change, _ ->
                                             if (gesturePkg != null) {
                                                 dragOffset = change.position - gestureStart
-                                                dragTarget = dragIndexAt(change.position)
+                                                dragTarget = dragInsertionAt(change.position)
                                             }
                                         },
                                         onDragEnd = {
                                             val pkg = gesturePkg
-                                            val target = dragTarget
-                                            if (pkg != null && target != null) {
+                                            val ins = dragTarget
+                                            if (pkg != null && ins != null) {
                                                 val cur = draftOrder.indexOf(pkg)
-                                                if (cur >= 0 && target != cur) {
-                                                    val list = draftOrder.toMutableList()
-                                                    list.removeAt(cur)
-                                                    list.add(target.coerceIn(0, list.size), pkg)
-                                                    draftOrder = list
+                                                if (cur >= 0) {
+                                                    // Insertion was counted with the
+                                                    // dragged item still in the list:
+                                                    // an insertion past it shifts down
+                                                    // by one once it is removed.
+                                                    // ins == cur or cur+1 both mean
+                                                    // "stay" (its own slot / just
+                                                    // after itself) — no move.
+                                                    val adjusted = if (ins > cur) ins - 1 else ins
+                                                    if (adjusted != cur) {
+                                                        val list = draftOrder.toMutableList()
+                                                        list.removeAt(cur)
+                                                        list.add(adjusted.coerceIn(0, list.size), pkg)
+                                                        draftOrder = list
+                                                    }
                                                 }
                                             }
                                             gesturePkg = null
@@ -600,6 +684,11 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                         val app = apps.firstOrNull { it.packageName == pkg }
                                         val selected = selectedPkg == pkg
                                         val isDragged = dragPkg == pkg
+                                        // vc160: with insertion semantics, the
+                                        // highlighted tile is the one the dragged
+                                        // app will land BEFORE (none when it lands
+                                        // last — the finger past the last tile says
+                                        // that already).
                                         val isTarget = dragTarget == idx && !isDragged
                                         Box(
                                             modifier = Modifier.weight(1f)
