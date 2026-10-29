@@ -941,7 +941,13 @@ class ScreenMirrorService : Service() {
         // zero-length continuation; nudge a
         // stop-then-release final by 1px.
         var effPoints = points
-        if (effPoints.size == 1 && effPoints[0].first == streamLastX && effPoints[0].second == streamLastY) {
+        // vc178: same as Presentation - vc177 log
+        // 04:02 30/10 shows a 0.58px creep segment
+        // cancelled like vc176 duplicates. Drop any
+        // single-point non-final segment moving <1px
+        // from streamLast; nudge a final within <1px
+        // to exactly 1px.
+        if (effPoints.size == 1 && kotlin.math.hypot(effPoints[0].first - streamLastX, effPoints[0].second - streamLastY) < 1f) {
             if (!willContinue) {
                 effPoints = listOf(nudgedFinalPoint())
                 android.util.Log.i("CFlipMirror", "OV FINAL nudged to " + effPoints[0])

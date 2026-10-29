@@ -529,7 +529,20 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // real finger), and nudge a stop-then-release
         // FINAL by 1px so the system accepts the end.
         var effPoints = points
-        if (effPoints.size == 1 && effPoints[0].first == streamLastX && effPoints[0].second == streamLastY) {
+        // vc178: vc177 log 04:02 30/10 - a 0.58px creep
+        // segment (934.3922,584.9121 -> 585.48865) was
+        // CANCELLED the same way exact duplicates were
+        // in vc176, while two earlier sub-1px segments
+        // in the same drag completed by luck. So the
+        // guard is no longer exact-equality: any
+        // single-point non-final segment moving <1px
+        // from streamLast is dropped (a stationary
+        // finger sends no events; the next >=1px point
+        // is measured from the unchanged streamLast,
+        // so movement accumulates instead of being
+        // lost). A final within <1px is nudged to
+        // exactly 1px, as vc177 did for duplicates.
+        if (effPoints.size == 1 && kotlin.math.hypot(effPoints[0].first - streamLastX, effPoints[0].second - streamLastY) < 1f) {
             if (!willContinue) {
                 effPoints = listOf(nudgedFinalPoint())
                 android.util.Log.i("CFlipMirror", "PRES FINAL nudged to " + effPoints[0])
@@ -702,12 +715,12 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             // PowerFlip tick-drain, and it is what
             // makes main follow the finger instead
             // of replaying where it was 200ms ago.
-            // 1px noise: if the latest point did not
-            // move >=1px from streamLast, it still
-            // becomes a 1ms hold segment via
-            // dispatchStreamChunk, which is how
-            // 9Flip d() keeps a stream alive during
-            // a pause without jumping.
+            // vc178: a latest point moving <1px from
+            // streamLast is dropped in
+            // dispatchStreamChunk (no 1ms hold segment
+            // any more - vc177 log shows a 0.58px one
+            // getting cancelled); movement accumulates
+            // against the unchanged streamLast.
             moveChunkPoints.clear()
             moveChunkPoints.addLast(Pair(toX, toY))
         } else {
