@@ -1094,6 +1094,7 @@ class ScreenMirrorService : Service() {
                     dispatchNextChunk()
                 }
                 override fun onCancelled(g: GestureDescription?) {
+                    android.util.Log.i("CFlipMirror", "OV K4_CB cancelled")
                     if (gen != generation) return
                     streamInFlight = false
                     streamStroke = null
@@ -1102,6 +1103,7 @@ class ScreenMirrorService : Service() {
                 }
             }, handler)
             if (!ok) {
+                android.util.Log.i("CFlipMirror", "OV K4 dispatched ok=false")
                 streamInFlight = false
                 streamStroke = null
                 replayMode = false
@@ -1283,6 +1285,8 @@ class ScreenMirrorService : Service() {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    // vc179 diagnostic only: this branch had no log.
+                    android.util.Log.i("CFlipMirror", "OV COVER_CANCEL liveStarted=" + liveStarted + " active=" + active)
                     handler.removeCallbacks(longPressRunnable)
                     if (active && liveStarted) queueSegment(lastMainX, lastMainY, true)
                     active = false

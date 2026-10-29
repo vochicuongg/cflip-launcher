@@ -404,6 +404,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 dispatchNextChunk()
             }
             override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES K4_CB cancelled")
                 if (gen != streamGeneration) return
                 streamInFlight = false
                 streamStroke = null
@@ -412,6 +413,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
             }
         }, gestureHandler)
         if (!ok) {
+            android.util.Log.i("CFlipMirror", "PRES K4 dispatched ok=false")
             streamInFlight = false
             streamStroke = null
             touchReplayMode = false
@@ -1013,7 +1015,10 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!touchActive) return@setOnTouchListener false
+                        if (!touchActive) {
+                            android.util.Log.i("CFlipMirror", "PRES UP ignored touchActive=false")
+                            return@setOnTouchListener false
+                        }
                         if (pinchActive) {
                             pinchActive = false
                             touchActive = false
@@ -1091,6 +1096,8 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> {
+                        // vc179 diagnostic only: this branch had no log.
+                        android.util.Log.i("CFlipMirror", "PRES COVER_CANCEL liveStarted=" + touchLiveStarted + " touchActive=" + touchActive)
                         // vc104 u2 a(): if live, finalize
                         // with cancel (final segment),
                         // then clear all state.
