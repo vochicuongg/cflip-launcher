@@ -1059,7 +1059,12 @@ class ScreenMirrorService : Service() {
         }
 
         fun onTouch(tv: TextureView, event: MotionEvent): Boolean {
-            when (event.actionMasked) {
+            // vc170 FIX (vc169 build break, mine): this when is a
+            // statement, not the function's return value. The
+            // listener lambda in MirrorPresentation returns its
+            // when implicitly, but a named function must return
+            // it explicitly, or Kotlin reports Missing return.
+            return when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     runCatching { tv.parent?.requestDisallowInterceptTouchEvent(true) }
                     val main = overlayViewToMain(event.x, event.y, tv) ?: return false
