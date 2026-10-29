@@ -116,6 +116,11 @@ fun MainScreen(
     var settings by remember { mutableStateOf(settingsStore.load()) }
     var showCover by remember { mutableStateOf(showCoverInitially) }
     var showGroupEditor by remember { mutableStateOf(false) }
+    // vc163 SCROLL: hoisted above the showCover/showGroupEditor
+    // early returns — the state used to live inside the settings
+    // Column, so entering any feature disposed it and Back always
+    // landed on the top of the app instead of the old position.
+    val settingsScroll = rememberScrollState()
     var coverTab by remember { mutableStateOf(initialTab) }
 
     if (showCover) {
@@ -226,7 +231,7 @@ fun MainScreen(
             .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), RoundedCornerShape(morph2.toInt())))
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
-                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                .verticalScroll(settingsScroll).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             // Top bar: wordmark left, version pill right. No tagline paragraph.

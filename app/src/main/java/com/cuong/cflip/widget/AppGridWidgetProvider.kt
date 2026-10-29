@@ -142,7 +142,8 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                     CustomGroupStore.loadHiddenAuto(context),
                     CustomGroupStore.loadOverrides(context),
                     CustomGroupStore.loadAutoOrder(context),
-                    CustomGroupStore.loadUnifiedOrder(context))
+                    CustomGroupStore.loadUnifiedOrder(context),
+                    CustomGroupStore.loadDeletedSections(context))
                 sections.firstOrNull { it.id == openId }
                     .also { if (it == null) setOpenGroup(context, "") }
             } else {
@@ -172,7 +173,8 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 CustomGroupStore.loadHiddenAuto(context),
                 CustomGroupStore.loadOverrides(context),
                 CustomGroupStore.loadAutoOrder(context),
-                CustomGroupStore.loadUnifiedOrder(context))
+                CustomGroupStore.loadUnifiedOrder(context),
+                CustomGroupStore.loadDeletedSections(context))
             svc.data = Uri.Builder()
                 .scheme("cflip").authority("appgrid")
                 .appendPath(id.toString()).appendPath(sig).build()
@@ -331,7 +333,8 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             CustomGroupStore.loadHiddenAuto(context),
             CustomGroupStore.loadOverrides(context),
             CustomGroupStore.loadAutoOrder(context),
-            CustomGroupStore.loadUnifiedOrder(context))
+            CustomGroupStore.loadUnifiedOrder(context),
+            CustomGroupStore.loadDeletedSections(context))
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
         items = if (openSection != null) {

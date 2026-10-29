@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -107,13 +108,21 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             }
         )
     }
-    // Display order: unified minus stale entries, plus any group
-    // the list forgot (defensive — creation always appends, so
-    // this only fires on a stale/foreign state).
+    // vc163 DELETED SECTIONS: soft-deleted customs (row stays
+    // with Restore) and true-deleted defaults (row gone, bulk
+    // restore below the list). sections() skips both, so their
+    // apps fall back to auto groups / ungrouped.
+    var deletedSections by remember { mutableStateOf(CustomGroupStore.loadDeletedSections(context)) }
+    // Display order: unified minus stale entries and truly
+    // deleted defaults, plus any group the list forgot
+    // (defensive — creation always appends, so this only fires
+    // on a stale/foreign state). Deleted customs STAY in the
+    // list as Restore rows.
     val displayEntries: List<String> = run {
         val list = unified.filter { e ->
             (e.startsWith("c:") && groups.any { it.id == e.removePrefix("c:") }) ||
-                (e.startsWith("a:") && AppGroup.values().any { it.name == e.removePrefix("a:") })
+                (e.startsWith("a:") && AppGroup.values().any { it.name == e.removePrefix("a:") } &&
+                    "auto:" + e.removePrefix("a:") !in deletedSections)
         }.toMutableList()
         for (g in groups) {
             val e = "c:" + g.id
@@ -121,10 +130,20 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         }
         for (ag in CustomGroupStore.orderedAutoGroups(autoOrder)) {
             val e = "a:" + ag.name
-            if (e !in list) list.add(e)
+            if (e !in list && "auto:" + ag.name !in deletedSections) list.add(e)
         }
         list
     }
+    // Ids of soft-deleted customs, for membership logic that must
+    // ignore them (their apps are free again).
+    val deletedCustomIds = deletedSections
+        .filter { it.startsWith("custom:") }
+        .map { it.removePrefix("custom:") }.toSet()
+    // vc163 SCROLL: hoisted above the list/editor switch, so
+    // Back from the member editor returns to the list's old scroll
+    // position instead of the top (same bug class as MainScreen's
+    // settings scroll, fixed the same way).
+    val listState = rememberLazyListState()
     // vc157 drag state (member grid long-press drag)
     var dragPkg by remember { mutableStateOf<String?>(null) }
     var dragStart by remember { mutableStateOf(Offset.Zero) }
@@ -161,6 +180,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     fun persistOverrides(next: Map<String, List<String>>) {
         CustomGroupStore.saveOverrides(context, next)
         overrides = next
+        AppGridWidgetProvider.refreshAll(context)
+    }
+
+    fun persistDeleted(next: Set<String>) {
+        CustomGroupStore.saveDeletedSections(context, next)
+        deletedSections = next
         AppGridWidgetProvider.refreshAll(context)
     }
 
@@ -204,7 +229,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     fun effectiveAutoMembers(ag: AppGroup): List<String> {
         val stored = overrides[ag.name]
         if (stored != null) return stored
-        val rest = apps.filter { app -> groups.none { g -> app.packageName in g.packages } }
+        val rest = apps.filter { app -> groups.none { g -> g.id !in deletedCustomIds && app.packageName in g.packages } }
         return AppGroups.groupedApps(rest).toMap()[ag]?.map { it.packageName }
             ?: emptyList()
     }
@@ -226,7 +251,8 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             // Single membership, both directions: the saved apps
             // leave every custom group and every OTHER auto override.
             val nextGroups = groups.map { g ->
-                g.copy(packages = g.packages.filter { it !in draft })
+                if (g.id in deletedCustomIds) g
+                else g.copy(packages = g.packages.filter { it !in draft })
             }
             val nextOverrides = overrides
                 .mapValues { (k, v) -> v.filter { it !in draft } }
@@ -237,6 +263,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             val draft = draftOrder
             val next = groups.map { g ->
                 when {
+                    g.id in deletedCustomIds -> g
                     g.id == editing.id -> g.copy(
                         title = draftTitle.ifBlank { "Nhóm" },
                         packages = draft,
@@ -262,6 +289,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             groups = CustomGroupStore.load(context)
             overrides = CustomGroupStore.loadOverrides(context)
             unified = CustomGroupStore.loadUnifiedOrder(context)
+            deletedSections = CustomGroupStore.loadDeletedSections(context)
         }
         editingId = null
         editingAuto = null
@@ -310,7 +338,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Thứ tự này hiện ở cả panel lẫn widget Samsung. Bấm ↑ ↓ để đổi vị trí bất kỳ; app ở nhóm tự tạo không còn ở nhóm tự động. Xóa nhóm không xóa app; xóa nhóm mặc định chỉ ẩn, khôi phục được.",
+                "Thứ tự này hiện ở cả panel lẫn widget Samsung. Bấm ↑ ↓ để đổi vị trí; xóa nhóm không xóa app.",
                 color = CFlipColors.TextSecondary,
                 fontSize = 12.sp,
             )
@@ -320,9 +348,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             // would restore — via the same sections() merge the
             // panel and widget use, so the preview never diverges.
             val sectionsMap = CustomGroupStore.sections(
-                apps, groups, emptySet(), overrides, autoOrder, unified,
+                apps, groups, emptySet(), overrides, autoOrder, unified, deletedSections,
             ).first.associateBy { it.id }
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -339,6 +368,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                             apps.firstOrNull { it.packageName == pkg }
                         }
                         val installed = members.size
+                        // vc163: soft-deleted customs keep their row
+                        // (position preserved in unified for an
+                        // exact restore); only the actions change.
+                        val deleted = "custom:" + g.id in deletedSections
                         Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -355,21 +388,36 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "$installed ứng dụng",
+                                        if (deleted) "Đã xóa — $installed ứng dụng"
+                                        else "$installed ứng dụng",
                                         color = CFlipColors.TextSecondary,
                                         fontSize = 12.sp,
                                     )
                                 }
-                                OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
-                                OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
-                                TextButton(onClick = { openEditor(g) }) {
-                                    Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
-                                }
-                                TextButton(onClick = {
-                                    persist(groups.filter { it.id != g.id })
-                                    persistUnified(unified.filter { it != entry })
-                                }) {
-                                    Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
+                                if (deleted) {
+                                    TextButton(onClick = {
+                                        persistDeleted(deletedSections - ("custom:" + g.id))
+                                    }) {
+                                        Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        persist(groups.filter { it.id != g.id })
+                                        persistUnified(unified.filter { it != entry })
+                                        persistDeleted(deletedSections - ("custom:" + g.id))
+                                    }) {
+                                        Text("Xóa hẳn", color = CFlipColors.Danger, fontSize = 13.sp)
+                                    }
+                                } else {
+                                    OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
+                                    OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
+                                    TextButton(onClick = { openEditor(g) }) {
+                                        Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        persistDeleted(deletedSections + ("custom:" + g.id))
+                                    }) {
+                                        Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
+                                    }
                                 }
                             }
                             HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
@@ -413,16 +461,35 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                     )
                                 }) {
                                     Text(
-                                        if (hidden) "Khôi phục" else "Xóa",
-                                        color = if (hidden) CFlipColors.Accent
-                                        else CFlipColors.Danger,
+                                        if (hidden) "Khôi phục" else "Ẩn",
+                                        color = CFlipColors.Accent,
                                         fontSize = 13.sp,
                                     )
+                                }
+                                TextButton(onClick = {
+                                    persistDeleted(deletedSections + ("auto:" + ag.name))
+                                }) {
+                                    Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
                             }
                             HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
                         }
                     }
+                }
+            }
+            val deletedAutoCount = deletedSections.count { it.startsWith("auto:") }
+            if (deletedAutoCount > 0) {
+                TextButton(
+                    onClick = {
+                        persistDeleted(deletedSections.filter { !it.startsWith("auto:") }.toSet())
+                    },
+                    modifier = Modifier.align(Alignment.Start),
+                ) {
+                    Text(
+                        "Khôi phục $deletedAutoCount nhóm mặc định đã xóa",
+                        color = CFlipColors.Accent,
+                        fontSize = 13.sp,
+                    )
                 }
             }
             TextButton(
@@ -470,7 +537,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         // in this same click, so effectiveAutoMembers
                         // would return the just-cleared list.
                         val rest = apps.filter { app ->
-                            groups.none { g -> app.packageName in g.packages }
+                            groups.none { g -> g.id !in deletedCustomIds && app.packageName in g.packages }
                         }
                         draftOrder = AppGroups.groupedApps(rest).toMap()[auto]
                             ?.map { it.packageName } ?: emptyList()
@@ -837,7 +904,8 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
                 items(filtered, key = { "p:" + it.packageName }) { app ->
                     val otherGroup = groups.firstOrNull { g ->
-                        g.id != editing?.id && app.packageName in g.packages
+                        g.id != editing?.id && g.id !in deletedCustomIds &&
+                            app.packageName in g.packages
                     }
                     val otherAuto = if (otherGroup == null) {
                         AppGroup.values().firstOrNull { ag ->

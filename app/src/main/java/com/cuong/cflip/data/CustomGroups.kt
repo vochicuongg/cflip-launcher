@@ -35,6 +35,7 @@ object CustomGroupStore {
     private const val KEY_OVERRIDES = "auto_overrides"
     private const val KEY_AUTO_ORDER = "auto_order"
     private const val KEY_GROUP_ORDER = "group_order"
+    private const val KEY_DELETED_SECTIONS = "deleted_sections"
 
     fun load(context: Context): List<CustomGroup> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -158,6 +159,27 @@ object CustomGroupStore {
             .edit().putString(KEY_GROUP_ORDER, arr.toString()).apply()
     }
 
+    /**
+     * vc163 DELETED SECTIONS: one StringSet of section ids
+     * ("custom:<id>" / "auto:<NAME>") for groups the user removed
+     * from display. Custom groups soft-delete (their row stays
+     * with a Restore button); default groups true-delete (their
+     * row is gone, restored in bulk). sections() skips any id in
+     * this set, so a deleted group's apps fall back to auto
+     * groups / ungrouped exactly like a hidden group's do.
+     */
+    fun loadDeletedSections(context: Context): Set<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_DELETED_SECTIONS, null) ?: return emptySet()
+        return raw.filter { it.startsWith("custom:") || it.startsWith("auto:") }
+            .filter { it.length > 7 }.toSet()
+    }
+
+    fun saveDeletedSections(context: Context, sections: Set<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putStringSet(KEY_DELETED_SECTIONS, sections).apply()
+    }
+
     /** Stored order first (valid names only), then any missing group in enum order. */
     fun orderedAutoGroups(autoOrder: List<String>): List<AppGroup> {
         val valid = AppGroup.values().map { it.name }.toSet()
@@ -189,6 +211,7 @@ object CustomGroupStore {
         overrides: Map<String, List<String>> = emptyMap(),
         autoOrder: List<String> = emptyList(),
         unifiedOrder: List<String> = emptyList(),
+        deletedSections: Set<String> = emptySet(),
     ): Pair<List<GroupSection>, List<AppInfo>> {
         val byPkg = apps.associateBy { it.packageName }
         val used = mutableSetOf<String>()
@@ -198,6 +221,9 @@ object CustomGroupStore {
             // then auto in autoOrder. Kept verbatim so panel/widget
             // behave identically until the editor migrates once.
             for (g in custom) {
+                // vc163: soft-deleted customs are skipped here,
+                // so their apps fall back to auto groups.
+                if ("custom:" + g.id in deletedSections) continue
                 // vc153 ORDER: custom members keep their STORED
                 // order, not A-Z — so the folder preview and the
                 // group view show the user's order.
@@ -214,6 +240,7 @@ object CustomGroupStore {
             // user's stored order (default = enum order).
             for (group in orderedAutoGroups(autoOrder)) {
                 if (group.name in hiddenAuto) continue
+                if ("auto:" + group.name in deletedSections) continue
                 val effective = if (group.name in overrides) {
                     // Edited group: exactly the stored list, in
                     // order (installed only, custom-grouped apps
@@ -235,7 +262,10 @@ object CustomGroupStore {
         // holds whatever the display order is), so auto groups are
         // computed from the apps no custom group claims.
         val customById = custom.associateBy { it.id }
-        val customUsed = custom.flatMap { it.packages }.toSet()
+        // vc163: a soft-deleted custom owns nothing — its apps
+        // must fall back to auto groups / ungrouped.
+        val customUsed = custom.filter { "custom:" + it.id !in deletedSections }
+            .flatMap { it.packages }.toSet()
         val rest = apps.filter { it.packageName !in customUsed }
         val computed = AppGroups.groupedApps(rest).toMap()
         val entries = unifiedOrder.toMutableList()
@@ -250,6 +280,7 @@ object CustomGroupStore {
         for (e in entries) {
             if (e.startsWith("c:")) {
                 val g = customById[e.removePrefix("c:")] ?: continue
+                if ("custom:" + g.id in deletedSections) continue
                 val members = g.packages.mapNotNull { byPkg[it] }
                     .filter { it.packageName !in used }
                 if (members.isEmpty()) continue
@@ -258,6 +289,7 @@ object CustomGroupStore {
             } else {
                 val name = e.removePrefix("a:")
                 if (name in hiddenAuto) continue
+                if ("auto:" + name in deletedSections) continue
                 val group = AppGroup.values().firstOrNull { it.name == name } ?: continue
                 val effective = if (name in overrides) {
                     overrides.getValue(name).mapNotNull { byPkg[it] }
@@ -282,11 +314,13 @@ object CustomGroupStore {
         overrides: Map<String, List<String>> = emptyMap(),
         autoOrder: List<String> = emptyList(),
         unifiedOrder: List<String> = emptyList(),
+        deletedSections: Set<String> = emptySet(),
     ): String =
         custom.joinToString(";") { g -> g.id + "=" + g.packages.joinToString(",") } +
             "|hidden:" + hiddenAuto.sorted().joinToString(",") +
             "|overrides:" + overrides.entries.sortedBy { it.key }
                 .joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") } +
             "|autoOrder:" + autoOrder.joinToString(",") +
-            "|unified:" + unifiedOrder.joinToString(",")
+            "|unified:" + unifiedOrder.joinToString(",") +
+            "|deleted:" + deletedSections.sorted().joinToString(",")
 }
