@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- vc154: pressed-state overlay for widget cells. A selector
+         item's android:drawable needs a drawable REFERENCE, not a
+         raw color literal (AAPT rejects '#33FFFFFF' there) — so the
+         color lives here and the selector references it. -->
+    <color name="widget_cell_pressed">#33FFFFFF</color>
+</resources>

@@ -32,8 +32,8 @@ android {
         // Flip 5 ships Android 13 / One UI 5.1.1 -> minSdk 33 covers Flip 5/6/7.
         minSdk = 33
         targetSdk = 35
-        versionCode = 153
-        versionName = "3.8.103-samsung-local"
+        versionCode = 154
+        versionName = "3.8.104-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

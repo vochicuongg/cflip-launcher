@@ -4,6 +4,6 @@
      state-list background is the tap response the widget can have:
      pressed cells brighten briefly, released cells go transparent. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_pressed="true" android:drawable="#33FFFFFF" />
+    <item android:state_pressed="true" android:drawable="@color/widget_cell_pressed" />
     <item android:drawable="@android:color/transparent" />
 </selector>
