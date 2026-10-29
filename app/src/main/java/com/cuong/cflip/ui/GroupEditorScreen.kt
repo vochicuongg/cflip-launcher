@@ -310,7 +310,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Thứ tự dưới đây là thứ tự hiện ở cả thẻ Widget trong panel lẫn widget Samsung. Nhóm tự tạo và nhóm mặc định xếp chung một danh sách — bấm ↑ ↓ để đổi vị trí bất kỳ, kể cả chuyển nhóm qua lại giữa hai cụm. Xóa nhóm tự tạo là gỡ nhóm, không xóa app; xóa nhóm mặc định chỉ ẩn nhóm, khôi phục được bất cứ lúc nào. App trong nhóm tự tạo sẽ không còn ở nhóm tự động nữa.",
+                "Thứ tự này hiện ở cả panel lẫn widget Samsung. Bấm ↑ ↓ để đổi vị trí bất kỳ; app ở nhóm tự tạo không còn ở nhóm tự động. Xóa nhóm không xóa app; xóa nhóm mặc định chỉ ẩn, khôi phục được.",
                 color = CFlipColors.TextSecondary,
                 fontSize = 12.sp,
             )
