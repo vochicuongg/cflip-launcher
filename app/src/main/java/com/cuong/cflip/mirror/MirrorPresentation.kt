@@ -453,28 +453,35 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // 0° is unchanged (exact old behavior); other angles fall
     // back to unrotated mapping (should not happen: service only
     // sets 0/90/180/270).
+    // vc174 DIRECTION A (9Flip g5 model, own code): map through
+    // the INVERSE of the TextureView's actually-drawn transform
+    // instead of recomputing fit params. The old code rebuilt
+    // the fit from current size/zoom/rotation and inverted it
+    // by hand, so any place where the drawn transform and the
+    // mapping inputs disagreed became a wrong position
+    // (vc173 fixed one such place and still failed). The
+    // matrix on the view IS what the user sees, so inverting
+    // it cannot diverge from the drawing: letterbox, crop,
+    // pan and rotation are all inside it already.
+    // g5 equivalent: inverse-map the point, then scale the
+    // stretched point (buffer stretched to view) to source
+    // size. The stretched-space bounds check IS the visible
+    // rect check (letterbox bars map outside [0,vw]x[0,vh]).
     private fun mirrorViewToMain(viewX: Float, viewY: Float): Pair<Float, Float>? {
         if (!::textureView.isInitialized) return null
         val vw = textureView.width.toFloat()
         val vh = textureView.height.toFloat()
         val sw = sourceW; val sh = sourceH
-        val fp = fitParams(vw, vh) ?: return null
-        val fMin = fp.fMin
-        val dx = fp.dx
-        val dy = fp.dy
-        val scaledW = fp.scaledW
-        val scaledH = fp.scaledH
-        val cx = vw / 2f
-        val cy = vh / 2f
-        val (ux, uy) = when (rotationDeg) {
-            90 -> Pair(cx + (viewY - cy), cy - (viewX - cx))
-            180 -> Pair(2f * cx - viewX, 2f * cy - viewY)
-            270 -> Pair(cx - (viewY - cy), cy + (viewX - cx))
-            else -> Pair(viewX, viewY)
-        }
-        if (ux < dx || ux > dx + scaledW || uy < dy || uy > dy + scaledH) return null
-        val mainX = ((ux - dx) / fMin).coerceIn(0f, (sw - 1).toFloat())
-        val mainY = ((uy - dy) / fMin).coerceIn(0f, (sh - 1).toFloat())
+        if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
+        val m = Matrix()
+        textureView.getTransform(m)
+        val inv = Matrix()
+        if (!m.invert(inv)) return null
+        val pts = floatArrayOf(viewX, viewY)
+        inv.mapPoints(pts)
+        if (pts[0] < 0f || pts[0] > vw || pts[1] < 0f || pts[1] > vh) return null
+        val mainX = (pts[0] * sw / vw).coerceIn(0f, (sw - 1).toFloat())
+        val mainY = (pts[1] * sh / vh).coerceIn(0f, (sh - 1).toFloat())
         return Pair(mainX, mainY)
     }
 

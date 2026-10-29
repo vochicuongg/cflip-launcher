@@ -785,39 +785,26 @@ class ScreenMirrorService : Service() {
             .onFailure { e -> Log.w(TAG, "System refused mirror overlay on cover", e); showFailurePillAndStop(secondary, "Mirror failed: overlay refused: " + (e.message ?: "unknown")) }
     }
 
+    // vc174 DIRECTION A (same as MirrorPresentation): invert
+    // the overlay TextureView's actually-drawn transform
+    // instead of recomputing fit params from tv size +
+    // main size + mirrorContentDeg. Any divergence between
+    // the drawn transform and those inputs used to land
+    // touches wrong; the matrix on the view cannot diverge
+    // from what the user sees.
     private fun overlayViewToMain(viewX: Float, viewY: Float, tv: TextureView): Pair<Float, Float>? {
         val vw = tv.width.toFloat()
         val vh = tv.height.toFloat()
         if (vw <= 0f || vh <= 0f || mainWidth <= 0 || mainHeight <= 0) return null
-        val f10 = vw / mainWidth
-        val f12 = vh / mainHeight
-        val fMin = kotlin.math.min(f10, f12)
-        val sx = fMin / f10
-        val sy = fMin / f12
-        val dx = (vw - vw * sx) / 2f
-        val dy = (vh - vh * sy) / 2f
-        val scaledW = vw * sx
-        val scaledH = vh * sy
-        // vc79 TOUCH INVERSE: applyFitTransform rotates content
-        // clockwise by mirrorContentDeg around the view center,
-        // so a tap must be inverse-rotated back to unrotated fit
-        // space before the fit check/mapping. 0° is unchanged
-        // (exact old behavior); other angles fall back to
-        // unrotated mapping (should not happen: service only
-        // sets 0/90/180/270). 180° keeps the centered fit rect
-        // intact; 90°/270° use the inverse-rotated point for the
-        // rect check, which is the correct test.
-        val cx = vw / 2f
-        val cy = vh / 2f
-        val (ux, uy) = when (mirrorContentDeg) {
-            90 -> Pair(cx + (viewY - cy), cy - (viewX - cx))
-            180 -> Pair(2f * cx - viewX, 2f * cy - viewY)
-            270 -> Pair(cx - (viewY - cy), cy + (viewX - cx))
-            else -> Pair(viewX, viewY)
-        }
-        if (ux < dx || ux > dx + scaledW || uy < dy || uy > dy + scaledH) return null
-        val mainX = ((ux - dx) / fMin).coerceIn(0f, (mainWidth - 1).toFloat())
-        val mainY = ((uy - dy) / fMin).coerceIn(0f, (mainHeight - 1).toFloat())
+        val m = android.graphics.Matrix()
+        tv.getTransform(m)
+        val inv = android.graphics.Matrix()
+        if (!m.invert(inv)) return null
+        val pts = floatArrayOf(viewX, viewY)
+        inv.mapPoints(pts)
+        if (pts[0] < 0f || pts[0] > vw || pts[1] < 0f || pts[1] > vh) return null
+        val mainX = (pts[0] * mainWidth / vw).coerceIn(0f, (mainWidth - 1).toFloat())
+        val mainY = (pts[1] * mainHeight / vh).coerceIn(0f, (mainHeight - 1).toFloat())
         return Pair(mainX, mainY)
     }
 
