@@ -584,12 +584,47 @@ class ScreenMirrorService : Service() {
             pres.setOnDismissListener {
                 val gen = sessionGen
                 handler.post {
-                    if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active) {
+                    // vc182: also require this pres to still be the
+                    // current one, so the 3s surface-fallback dismiss
+                    // (which nulls mirrorPresentation, then builds
+                    // the overlay) cannot post a cleanup that kills
+                    // the fallback overlay a moment later.
+                    if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == pres) {
                         android.util.Log.i("CFlipMirror", "Mirror Presentation dismissed by system, cleaning up")
                         cleanupAndDisableDual()
                     }
                 }
             }
+            // vc182 DETACH NET (log-8, VD25/VD26): vc181's onDismiss
+            // only fires on dismiss(). In the freeze, the system
+            // removes the mirror window's InputChannel (log-7
+            // 05:19:24.846, log-8 05:27:38.884) and cover input
+            // dies, yet the Presentation is NOT dismissed until
+            // the virtual display is removed 31-48s later
+            // (VD25: channel gone 24.846, dismissed 55.506) -
+            // so the service stays active, dual stays on, and
+            // the bubble never returns in between. A window's
+            // decor view DOES detach when its window leaves
+            // WindowManager, dismiss() or not, so watch that
+            // event. The 1s re-check guards a transient detach:
+            // cleanup only if the decor is still detached, this
+            // pres is still current, and the session is live.
+            // Normal stops are no-ops here because cleanup
+            // already nulled mirrorPresentation and set
+            // active=false before dismiss() detaches the view.
+            pres.window?.decorView?.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) {}
+                override fun onViewDetachedFromWindow(v: View) {
+                    val gen = sessionGen
+                    val detachedPres = pres
+                    handler.postDelayed({
+                        if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == detachedPres && detachedPres.window?.decorView?.isAttachedToWindow != true) {
+                            Log.i(TAG, "Mirror Presentation window detached without cleanup, cleaning up")
+                            cleanupAndDisableDual()
+                        }
+                    }, 1000)
+                }
+            })
             mirrorPresentation = pres
             MirrorState.active = true
             hideCoverBubble()
@@ -783,6 +818,22 @@ class ScreenMirrorService : Service() {
         runCatching { wm.addView(root, params) }
             .onSuccess {
                 overlayView = root; overlayWm = wm; mirrorTexture = tv
+                // vc182 DETACH NET, overlay path: same freeze as
+                // the Presentation path, but for the overlay root
+                // view. Normal overlay stops are no-ops because
+                // cleanup already nulled overlayView before the
+                // view is removed.
+                root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {}
+                    override fun onViewDetachedFromWindow(v: View) {
+                        handler.postDelayed({
+                            if (sessionGen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && overlayView == root && !root.isAttachedToWindow) {
+                                Log.i(TAG, "Mirror overlay window detached without cleanup, cleaning up")
+                                cleanupAndDisableDual()
+                            }
+                        }, 1000)
+                    }
+                })
                 MirrorState.active = true
                 hideCoverBubble()
                 statusView.text = "Mirror: overlay OK, waiting surface..."
