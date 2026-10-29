@@ -20,6 +20,8 @@
     <!-- Real wave amplitude: Visualizer on the output mix (vc142, normal permission, no runtime prompt) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- vc150 BOOT RESTORE: normal permission, auto-granted, no runtime prompt -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
     <application
@@ -115,6 +117,24 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="cover_screen_launcher" />
         </service>
+
+        <!-- vc150 BOOT RESTORE (user, 29/10): after a reboot or an app
+             update, bring the opener back exactly as the user left it:
+             Quick Panel ON -> start CoverForegroundService (its own
+             guards decide whether the opener shows); Quick Panel OFF
+             -> nothing. The widget setting needs no boot action: it
+             already persists and the panel re-reads it on every open.
+             No LOCKED_BOOT_COMPLETED on purpose: before first unlock
+             the settings file is still encrypted and the lock rule
+             forbids openers on the lock screen anyway. -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Floating bubble menu: CFlip's own overlay surface (deprecated, see BubbleControls) -->
         <service
