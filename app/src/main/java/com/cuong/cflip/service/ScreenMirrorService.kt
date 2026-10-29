@@ -612,6 +612,43 @@ class ScreenMirrorService : Service() {
             // Normal stops are no-ops here because cleanup
             // already nulled mirrorPresentation and set
             // active=false before dismiss() detaches the view.
+            // vc183 FOCUS NET (log-9: vc182 detach never fired):
+            // channel removal is NOT window destruction - the
+            // Presentation stays attached and 'showing', just
+            // input-less, until the virtual display is removed
+            // 31-80s later. What DOES change at freeze time is
+            // cover-display focus: Focused application(1)
+            // switches to SubHome. This window carries no
+            // NOT_FOCUSABLE flag, so it should hold cover
+            // focus during mirror and lose it exactly then.
+            // Focus is per-display, so main foreground changes
+            // alone should not routinely trigger this, and the
+            // 1s sustained-loss re-check filters transient
+            // cover dialogs. Normal stops are no-ops: cleanup
+            // already nulled mirrorPresentation and set
+            // active=false before the window loses focus.
+            // Register via post(), not directly: right after
+            // show() the decor is not attached yet, and a
+            // ViewTreeObserver taken before attach is a floating
+            // one whose listeners die on attach. post() runs
+            // after attach, when the observer is live.
+            pres.window?.decorView?.let { decorView ->
+                decorView.post {
+                    decorView.viewTreeObserver.addOnWindowFocusChangeListener(android.view.ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+                        Log.i(TAG, "Mirror Presentation window focus changed: " + hasFocus)
+                        if (!hasFocus) {
+                            val gen = sessionGen
+                            val focusPres = pres
+                            handler.postDelayed({
+                                if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active && mirrorPresentation == focusPres && focusPres.window?.decorView?.hasWindowFocus() != true) {
+                                    Log.i(TAG, "Mirror Presentation window focus lost, cleaning up")
+                                    cleanupAndDisableDual()
+                                }
+                            }, 1000)
+                        }
+                    })
+                }
+            }
             pres.window?.decorView?.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) {}
                 override fun onViewDetachedFromWindow(v: View) {
