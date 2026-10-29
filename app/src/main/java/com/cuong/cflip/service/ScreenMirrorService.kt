@@ -573,6 +573,23 @@ class ScreenMirrorService : Service() {
             // transform applies it once the surface is available.
             pres.applyRotation(mirrorContentDeg)
             pres.show()
+            // vc181 SAFETY NET (proven gap, not a guess): Presentation had NO
+            // onDismiss listener, so if the system dismissed its window
+            // (display change, window gone) the service never cleaned up:
+            // MirrorState stayed active, dual stayed on, and the foreground
+            // service kept refusing to show the bubble - exactly the
+            // "mirror gone, cover dead" state the user reported. Post the
+            // cleanup to the handler so a normal cleanup-dismiss (which
+            // already sets active=false synchronously) becomes a no-op here.
+            pres.setOnDismissListener {
+                val gen = sessionGen
+                handler.post {
+                    if (gen == mirrorGeneration && com.cuong.cflip.mirror.MirrorState.active) {
+                        android.util.Log.i("CFlipMirror", "Mirror Presentation dismissed by system, cleaning up")
+                        cleanupAndDisableDual()
+                    }
+                }
+            }
             mirrorPresentation = pres
             MirrorState.active = true
             hideCoverBubble()
@@ -1467,6 +1484,7 @@ class ScreenMirrorService : Service() {
     }
 
     private fun cleanupSession() {
+        android.util.Log.i("CFlipMirror", "Mirror cleanupSession active=" + com.cuong.cflip.mirror.MirrorState.active)
         // vc169: invalidate any late surface callback from the
         // session being torn down, and stop source tracking.
         mirrorGeneration++
