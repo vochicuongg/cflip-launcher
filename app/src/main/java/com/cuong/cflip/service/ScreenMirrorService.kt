@@ -837,6 +837,7 @@ class ScreenMirrorService : Service() {
         private var generation = 0
         private var lastDispatchMs = 0L
         private var loopRunning = false
+        private var loopNudgeBack = false
         private val preparedQueue = ArrayDeque<GestureDescription>()
         private var preparedInFlight = false
 
@@ -851,7 +852,21 @@ class ScreenMirrorService : Service() {
             } else if (liveStarted && chunkPoints.isEmpty() && !pendingFinal) {
                 val now = android.os.SystemClock.uptimeMillis()
                 if (now - lastDispatchMs > 1000L && streamStroke != null && !streamInFlight) {
-                    dispatchSegment(streamLastX, streamLastY, true)
+                    // vc180: same as Presentation - vc178 guard drops an
+                    // exact-duplicate hold segment, so send a 1px nudge,
+                    // alternating direction so net drift stays <=1px.
+                    val nudge = if (!loopNudgeBack) {
+                        loopNudgeBack = true
+                        nudgedFinalPoint()
+                    } else {
+                        loopNudgeBack = false
+                        if (streamLastY > 0) Pair(streamLastX, streamLastY - 1f)
+                        else if (streamLastY < mainHeight - 1) Pair(streamLastX, streamLastY + 1f)
+                        else if (streamLastX > 0) Pair(streamLastX - 1f, streamLastY)
+                        else Pair(streamLastX + 1f, streamLastY)
+                    }
+                    android.util.Log.i("CFlipMirror", "OV WATCHDOG nudge to " + nudge)
+                    dispatchSegment(nudge.first, nudge.second, true)
                 }
             }
             if (active) {
@@ -875,12 +890,62 @@ class ScreenMirrorService : Service() {
             if (totalMove > slop) return@Runnable
             val first = pointList.firstOrNull() ?: return@Runnable
             longPressFlag = true
+            // vc180 PRESS-DRAG (same as Presentation): hold stroke stays OPEN
+            // (willContinue=true) through the stream, so MOVE after the hold
+            // continues the same stroke and UP drops the icon. Old code sent
+            // willContinue=false, closing the stroke at timeout+80 and blocking
+            // the drag via longPressFlag. Fallback keeps the old closed
+            // long-press only when busy or dispatch fails.
             val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+            val acc = MyAccessibilityService.instance
+            if (acc == null || streamStroke != null || streamInFlight || preparedInFlight) {
+                val path = Path(); path.moveTo(first.first, first.second)
+                val gesture = GestureDescription.Builder().setDisplayId(0)
+                    .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
+                    .build()
+                dispatchPrepared(gesture)
+                return@Runnable
+            }
             val path = Path(); path.moveTo(first.first, first.second)
-            val gesture = GestureDescription.Builder().setDisplayId(0)
-                .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
-                .build()
-            dispatchPrepared(gesture)
+            val holdStroke = GestureDescription.StrokeDescription(path, 0L, timeout + 80L, true)
+            streamStroke = holdStroke
+            streamLastX = first.first; streamLastY = first.second
+            liveStarted = true
+            startLoop()
+            lastDispatchMs = android.os.SystemClock.uptimeMillis()
+            streamInFlight = true
+            val gen = generation
+            val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(holdStroke).build()
+            val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    android.util.Log.i("CFlipMirror", "OV LP_HOLD_CB completed")
+                    if (gen != generation) return
+                    streamInFlight = false
+                    dispatchNextChunk()
+                }
+                override fun onCancelled(g: GestureDescription?) {
+                    android.util.Log.i("CFlipMirror", "OV LP_HOLD_CB cancelled")
+                    if (gen != generation) return
+                    streamInFlight = false
+                    streamStroke = null
+                    active = false
+                    multiFlag = false
+                    pendingFinal = false
+                    chunkPoints.clear()
+                    replayMode = false
+                }
+            }, handler)
+            android.util.Log.i("CFlipMirror", "OV LP_HOLD dispatched ok=" + ok)
+            if (!ok) {
+                streamInFlight = false
+                streamStroke = null
+                liveStarted = false
+                val path2 = Path(); path2.moveTo(first.first, first.second)
+                val gesture2 = GestureDescription.Builder().setDisplayId(0)
+                    .addStroke(GestureDescription.StrokeDescription(path2, 0L, timeout + 80L))
+                    .build()
+                dispatchPrepared(gesture2)
+            }
         }
 
         private fun dispatchPrepared(gesture: GestureDescription) {

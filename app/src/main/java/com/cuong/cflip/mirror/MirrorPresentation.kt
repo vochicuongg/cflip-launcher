@@ -213,6 +213,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // out the open stroke mid-drag, then waits again.
     private var touchLoopRunning = false
     private var touchLastDispatchMs = 0L
+    private var touchWatchdogNudgeBack = false
     // vc102 BUILD FIX: same vc92 pattern - a
     // Runnable that posts itself inside its own
     // initializer makes Kotlin type-checking
@@ -226,10 +227,22 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         } else if (touchLiveStarted && moveChunkPoints.isEmpty() && !streamPendingFinal) {
             val now = android.os.SystemClock.uptimeMillis()
             if (now - touchLastDispatchMs > 1000L && streamStroke != null && !streamInFlight) {
-                // Hold segment, PowerFlip loop style:
-                // path with no movement, keeps the
-                // continued stroke alive through a pause.
-                dispatchStreamSegment(streamLastX, streamLastY, true)
+                // vc180: vc178 guard drops an exact-duplicate hold segment,
+                // so the old call here was a no-op and an open stroke could
+                // time out during a stationary hold. Send a 1px nudge instead,
+                // alternating direction so net drift stays <=1px.
+                val nudge = if (!touchWatchdogNudgeBack) {
+                    touchWatchdogNudgeBack = true
+                    nudgedFinalPoint()
+                } else {
+                    touchWatchdogNudgeBack = false
+                    if (streamLastY > 0) Pair(streamLastX, streamLastY - 1f)
+                    else if (streamLastY < sourceH - 1) Pair(streamLastX, streamLastY + 1f)
+                    else if (streamLastX > 0) Pair(streamLastX - 1f, streamLastY)
+                    else Pair(streamLastX + 1f, streamLastY)
+                }
+                android.util.Log.i("CFlipMirror", "PRES WATCHDOG nudge to " + nudge)
+                dispatchStreamSegment(nudge.first, nudge.second, true)
             }
         }
         if (touchActive) {
@@ -307,6 +320,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
     // long-press drag anyway. Long-press drag
     // that works in 9Flip is the double-tap drag
     // replay (k4), which vc104 implements below.
+    // vc180: press-drag now works live via the open hold stroke in
+    // touchLongPressRunnable; the drop case remains only when that hold
+    // dispatch fails and falls back to the closed long-press.
     private var touchSlopView = 0f
     private var touchDoubleTapCandidate = false
     private var touchLongPressFlag = false
@@ -328,13 +344,65 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         if (touchTotalViewMove > touchSlopView) return@Runnable
         val first = touchPointList.firstOrNull() ?: return@Runnable
         touchLongPressFlag = true
-        // f4.t: moveTo first, timeout+80, willContinue=false
+        // vc180 PRESS-DRAG: hold stroke stays OPEN (willContinue=true) through
+        // the stream, so MOVE after the hold continues the same stroke and UP
+        // drops the icon. Old vc104 code sent willContinue=false, so the stroke
+        // closed at timeout+80 and MOVE was blocked by touchLongPressFlag, making
+        // press-drag impossible. Fallback below keeps the old closed long-press
+        // only when a live/prepared stroke is already busy or dispatch fails.
         val timeout = android.view.ViewConfiguration.getLongPressTimeout().toLong()
+        val acc = MyAccessibilityService.instance
+        if (acc == null || streamStroke != null || streamInFlight || touchPreparedInFlight) {
+            val path = Path(); path.moveTo(first.first, first.second)
+            val gesture = GestureDescription.Builder().setDisplayId(0)
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
+                .build()
+            dispatchPreparedGesture(gesture)
+            return@Runnable
+        }
         val path = Path(); path.moveTo(first.first, first.second)
-        val gesture = GestureDescription.Builder().setDisplayId(0)
-            .addStroke(GestureDescription.StrokeDescription(path, 0L, timeout + 80L))
-            .build()
-        dispatchPreparedGesture(gesture)
+        val holdStroke = GestureDescription.StrokeDescription(path, 0L, timeout + 80L, true)
+        streamStroke = holdStroke
+        streamLastX = first.first; streamLastY = first.second
+        touchLiveStarted = true
+        startTouchLoop()
+        touchLastDispatchMs = android.os.SystemClock.uptimeMillis()
+        streamInFlight = true
+        val gen = streamGeneration
+        val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(holdStroke).build()
+        val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES LP_HOLD_CB completed")
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                dispatchNextChunk()
+            }
+            override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES LP_HOLD_CB cancelled")
+                if (gen != streamGeneration) return
+                streamInFlight = false
+                streamStroke = null
+                touchActive = false
+                pinchActive = false
+                streamPendingX = null
+                streamPendingY = null
+                streamPendingFinal = false
+                moveChunkPoints.clear()
+                touchReplayMode = false
+                pinchPending = null
+            }
+        }, gestureHandler)
+        android.util.Log.i("CFlipMirror", "PRES LP_HOLD dispatched ok=" + ok)
+        if (!ok) {
+            streamInFlight = false
+            streamStroke = null
+            touchLiveStarted = false
+            val path2 = Path(); path2.moveTo(first.first, first.second)
+            val gesture2 = GestureDescription.Builder().setDisplayId(0)
+                .addStroke(GestureDescription.StrokeDescription(path2, 0L, timeout + 80L))
+                .build()
+            dispatchPreparedGesture(gesture2)
+        }
     }
     private fun dispatchPreparedGesture(gesture: GestureDescription) {
         val acc = MyAccessibilityService.instance ?: return
