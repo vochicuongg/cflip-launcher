@@ -343,6 +343,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // live stroke would be rejected or would
         // appear as a second finger on main.
         if (streamStroke != null || streamInFlight || touchPreparedInFlight) {
+            android.util.Log.i("CFlipMirror", "PRES PREP queued streamStroke=" + (streamStroke != null) + " inFlight=" + streamInFlight + " prepInFlight=" + touchPreparedInFlight)
             if (touchPreparedQueue.size >= 12) touchPreparedQueue.removeFirst()
             touchPreparedQueue.addLast(gesture)
             return
@@ -350,14 +351,17 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         touchPreparedInFlight = true
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES PREP_CB completed")
                 touchPreparedInFlight = false
                 dispatchNextPrepared()
             }
             override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES PREP_CB cancelled")
                 touchPreparedInFlight = false
                 dispatchNextPrepared()
             }
         }, gestureHandler)
+        android.util.Log.i("CFlipMirror", "PRES PREP dispatched ok=" + ok)
         if (!ok) {
             touchPreparedInFlight = false
             dispatchNextPrepared()
@@ -538,6 +542,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         touchLastDispatchMs = android.os.SystemClock.uptimeMillis()
         streamInFlight = true
         val gen = streamGeneration
+        android.util.Log.i("CFlipMirror", "PRES CHUNK willContinue=" + willContinue + " n=" + points.size + " first=" + points.first())
         val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
         // vc98: 9Flip f4.i() passes an explicit main-looper
@@ -546,6 +551,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
         // callback landing on an arbitrary thread.
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES CHUNK_CB completed isFinal=" + isFinalSegment + " genOk=" + (gen == streamGeneration))
                 if (gen != streamGeneration) return
                 streamInFlight = false
                 if (isFinalSegment) {
@@ -568,6 +574,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 onStreamSegmentDone()
             }
             override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "PRES CHUNK_CB cancelled")
                 if (gen != streamGeneration) return
                 streamInFlight = false
                 streamStroke = null
@@ -581,6 +588,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                 pinchPending = null
             }
         }, gestureHandler)
+        android.util.Log.i("CFlipMirror", "PRES CHUNK dispatched ok=" + ok + " willContinue=" + willContinue)
         if (!ok) {
             android.util.Log.w("CFlipMirror", "dispatchGesture rejected, touch stream dropped")
             streamInFlight = false
@@ -647,6 +655,7 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
 
     private fun queueStreamSegment(toX: Float, toY: Float, final: Boolean) {
         if (final) streamPendingFinal = true
+        android.util.Log.i("CFlipMirror", "PRES QUEUE final=" + final + " pt=" + toX + "," + toY + " inFlight=" + streamInFlight)
         streamPendingX = toX
         streamPendingY = toY
         if (!final) {
@@ -842,7 +851,9 @@ class MirrorPresentation(context: Context, display: Display) : Presentation(cont
                         // CANCEL / POINTER_DOWN in
                         // normal sequences, so DOWN
                         // just resets, like vc102/103.
-                        val main = mirrorViewToMain(event.x, event.y) ?: return@setOnTouchListener false
+                        val main = mirrorViewToMain(event.x, event.y)
+                        android.util.Log.i("CFlipMirror", "PRES DOWN view=" + event.x + "," + event.y + " main=" + main)
+                        if (main == null) return@setOnTouchListener false
                         touchStartX = main.first; touchStartY = main.second
                         touchLastX = main.first; touchLastY = main.second
                         touchStartTime = event.eventTime

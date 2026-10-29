@@ -886,6 +886,7 @@ class ScreenMirrorService : Service() {
         private fun dispatchPrepared(gesture: GestureDescription) {
             val acc = MyAccessibilityService.instance ?: return
             if (streamStroke != null || streamInFlight || preparedInFlight) {
+                android.util.Log.i("CFlipMirror", "OV PREP queued streamStroke=" + (streamStroke != null) + " inFlight=" + streamInFlight + " prepInFlight=" + preparedInFlight)
                 if (preparedQueue.size >= 12) preparedQueue.removeFirst()
                 preparedQueue.addLast(gesture)
                 return
@@ -893,14 +894,17 @@ class ScreenMirrorService : Service() {
             preparedInFlight = true
             val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "OV PREP_CB completed")
                     preparedInFlight = false
                     dispatchNextPrepared()
                 }
                 override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "OV PREP_CB cancelled")
                     preparedInFlight = false
                     dispatchNextPrepared()
                 }
             }, handler)
+            android.util.Log.i("CFlipMirror", "OV PREP dispatched ok=" + ok)
             if (!ok) {
                 preparedInFlight = false
                 dispatchNextPrepared()
@@ -955,10 +959,12 @@ class ScreenMirrorService : Service() {
             lastDispatchMs = android.os.SystemClock.uptimeMillis()
             streamInFlight = true
             val gen = generation
+            android.util.Log.i("CFlipMirror", "OV CHUNK willContinue=" + willContinue + " n=" + points.size + " first=" + points.first())
             val isFinalSegment = !willContinue
             val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
             val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "OV CHUNK_CB completed isFinal=" + isFinalSegment + " genOk=" + (gen == generation))
                     if (gen != generation) return
                     streamInFlight = false
                     if (isFinalSegment) {
@@ -970,6 +976,7 @@ class ScreenMirrorService : Service() {
                     dispatchNextChunk()
                 }
                 override fun onCancelled(g: GestureDescription?) {
+                android.util.Log.i("CFlipMirror", "OV CHUNK_CB cancelled")
                     if (gen != generation) return
                     streamInFlight = false
                     streamStroke = null
@@ -980,6 +987,7 @@ class ScreenMirrorService : Service() {
                     replayMode = false
                 }
             }, handler)
+            android.util.Log.i("CFlipMirror", "OV CHUNK dispatched ok=" + ok + " willContinue=" + willContinue)
             if (!ok) {
                 android.util.Log.w("CFlipMirror", "dispatchGesture rejected, overlay touch stream dropped")
                 streamInFlight = false
@@ -1015,6 +1023,7 @@ class ScreenMirrorService : Service() {
         }
         private fun queueSegment(toX: Float, toY: Float, final: Boolean) {
             if (final) pendingFinal = true
+            android.util.Log.i("CFlipMirror", "OV QUEUE final=" + final + " pt=" + toX + "," + toY + " inFlight=" + streamInFlight)
             if (!final) {
                 // Latest-only: overwrite the single queued point,
                 // never replay a backlog (vc103 lesson).
@@ -1109,7 +1118,9 @@ class ScreenMirrorService : Service() {
             return when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     runCatching { tv.parent?.requestDisallowInterceptTouchEvent(true) }
-                    val main = overlayViewToMain(event.x, event.y, tv) ?: return false
+                    val main = overlayViewToMain(event.x, event.y, tv)
+                    android.util.Log.i("CFlipMirror", "OV DOWN view=" + event.x + "," + event.y + " main=" + main)
+                    if (main == null) return false
                     lastMainX = main.first; lastMainY = main.second
                     lastViewX = event.x; lastViewY = event.y
                     totalMove = 0f
