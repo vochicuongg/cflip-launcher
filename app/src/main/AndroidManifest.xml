@@ -73,7 +73,18 @@
             android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
             android:resizeableActivity="true"
             android:taskAffinity="com.cuong.cflip.dualhost"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <!-- vc186 SAMSUNG COVER FLAG (PowerFlip
+                 CoverMirrorActivity parity, manifest only):
+                 marks this cover host as a legitimate
+                 cover-screen activity. Hypothesis: Samsung
+                 keeps flagged cover-stack members across
+                 a cover-stack reset, while CFlip's unflagged
+                 mirror window gets swept. -->
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
 
         <!-- vc95: lock bubble activity (9Flip UnlockActivity pattern,
              own code). An Activity window with setShowWhenLocked,
