@@ -282,7 +282,8 @@ object CoverControlCenterManager {
             val curSettingsKey = runCatching {
                 settingsKeyFor(SettingsStore(appContext).load(),
                     com.cuong.cflip.data.CustomGroupStore.signature(
-                        com.cuong.cflip.data.CustomGroupStore.load(appContext)))
+                        com.cuong.cflip.data.CustomGroupStore.load(appContext),
+                        com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(appContext)))
             }.getOrElse { "" }
             val metrics = displayContext.resources.displayMetrics
             val curAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
@@ -909,16 +910,18 @@ object CoverControlCenterManager {
                         val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
                         val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
                         val custom = com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)
-                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom)
+                        val hiddenAuto = com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)
+                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto)
                     }
                     if (sections.isNotEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
                             text = "Nhóm ứng dụng"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
                         })
-                        for (section in sections) {
-                            widgetCard.addView(TextView(ctx).apply {
+                        for ((index, section) in sections.withIndex()) {
+                            val sectionTitle = TextView(ctx).apply {
                                 text = section.title; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                            })
+                            }
+                            widgetCard.addView(sectionTitle)
                             val groupGrid = GridLayout(ctx).apply { columnCount = 4 }
                             for (app in section.members) {
                                 groupGrid.addView(Button(ctx).apply {
@@ -937,6 +940,17 @@ object CoverControlCenterManager {
                                 }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
                             }
                             widgetCard.addView(groupGrid)
+                            // vc153 ENTRANCE: sections fade + slide in,
+                            // staggered, when the card builds fresh.
+                            // (Cached panel opens reuse views, so no
+                            // animation there — by design, not a bug.)
+                            val delay = index * 50L
+                            for (v in listOf(sectionTitle, groupGrid)) {
+                                v.alpha = 0f
+                                v.translationY = dp(8).toFloat()
+                                v.animate().alpha(1f).translationY(0f)
+                                    .setStartDelay(delay).setDuration(200).start()
+                            }
                         }
                         widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
                             setOnClickListener { selectTab(2) }
@@ -2451,7 +2465,8 @@ object CoverControlCenterManager {
         cachedMediaPlaying = mediaInfo?.isPlaying == true
         cachedSettingsKey = settingsKeyFor(store.load(),
             com.cuong.cflip.data.CustomGroupStore.signature(
-                com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)))
+                com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext),
+                com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)))
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")

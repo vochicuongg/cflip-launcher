@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc153 press feedback for widget cells. RemoteViews cannot run view
+     animations (the host renders the widget in another process), so a
+     state-list background is the tap response the widget can have:
+     pressed cells brighten briefly, released cells go transparent. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:drawable="#33FFFFFF" />
+    <item android:drawable="@android:color/transparent" />
+</selector>

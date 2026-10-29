@@ -8,8 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.widget.RemoteViews
@@ -46,6 +44,12 @@ import com.cuong.cflip.display.DisplayRepository
  * a stable section id ("custom:<uuid>" or "auto:<GROUP>") and
  * a title, so the open-group state survives renames and the
  * header always resolves its title from live sections.
+ *
+ * vc153 (user, 29/10): no Back grid cell anymore — back lives in
+ * the header as an icon-only button sitting exactly where the
+ * refresh button sits (it replaces refresh while a group is
+ * open); custom-group member order is the user's arranged order;
+ * hidden default groups are skipped by sections().
  */
 class AppGridWidgetProvider : AppWidgetProvider() {
 
@@ -83,6 +87,10 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 }
             }
             ACTION_REFRESH -> refreshAll(context)
+            ACTION_BACK -> {
+                setOpenGroup(context, "")
+                refreshAll(context)
+            }
         }
     }
 
@@ -95,6 +103,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_LAUNCH_APP = "com.cuong.cflip.widget.APPGRID_LAUNCH"
         const val ACTION_REFRESH = "com.cuong.cflip.widget.APPGRID_REFRESH"
+        const val ACTION_BACK = "com.cuong.cflip.widget.APPGRID_BACK"
         private const val PREFS = "appgrid_widget"
         private const val KEY_OPEN_GROUP = "open_group"
 
@@ -124,18 +133,21 @@ class AppGridWidgetProvider : AppWidgetProvider() {
             // sections so a rename is reflected immediately. A stale
             // open id (group deleted) falls back to the top view.
             val openId = openGroupName(context)
-            var title = "CFlip — Ứng dụng"
-            if (openId.isNotEmpty()) {
+            val openSection = if (openId.isNotEmpty()) {
                 val apps = runCatching { AppRepository(context).loadLaunchableApps() }
                     .getOrDefault(emptyList())
                 val (sections, _) = CustomGroupStore.sections(
-                    apps, CustomGroupStore.load(context))
-                val openSection = sections.firstOrNull { it.id == openId }
-                if (openSection != null) {
-                    title = "CFlip — ${openSection.title}"
-                } else {
-                    setOpenGroup(context, "")
-                }
+                    apps, CustomGroupStore.load(context),
+                    CustomGroupStore.loadHiddenAuto(context))
+                sections.firstOrNull { it.id == openId }
+                    .also { if (it == null) setOpenGroup(context, "") }
+            } else {
+                null
+            }
+            val title = if (openSection != null) {
+                "CFlip — ${openSection.title}"
+            } else {
+                "CFlip — Ứng dụng"
             }
             views.setTextViewText(R.id.app_grid_title, title)
             val svc = Intent(context, AppGridRemoteViewsService::class.java)
@@ -160,7 +172,22 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 Intent(context, AppGridWidgetProvider::class.java).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            views.setOnClickPendingIntent(R.id.app_grid_refresh, refresh)
+            if (openSection != null) {
+                // vc153 BACK IN HEADER: while a group is open, the
+                // header button becomes BACK — icon only, no "Tất cả"
+                // text — sitting exactly where refresh sits. Top view
+                // keeps the refresh button as before.
+                views.setTextViewText(R.id.app_grid_refresh, "←")
+                val back = PendingIntent.getBroadcast(
+                    context, 6000 + id,
+                    Intent(context, AppGridWidgetProvider::class.java).setAction(ACTION_BACK),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                views.setOnClickPendingIntent(R.id.app_grid_refresh, back)
+            } else {
+                views.setTextViewText(R.id.app_grid_refresh, "↻")
+                views.setOnClickPendingIntent(R.id.app_grid_refresh, refresh)
+            }
             manager.updateAppWidget(id, views)
         }
     }
@@ -177,7 +204,6 @@ class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
 private sealed class GridItem {
     data class App(val app: AppInfo) : GridItem()
     data class Group(val id: String, val title: String, val members: List<AppInfo>) : GridItem()
-    object Back : GridItem()
 }
 
 private class AppGridFactory(private val context: Context, private val widgetId: Int = 0) :
@@ -202,16 +228,14 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         return when (val item = items[position]) {
             is GridItem.App -> appViews(item.app)
             is GridItem.Group -> groupViews(item.id, item.title, item.members)
-            GridItem.Back -> backViews()
         }
     }
 
-    // 3 view types: app cell, folder tile, back cell.
-    override fun getViewTypeCount(): Int = 3
+    // 2 view types: app cell, folder tile.
+    override fun getViewTypeCount(): Int = 2
     override fun getItemId(position: Int): Long = when (val item = items[position]) {
         is GridItem.App -> item.app.packageName.hashCode().toLong()
         is GridItem.Group -> item.id.hashCode().toLong()
-        GridItem.Back -> -100L
     }
     override fun hasStableIds(): Boolean = true
     override fun getLoadingView(): RemoteViews? = null
@@ -263,19 +287,6 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         return views
     }
 
-    private fun backViews(): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
-        views.setImageViewBitmap(R.id.app_grid_item_icon, backBitmap())
-        views.setTextViewText(R.id.app_grid_item_label, "← Tất cả")
-        val fill = Intent()
-            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-            .putExtra("app_widget_id", widgetId)
-            .putExtra("appWidgetId", widgetId)
-            .putExtra("click_action", "close_group")
-        views.setOnClickFillInIntent(R.id.app_grid_item_root, fill)
-        return views
-    }
-
     private fun iconBitmap(icon: Drawable, size: Int): Bitmap {
         val copy = icon.constantState?.newDrawable()?.mutate() ?: icon
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
@@ -285,35 +296,20 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         return bmp
     }
 
-    private fun backBitmap(): Bitmap {
-        val bmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val paint = Paint().apply {
-            color = Color.WHITE
-            strokeWidth = 12f
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            isAntiAlias = true
-        }
-        // Chevron "<", drawn by hand (no drawable dependency).
-        canvas.drawLine(62f, 22f, 30f, 48f, paint)
-        canvas.drawLine(30f, 48f, 62f, 74f, paint)
-        return bmp
-    }
-
     private fun load() {
         val apps = runCatching { AppRepository(context).loadLaunchableApps() }
             .getOrDefault(emptyList())
         // vc152: custom groups first, then auto groups for the rest,
         // then ungrouped apps — the same merge as the panel card.
+        // vc153: no Back cell anymore — back lives in the header.
         val (sections, ungrouped) = CustomGroupStore.sections(
-            apps, CustomGroupStore.load(context))
+            apps, CustomGroupStore.load(context),
+            CustomGroupStore.loadHiddenAuto(context))
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
         items = if (openSection != null) {
-            // Inside a folder: back cell first, then its members (A-Z).
-            listOf(GridItem.Back) + openSection.members.map { GridItem.App(it) }
+            // Inside a folder: just its members, in the user's order.
+            openSection.members.map { GridItem.App(it) }
         } else {
             // Top view: folder tiles + ungrouped apps (A-Z).
             // A stale open id (group deleted/emptied) resets to top view.

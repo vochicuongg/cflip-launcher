@@ -31,6 +31,7 @@ data class GroupSection(val id: String, val title: String, val members: List<App
 object CustomGroupStore {
     private const val PREFS = "custom_groups"
     private const val KEY = "groups_json"
+    private const val KEY_HIDDEN_AUTO = "hidden_auto"
 
     fun load(context: Context): List<CustomGroup> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -68,6 +69,22 @@ object CustomGroupStore {
     fun newId(): String = java.util.UUID.randomUUID().toString()
 
     /**
+     * vc153 DELETE DEFAULT GROUPS (user, 29/10): auto groups are
+     * computed, so "deleting" one only hides it — its apps fall
+     * through to ungrouped (never hidden) and it can be restored
+     * any time from the editor's default-groups section.
+     */
+    fun loadHiddenAuto(context: Context): Set<String> {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_HIDDEN_AUTO, null)?.toSet() ?: emptySet()
+    }
+
+    fun saveHiddenAuto(context: Context, hidden: Set<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putStringSet(KEY_HIDDEN_AUTO, hidden).apply()
+    }
+
+    /**
      * Merge custom + auto groups over the given apps (apps are
      * expected A-Z already, as AppRepository returns them).
      * Returns (sections, ungroupedApps).
@@ -75,19 +92,23 @@ object CustomGroupStore {
     fun sections(
         apps: List<AppInfo>,
         custom: List<CustomGroup>,
+        hiddenAuto: Set<String> = emptySet(),
     ): Pair<List<GroupSection>, List<AppInfo>> {
         val byPkg = apps.associateBy { it.packageName }
         val used = mutableSetOf<String>()
         val sections = mutableListOf<GroupSection>()
         for (g in custom) {
+            // vc153 ORDER: custom members keep their STORED order
+            // (arranged with ↑/↓ in the editor), not A-Z — so the
+            // folder preview and the group view show the user's order.
             val members = g.packages.mapNotNull { byPkg[it] }
-                .sortedBy { it.label.lowercase() }
             if (members.isEmpty()) continue
             sections.add(GroupSection("custom:" + g.id, g.title, members))
             used.addAll(members.map { it.packageName })
         }
         val rest = apps.filter { it.packageName !in used }
         for ((group, members) in AppGroups.groupedApps(rest)) {
+            if (group.name in hiddenAuto) continue
             sections.add(GroupSection("auto:" + group.name, group.title, members))
             used.addAll(members.map { it.packageName })
         }
@@ -96,6 +117,10 @@ object CustomGroupStore {
     }
 
     /** Cheap signature for the panel cache key: changes on any group edit. */
-    fun signature(custom: List<CustomGroup>): String =
-        custom.joinToString(";") { g -> g.id + "=" + g.packages.sorted().joinToString(",") }
+    fun signature(
+        custom: List<CustomGroup>,
+        hiddenAuto: Set<String> = emptySet(),
+    ): String =
+        custom.joinToString(";") { g -> g.id + "=" + g.packages.joinToString(",") } +
+            "|hidden:" + hiddenAuto.sorted().joinToString(",")
 }

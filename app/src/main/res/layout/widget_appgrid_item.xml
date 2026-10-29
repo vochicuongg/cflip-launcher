@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/app_grid_item_root"
+    android:background="@drawable/widget_cell_selector"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
