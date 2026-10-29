@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuong.cflip.data.AppGroup
+import com.cuong.cflip.data.AppGroups
 import com.cuong.cflip.data.AppInfo
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.data.CustomGroup
@@ -151,7 +153,11 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 fontSize = 12.sp,
             )
             Spacer(Modifier.height(12.dp))
-            val (sections, _) = CustomGroupStore.sections(apps, groups, hiddenAuto)
+            // Auto members ignoring the hidden filter, so a deleted
+            // default group still previews the icons it would restore.
+            val autoPreview = AppGroups.groupedApps(
+                apps.filter { app -> groups.none { g -> app.packageName in g.packages } }
+            ).toMap()
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -165,13 +171,16 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                     )
                 }
                 items(groups, key = { "c:" + it.id }) { g ->
-                    val installed = g.packages.count { pkg ->
-                        apps.any { it.packageName == pkg }
+                    val members = g.packages.mapNotNull { pkg ->
+                        apps.firstOrNull { it.packageName == pkg }
                     }
+                    val installed = members.size
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        GroupIconPreview(members)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(g.title, color = CFlipColors.TextPrimary, fontSize = 15.sp)
                             Text(
@@ -206,12 +215,14 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
                 items(AppGroup.values(), key = { "a:" + it.name }) { ag ->
                     val hidden = ag.name in hiddenAuto
-                    val count = sections.firstOrNull { s -> s.id == "auto:" + ag.name }
-                        ?.members?.size ?: 0
+                    val members = autoPreview[ag] ?: emptyList()
+                    val count = members.size
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        GroupIconPreview(members)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(ag.title, color = CFlipColors.TextPrimary, fontSize = 15.sp)
                             Text(
@@ -285,11 +296,17 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 ),
             )
             Spacer(Modifier.height(8.dp))
+            // vc155 NO DUPLICATES: the picker lists only apps NOT
+            // yet in the group. Tapping one moves it into the group
+            // section above (it becomes a group app); removing it with
+            // ✕ sends it back here. A selected app never appears in
+            // both sections at once.
             val query = search.trim()
+            val available = apps.filter { it.packageName !in draftOrder }
             val filtered = if (query.isEmpty()) {
-                apps
+                available
             } else {
-                apps.filter { app ->
+                available.filter { app ->
                     app.label.contains(query, ignoreCase = true) ||
                         app.packageName.contains(query, ignoreCase = true)
                 }
@@ -373,29 +390,26 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                     )
                 }
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            if (query.isEmpty()) "Tất cả ứng dụng đã ở trong nhóm."
+                            else "Không tìm thấy ứng dụng nào.",
+                            color = CFlipColors.TextSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
                 items(filtered, key = { "p:" + it.packageName }) { app ->
-                    val inDraft = app.packageName in draftOrder
                     val otherGroup = groups.firstOrNull { g ->
                         g.id != editing.id && app.packageName in g.packages
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth()
-                            .clickable {
-                                draftOrder = if (inDraft) {
-                                    draftOrder - app.packageName
-                                } else {
-                                    draftOrder + app.packageName
-                                }
-                            }
+                            .clickable { draftOrder = draftOrder + app.packageName }
                             .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            if (inDraft) "☑" else "☐",
-                            color = CFlipColors.Accent,
-                            fontSize = 16.sp,
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
                         val img = remember(app.packageName) {
                             app.icon?.let { drawableBitmap(it, 96) }
                         }
@@ -414,7 +428,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 fontSize = 14.sp,
                                 maxLines = 1,
                             )
-                            if (otherGroup != null && !inDraft) {
+                            if (otherGroup != null) {
                                 Text(
                                     "đang ở “${otherGroup.title}” — bấm để chuyển qua đây",
                                     color = CFlipColors.TextFaint,
@@ -422,6 +436,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 )
                             }
                         }
+                        Text(
+                            "+",
+                            color = CFlipColors.Accent,
+                            fontSize = 18.sp,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
                     }
                 }
             }
@@ -445,4 +465,40 @@ private fun drawableBitmap(icon: Drawable, size: Int): androidx.compose.ui.graph
     copy.setBounds(0, 0, size, size)
     copy.draw(canvas)
     return bmp.asImageBitmap()
+}
+
+/**
+ * vc155 GROUP ICON PREVIEW (user, 29/10): a group's row in the list
+ * shows its grouped icons with its name — the same 3x3 folder look
+ * as the widget tile, at 48dp so the icons stay recognizable.
+ * Empty slots render as blank boxes so the 3x3 shape holds.
+ */
+@Composable
+private fun GroupIconPreview(members: List<AppInfo>) {
+    val icons = remember(members) {
+        members.take(9).map { app -> app.icon?.let { drawableBitmap(it, 96) } }
+    }
+    Column(modifier = Modifier.size(48.dp)) {
+        for (row in 0 until 3) {
+            Row(modifier = Modifier.weight(1f)) {
+                for (col in 0 until 3) {
+                    val idx = row * 3 + col
+                    Box(
+                        modifier = Modifier.weight(1f)
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val img = icons.getOrNull(idx)
+                        if (img != null) {
+                            Image(
+                                img,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
