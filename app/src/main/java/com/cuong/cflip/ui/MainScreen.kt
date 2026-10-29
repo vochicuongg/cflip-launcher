@@ -115,6 +115,7 @@ fun MainScreen(
     val settingsStore = remember { SettingsStore(context) }
     var settings by remember { mutableStateOf(settingsStore.load()) }
     var showCover by remember { mutableStateOf(showCoverInitially) }
+    var showGroupEditor by remember { mutableStateOf(false) }
     var coverTab by remember { mutableStateOf(initialTab) }
 
     if (showCover) {
@@ -125,6 +126,14 @@ fun MainScreen(
                 targetDisplayId = displayRepo.secondaryDisplay()?.displayId,
                 initialTab = coverTab)
         }
+        return
+    }
+
+    // vc152 CUSTOM GROUP EDITOR (user, 29/10): a section in the
+    // app where users build their own app groups, like 9Flip.
+    if (showGroupEditor) {
+        BackHandler { showGroupEditor = false }
+        GroupEditorScreen(onBack = { showGroupEditor = false })
         return
     }
 
@@ -390,6 +399,10 @@ fun MainScreen(
                         toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
                     }, modifier = Modifier.align(Alignment.Start)) {
                         Text("Kiểm tra Widget màn hình ngoài đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { showGroupEditor = true },
+                        modifier = Modifier.align(Alignment.Start)) {
+                        Text("Tùy chỉnh nhóm ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
                     }
                 }
             }

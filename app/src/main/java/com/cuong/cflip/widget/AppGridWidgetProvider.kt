@@ -14,8 +14,7 @@ import android.graphics.drawable.Drawable
 import android.view.View
 import android.widget.RemoteViews
 import com.cuong.cflip.R
-import com.cuong.cflip.data.AppGroup
-import com.cuong.cflip.data.AppGroups
+import com.cuong.cflip.data.CustomGroupStore
 import com.cuong.cflip.data.AppInfo
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.display.AppLauncher
@@ -40,6 +39,13 @@ import com.cuong.cflip.display.DisplayRepository
  * + ungrouped apps). The open group is kept in SharedPreferences,
  * so every widget instance shows the same view; deleting the last
  * widget resets it to the top view.
+ *
+ * vc152 CUSTOM GROUPS (user, 29/10): folder tiles now come from
+ * CustomGroupStore.sections() — user-built groups first, then
+ * the auto groups for the remaining apps. A folder tile carries
+ * a stable section id ("custom:<uuid>" or "auto:<GROUP>") and
+ * a title, so the open-group state survives renames and the
+ * header always resolves its title from live sections.
  */
 class AppGridWidgetProvider : AppWidgetProvider() {
 
@@ -101,7 +107,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 .edit().putString(KEY_OPEN_GROUP, name).apply()
         }
 
-        private fun refreshAll(context: Context) {
+        fun refreshAll(context: Context) {
             val mgr = AppWidgetManager.getInstance(context)
             val ids = mgr.getAppWidgetIds(
                 ComponentName(context, AppGridWidgetProvider::class.java))
@@ -114,9 +120,23 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         private fun updateWidget(context: Context, manager: AppWidgetManager, id: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_appgrid)
             // Header follows the drill-down: top view keeps the old
-            // title, an open group shows its name.
-            val open = AppGroup.values().firstOrNull { it.name == openGroupName(context) }
-            val title = open?.let { "CFlip — ${it.title}" } ?: "CFlip — Ứng dụng"
+            // title, an open group shows its name, resolved from LIVE
+            // sections so a rename is reflected immediately. A stale
+            // open id (group deleted) falls back to the top view.
+            val openId = openGroupName(context)
+            var title = "CFlip — Ứng dụng"
+            if (openId.isNotEmpty()) {
+                val apps = runCatching { AppRepository(context).loadLaunchableApps() }
+                    .getOrDefault(emptyList())
+                val (sections, _) = CustomGroupStore.sections(
+                    apps, CustomGroupStore.load(context))
+                val openSection = sections.firstOrNull { it.id == openId }
+                if (openSection != null) {
+                    title = "CFlip — ${openSection.title}"
+                } else {
+                    setOpenGroup(context, "")
+                }
+            }
             views.setTextViewText(R.id.app_grid_title, title)
             val svc = Intent(context, AppGridRemoteViewsService::class.java)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
@@ -156,7 +176,7 @@ class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
 
 private sealed class GridItem {
     data class App(val app: AppInfo) : GridItem()
-    data class Group(val group: AppGroup, val members: List<AppInfo>) : GridItem()
+    data class Group(val id: String, val title: String, val members: List<AppInfo>) : GridItem()
     object Back : GridItem()
 }
 
@@ -181,7 +201,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         if (position !in items.indices) return null
         return when (val item = items[position]) {
             is GridItem.App -> appViews(item.app)
-            is GridItem.Group -> groupViews(item.group, item.members)
+            is GridItem.Group -> groupViews(item.id, item.title, item.members)
             GridItem.Back -> backViews()
         }
     }
@@ -190,7 +210,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     override fun getViewTypeCount(): Int = 3
     override fun getItemId(position: Int): Long = when (val item = items[position]) {
         is GridItem.App -> item.app.packageName.hashCode().toLong()
-        is GridItem.Group -> -1L - item.group.ordinal
+        is GridItem.Group -> item.id.hashCode().toLong()
         GridItem.Back -> -100L
     }
     override fun hasStableIds(): Boolean = true
@@ -216,7 +236,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         return views
     }
 
-    private fun groupViews(group: AppGroup, members: List<AppInfo>): RemoteViews {
+    private fun groupViews(id: String, title: String, members: List<AppInfo>): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_group)
         // SystemUI-style folder preview: first 9 members (A-Z) in a
         // 3x3 mini-grid; missing slots stay INVISIBLE so the 3x3
@@ -232,13 +252,13 @@ private class AppGridFactory(private val context: Context, private val widgetId:
                 views.setViewVisibility(id, View.INVISIBLE)
             }
         }
-        views.setTextViewText(R.id.app_grid_group_label, group.title)
+        views.setTextViewText(R.id.app_grid_group_label, title)
         val fill = Intent()
             .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             .putExtra("app_widget_id", widgetId)
             .putExtra("appWidgetId", widgetId)
             .putExtra("click_action", "open_group")
-            .putExtra("group", group.name)
+            .putExtra("group", id)
         views.setOnClickFillInIntent(R.id.app_grid_group_root, fill)
         return views
     }
@@ -285,19 +305,21 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     private fun load() {
         val apps = runCatching { AppRepository(context).loadLaunchableApps() }
             .getOrDefault(emptyList())
-        val grouped = AppGroups.groupedApps(apps)
-        val open = AppGroup.values().firstOrNull { it.name == AppGridWidgetProvider.openGroupName(context) }
-        val openMembers = open?.let { g -> grouped.toMap()[g] }
-        items = if (open != null && openMembers != null) {
+        // vc152: custom groups first, then auto groups for the rest,
+        // then ungrouped apps — the same merge as the panel card.
+        val (sections, ungrouped) = CustomGroupStore.sections(
+            apps, CustomGroupStore.load(context))
+        val openId = AppGridWidgetProvider.openGroupName(context)
+        val openSection = sections.firstOrNull { it.id == openId }
+        items = if (openSection != null) {
             // Inside a folder: back cell first, then its members (A-Z).
-            listOf(GridItem.Back) + openMembers.map { GridItem.App(it) }
+            listOf(GridItem.Back) + openSection.members.map { GridItem.App(it) }
         } else {
-            // Top view: folder tiles (enum order) + ungrouped apps (A-Z).
-            // A stale open group (all its apps gone) resets to top view.
-            if (open != null) AppGridWidgetProvider.setOpenGroup(context, "")
-            val groupedPkgs = grouped.flatMap { it.second.map { app -> app.packageName } }.toSet()
-            val ungrouped = apps.filter { it.packageName !in groupedPkgs }
-            grouped.map { GridItem.Group(it.first, it.second) } + ungrouped.map { GridItem.App(it) }
+            // Top view: folder tiles + ungrouped apps (A-Z).
+            // A stale open id (group deleted/emptied) resets to top view.
+            if (openId.isNotEmpty()) AppGridWidgetProvider.setOpenGroup(context, "")
+            sections.map { GridItem.Group(it.id, it.title, it.members) } +
+                ungrouped.map { GridItem.App(it) }
         }
     }
 }

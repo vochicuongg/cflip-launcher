@@ -146,11 +146,16 @@ object CoverControlCenterManager {
         cachedFavoritesKey = ""
         cachedHiddenKey = ""
     }
-    private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings): String {
+    // vc152: customSig is the custom-groups signature, so editing
+    // groups in the app invalidates the cached panel on next open.
+    // It defaults to empty so a missed call site still compiles
+    // (it would only serve a stale panel once, never crash).
+    private fun settingsKeyFor(st: com.cuong.cflip.data.CoverSettings, customSig: String = ""): String {
         return listOf(
             st.columns, st.showLabels, st.backgroundStyle,
             st.wallpaperUri ?: "", st.favoritesFirst,
             st.sortMode, st.coverWidgets, st.rotateMode,
+            customSig,
         ).joinToString("|")
     }
     // vc120: panel close restores whichever
@@ -275,7 +280,9 @@ object CoverControlCenterManager {
             runCatching { MediaControllerRepository(displayContext).refresh() }
             val curMedia = MediaState.current.value
             val curSettingsKey = runCatching {
-                settingsKeyFor(SettingsStore(appContext).load())
+                settingsKeyFor(SettingsStore(appContext).load(),
+                    com.cuong.cflip.data.CustomGroupStore.signature(
+                        com.cuong.cflip.data.CustomGroupStore.load(appContext)))
             }.getOrElse { "" }
             val metrics = displayContext.resources.displayMetrics
             val curAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
@@ -891,25 +898,29 @@ object CoverControlCenterManager {
                     // vc149 APP GROUPS (user, 29/10): the widget
                     // groups apps into the curated important groups
                     // (AppGroups) instead of one flat favorites grid.
+                    // vc152 CUSTOM GROUPS (user, 29/10): user-built
+                    // groups come first (CustomGroupStore.sections),
+                    // then the auto groups for the remaining apps.
                     // loadLaunchableApps is cached (vc111), so this
                     // second call is cheap. When no group has any
                     // app, the else below keeps the exact old
                     // favorites behavior so the widget never empties.
-                    val groupedApps = run {
+                    val (sections, _) = run {
                         val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
                         val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
-                        com.cuong.cflip.data.AppGroups.groupedApps(all)
+                        val custom = com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)
+                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom)
                     }
-                    if (groupedApps.isNotEmpty()) {
+                    if (sections.isNotEmpty()) {
                         widgetCard.addView(TextView(ctx).apply {
                             text = "Nhóm ứng dụng"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
                         })
-                        for ((group, members) in groupedApps) {
+                        for (section in sections) {
                             widgetCard.addView(TextView(ctx).apply {
-                                text = group.title; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                                text = section.title; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                             })
                             val groupGrid = GridLayout(ctx).apply { columnCount = 4 }
-                            for (app in members) {
+                            for (app in section.members) {
                                 groupGrid.addView(Button(ctx).apply {
                                     text = app.label; textSize = 10f; isAllCaps = false
                                     background = rounded(0xFF23262B.toInt(), 12)
@@ -2438,7 +2449,9 @@ object CoverControlCenterManager {
         cachedPanelDisplayH = ctx.resources.displayMetrics.heightPixels
         cachedMediaExists = mediaInfo != null
         cachedMediaPlaying = mediaInfo?.isPlaying == true
-        cachedSettingsKey = settingsKeyFor(store.load())
+        cachedSettingsKey = settingsKeyFor(store.load(),
+            com.cuong.cflip.data.CustomGroupStore.signature(
+                com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)))
         cachedAppListVersion = com.cuong.cflip.data.AppRepository.appListVersion()
         cachedFavoritesKey = runCatching {
             com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites().sorted().joinToString(",")
