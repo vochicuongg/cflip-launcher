@@ -162,13 +162,13 @@ object CustomGroupStore {
     /**
      * vc163 DELETED SECTIONS: one StringSet of section ids
      * ("custom:<id>" / "auto:<NAME>") for groups the user removed
-     * from display. Custom groups soft-delete (their row stays
-     * with a Restore button); default groups true-delete (their
-     * row is gone, nothing restorable — vc164 also purges their
-     * order entry, override and hidden flag; only this tombstone
-     * stays, so they never resurrect). sections() skips any id in
-     * this set, so a deleted group's apps fall back to auto
-     * groups / ungrouped exactly like a hidden group's do.
+     * from display. vc166: every deleted group lives in the trash
+     * page (restorable); Xóa hẳn there purges its order entry,
+     * override and hidden flag — only this tombstone stays, so a
+     * permanently-deleted group never resurrects. sections()
+     * skips any id in this set, so a deleted group's apps fall
+     * back to auto groups / ungrouped exactly like a hidden
+     * group's do.
      */
     fun loadDeletedSections(context: Context): Set<String> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

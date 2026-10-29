@@ -108,11 +108,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             }
         )
     }
-    // vc163 DELETED SECTIONS: soft-deleted customs (row stays
-    // with Restore) and true-deleted defaults (row gone, nothing
-    // restorable — vc164: only the tombstone stays, so they never
-    // resurrect). sections() skips both, so their apps fall back
-    // to auto groups / ungrouped.
+    // vc163 DELETED SECTIONS, vc166 TRASH PAGE: every deleted
+    // group (custom + default) lives in the trash page
+    // (restorable); Xóa hẳn there purges completely — only the
+    // tombstone stays, so a permanently-deleted group never
+    // resurrects. sections() skips deleted groups, so their apps
+    // fall back to auto groups / ungrouped.
     var deletedSections by remember { mutableStateOf(CustomGroupStore.loadDeletedSections(context)) }
     // Display order: unified minus stale entries and truly
     // deleted defaults, plus any group the list forgot
@@ -136,17 +137,26 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         }
         list
     }
-    // Trash contents: soft-deleted customs in unified order, so
-    // Restore puts each back exactly where it was, plus any
-    // deleted custom the order forgot (defensive).
-    val trashGroups: List<CustomGroup> = run {
-        val ordered = unified.filter { it.startsWith("c:") }
-            .mapNotNull { e -> groups.firstOrNull { it.id == e.removePrefix("c:") } }
-            .filter { "custom:" + it.id in deletedSections }
-        val rest = groups.filter { g ->
-            "custom:" + g.id in deletedSections && ordered.none { it.id == g.id }
+    // Trash entries: EVERY deleted group (custom + default) in
+    // unified order, so Restore puts each back exactly where it
+    // was, plus any deleted group the order forgot (defensive).
+    // Entries are "c:<id>" / "a:<NAME>", like displayEntries.
+    val trashEntries: List<String> = run {
+        val list = unified.filter { e ->
+            (e.startsWith("c:") && groups.any { it.id == e.removePrefix("c:") } &&
+                "custom:" + e.removePrefix("c:") in deletedSections) ||
+                (e.startsWith("a:") && AppGroup.values().any { it.name == e.removePrefix("a:") } &&
+                    "auto:" + e.removePrefix("a:") in deletedSections)
+        }.toMutableList()
+        for (g in groups) {
+            val e = "c:" + g.id
+            if (e !in list && "custom:" + g.id in deletedSections) list.add(e)
         }
-        ordered + rest
+        for (ag in AppGroup.values()) {
+            val e = "a:" + ag.name
+            if (e !in list && "auto:" + ag.name in deletedSections) list.add(e)
+        }
+        list
     }
     // Ids of soft-deleted customs, for membership logic that must
     // ignore them (their apps are free again).
@@ -158,9 +168,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     // position instead of the top (same bug class as MainScreen's
     // settings scroll, fixed the same way).
     val listState = rememberLazyListState()
-    // vc165 TRASH: deleted customs live below the footer, shown
-    // when the Thùng rác button is on (off by default).
-    var showTrash by remember { mutableStateOf(false) }
+    // vc166 TRASH PAGE: tapping Thùng rác opens a full page like
+    // the member editor (back returns to the list), instead of
+    // the vc165 expandable zone below the footer.
+    var showTrashPage by remember { mutableStateOf(false) }
     // vc157 drag state (member grid long-press drag)
     var dragPkg by remember { mutableStateOf<String?>(null) }
     var dragStart by remember { mutableStateOf(Offset.Zero) }
@@ -318,9 +329,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     // vc161 BACK: inside the member editor, back goes to the
     // group list (draft discarded, like Hủy) instead of exiting
     // to settings. In the list view this handler is disabled, so
-    // MainScreen's handler exits to settings as before.
+    // MainScreen's handler exits to settings as before. vc166:
+    // the trash page counts as "inside" too (back -> list).
     val inEditor = editing != null || editingAuto != null
-    BackHandler(enabled = inEditor) { closeEditor(false) }
+    BackHandler(enabled = inEditor || showTrashPage) {
+        if (showTrashPage) showTrashPage = false else closeEditor(false)
+    }
 
     fun move(pkg: String, delta: Int) {
         val list = draftOrder.toMutableList()
@@ -340,13 +354,138 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     ) {
         TextButton(
             onClick = {
-                if (inEditor) closeEditor(false) else onBack()
+                if (showTrashPage) showTrashPage = false
+                else if (inEditor) closeEditor(false)
+                else onBack()
             },
             modifier = Modifier.align(Alignment.Start),
         ) {
             Text("← Quay lại", color = CFlipColors.Accent)
         }
-        if (editing == null && editingAuto == null) {
+        if (showTrashPage) {
+            Text(
+                "Thùng rác",
+                color = CFlipColors.TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(8.dp))
+            // Preview members ignoring the deleted filter, so a
+            // trashed default shows what restoring would bring
+            // back (its override, or its computed members).
+            val trashPreview = CustomGroupStore.sections(
+                apps, groups, emptySet(), overrides, autoOrder, unified,
+            ).first.associateBy { it.id }
+            if (trashEntries.isEmpty()) {
+                Text(
+                    "Chưa có nhóm nào trong thùng rác.",
+                    color = CFlipColors.TextSecondary,
+                    fontSize = 12.sp,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(trashEntries, key = { it }) { entry ->
+                        val customGroup = if (entry.startsWith("c:")) {
+                            groups.firstOrNull { it.id == entry.removePrefix("c:") }
+                        } else null
+                        val autoGroup = if (entry.startsWith("a:")) {
+                            AppGroup.values().firstOrNull { it.name == entry.removePrefix("a:") }
+                        } else null
+                        if (customGroup != null) {
+                            val g = customGroup
+                            val members = g.packages.mapNotNull { pkg ->
+                                apps.firstOrNull { it.packageName == pkg }
+                            }
+                            val installed = members.size
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    GroupIconPreview(members)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            g.title,
+                                            color = CFlipColors.TextPrimary,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "Đã xóa — $installed ứng dụng",
+                                            color = CFlipColors.TextSecondary,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                    TextButton(onClick = {
+                                        persistDeleted(deletedSections - ("custom:" + g.id))
+                                    }) {
+                                        Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        persist(groups.filter { it.id != g.id })
+                                        persistUnified(unified.filter { it != entry })
+                                        persistDeleted(deletedSections - ("custom:" + g.id))
+                                    }) {
+                                        Text("Xóa hẳn", color = CFlipColors.Danger, fontSize = 13.sp)
+                                    }
+                                }
+                                HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
+                            }
+                        } else if (autoGroup != null) {
+                            val ag = autoGroup
+                            val members = trashPreview["auto:" + ag.name]?.members ?: emptyList()
+                            val count = members.size
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    GroupIconPreview(members)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            ag.title,
+                                            color = CFlipColors.TextPrimary,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "Đã xóa — $count ứng dụng",
+                                            color = CFlipColors.TextSecondary,
+                                            fontSize = 12.sp,
+                                        )
+                                    }
+                                    TextButton(onClick = {
+                                        persistDeleted(deletedSections - ("auto:" + ag.name))
+                                    }) {
+                                        Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        // vc164 COMPLETE DELETE, now
+                                        // from trash: purge order,
+                                        // override and hidden flag;
+                                        // only the tombstone stays.
+                                        persistDeleted(deletedSections - ("auto:" + ag.name))
+                                        persistUnified(unified.filter { it != entry })
+                                        persistOverrides(overrides - ag.name)
+                                        persistHidden(hiddenAuto - ag.name)
+                                    }) {
+                                        Text("Xóa hẳn", color = CFlipColors.Danger, fontSize = 13.sp)
+                                    }
+                                }
+                                HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (editing == null && editingAuto == null) {
             Text(
                 "Nhóm tùy chỉnh",
                 color = CFlipColors.TextPrimary,
@@ -413,10 +552,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 }
                                 TextButton(onClick = {
                                     // Soft-delete: the row leaves the
-                                    // main list for the trash below;
-                                    // open the trash so the move is visible.
+                                    // main list for the trash page;
+                                    // open it so the move is visible.
                                     persistDeleted(deletedSections + ("custom:" + g.id))
-                                    showTrash = true
+                                    showTrashPage = true
                                 }) {
                                     Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
@@ -468,15 +607,15 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                     )
                                 }
                                 TextButton(onClick = {
-                                    // vc164 COMPLETE DELETE: a deleted
-                                    // default leaves nothing restorable
-                                    // behind — order entry, edited
-                                    // override and hidden flag are all
-                                    // purged. Only the tombstone stays.
+                                    // vc166: ANY deleted group goes to
+                                    // trash (this supersedes vc164's
+                                    // complete-delete here — the purge
+                                    // now lives on the trash page's
+                                    // Xóa hẳn). Order, override and
+                                    // hidden flag stay, so Restore is
+                                    // exact.
                                     persistDeleted(deletedSections + ("auto:" + ag.name))
-                                    persistUnified(unified.filter { it != entry })
-                                    persistOverrides(overrides - ag.name)
-                                    persistHidden(hiddenAuto - ag.name)
+                                    showTrashPage = true
                                 }) {
                                     Text("Xóa", color = CFlipColors.Danger, fontSize = 13.sp)
                                 }
@@ -513,63 +652,9 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 ) {
                     Text("＋ Thêm nhóm", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
-                TextButton(onClick = { showTrash = !showTrash }) {
-                    Text("Thùng rác", color = CFlipColors.Accent, fontSize = 13.sp)
-                }
-            }
-            // vc165 TRASH ZONE: deleted customs sit at the very
-            // bottom, under the footer. Restore returns a group to
-            // its unified position; Xóa hẳn removes it for good.
-            if (showTrash) {
-                if (trashGroups.isEmpty()) {
-                    Text(
-                        "Chưa có nhóm nào trong thùng rác.",
-                        color = CFlipColors.TextSecondary,
-                        fontSize = 12.sp,
-                    )
-                } else {
-                    for (g in trashGroups) {
-                        val members = g.packages.mapNotNull { pkg ->
-                            apps.firstOrNull { it.packageName == pkg }
-                        }
-                        val installed = members.size
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                GroupIconPreview(members)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        g.title,
-                                        color = CFlipColors.TextPrimary,
-                                        fontSize = 15.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        "Đã xóa — $installed ứng dụng",
-                                        color = CFlipColors.TextSecondary,
-                                        fontSize = 12.sp,
-                                    )
-                                }
-                                TextButton(onClick = {
-                                    persistDeleted(deletedSections - ("custom:" + g.id))
-                                }) {
-                                    Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
-                                }
-                                TextButton(onClick = {
-                                    persist(groups.filter { it.id != g.id })
-                                    persistUnified(unified.filter { it != "c:" + g.id })
-                                    persistDeleted(deletedSections - ("custom:" + g.id))
-                                }) {
-                                    Text("Xóa hẳn", color = CFlipColors.Danger, fontSize = 13.sp)
-                                }
-                            }
-                            HorizontalDivider(color = CFlipColors.CardStroke, thickness = 1.dp)
-                        }
-                    }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showTrashPage = true }) {
+                    Text("🗑 Thùng rác", color = CFlipColors.Danger, fontSize = 13.sp)
                 }
             }
         } else {
