@@ -139,7 +139,8 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 val (sections, _) = CustomGroupStore.sections(
                     apps, CustomGroupStore.load(context),
                     CustomGroupStore.loadHiddenAuto(context),
-                    CustomGroupStore.loadOverrides(context))
+                    CustomGroupStore.loadOverrides(context),
+                    CustomGroupStore.loadAutoOrder(context))
                 sections.firstOrNull { it.id == openId }
                     .also { if (it == null) setOpenGroup(context, "") }
             } else {
@@ -306,7 +307,8 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         val (sections, ungrouped) = CustomGroupStore.sections(
             apps, CustomGroupStore.load(context),
             CustomGroupStore.loadHiddenAuto(context),
-            CustomGroupStore.loadOverrides(context))
+            CustomGroupStore.loadOverrides(context),
+            CustomGroupStore.loadAutoOrder(context))
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
         items = if (openSection != null) {

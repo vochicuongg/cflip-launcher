@@ -33,6 +33,7 @@ object CustomGroupStore {
     private const val KEY = "groups_json"
     private const val KEY_HIDDEN_AUTO = "hidden_auto"
     private const val KEY_OVERRIDES = "auto_overrides"
+    private const val KEY_AUTO_ORDER = "auto_order"
 
     fun load(context: Context): List<CustomGroup> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -110,6 +111,32 @@ object CustomGroupStore {
         }.getOrDefault(emptyMap())
     }
 
+    /**
+     * vc157 GROUP ORDER (user, 29/10): the display order of the
+     * default groups, stored as one comma-joined string of group
+     * names. Empty/missing = enum order. Groups added later (or
+     * dropped from the stored string) append in enum order, so a
+     * stale string never loses a group.
+     */
+    fun loadAutoOrder(context: Context): List<String> {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_AUTO_ORDER, null) ?: return emptyList()
+        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    fun saveAutoOrder(context: Context, order: List<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_AUTO_ORDER, order.joinToString(",")).apply()
+    }
+
+    /** Stored order first (valid names only), then any missing group in enum order. */
+    fun orderedAutoGroups(autoOrder: List<String>): List<AppGroup> {
+        val valid = AppGroup.values().map { it.name }.toSet()
+        val stored = autoOrder.filter { it in valid }
+        return (stored + AppGroup.values().map { it.name }.filter { it !in stored })
+            .map { AppGroup.valueOf(it) }
+    }
+
     fun saveOverrides(context: Context, overrides: Map<String, List<String>>) {
         val o = JSONObject()
         for ((key, pkgs) in overrides) {
@@ -131,6 +158,7 @@ object CustomGroupStore {
         custom: List<CustomGroup>,
         hiddenAuto: Set<String> = emptySet(),
         overrides: Map<String, List<String>> = emptyMap(),
+        autoOrder: List<String> = emptyList(),
     ): Pair<List<GroupSection>, List<AppInfo>> {
         val byPkg = apps.associateBy { it.packageName }
         val used = mutableSetOf<String>()
@@ -148,9 +176,9 @@ object CustomGroupStore {
         val computed = AppGroups.groupedApps(rest).toMap()
         // vc156: iterate ALL auto groups (not just computed ones),
         // so an override can fill a group the auto rules left empty
-        // (e.g. Game with 0 apps). Values() order == groupedApps
-        // order, so the section order is unchanged.
-        for (group in AppGroup.values()) {
+        // (e.g. Game with 0 apps). vc157: in the user's stored
+        // order (default = enum order == groupedApps order).
+        for (group in orderedAutoGroups(autoOrder)) {
             if (group.name in hiddenAuto) continue
             val effective = if (group.name in overrides) {
                 // Edited group: exactly the stored list, in order
@@ -174,9 +202,11 @@ object CustomGroupStore {
         custom: List<CustomGroup>,
         hiddenAuto: Set<String> = emptySet(),
         overrides: Map<String, List<String>> = emptyMap(),
+        autoOrder: List<String> = emptyList(),
     ): String =
         custom.joinToString(";") { g -> g.id + "=" + g.packages.joinToString(",") } +
             "|hidden:" + hiddenAuto.sorted().joinToString(",") +
             "|overrides:" + overrides.entries.sortedBy { it.key }
-                .joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") }
+                .joinToString(";") { (k, v) -> k + "=" + v.joinToString(",") } +
+            "|autoOrder:" + autoOrder.joinToString(",")
 }
