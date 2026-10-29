@@ -929,8 +929,19 @@ class ScreenMirrorService : Service() {
             }.coerceIn(1L, 220L)
             val path = Path()
             path.moveTo(streamLastX, streamLastY)
+        // vc175: 9Flip f4.c lineTos EVERY point
+        // unconditionally. CFlip skipped lineTo when
+        // the point equalled streamLast, so a hold
+        // segment or a stop-then-release final
+        // segment became a moveTo-only path: an empty
+        // continuation the system never ends. That
+        // is the vc174 symptom exactly: a partial
+        // shade drag stops at ~50% and hangs there,
+        // and the never-closed stroke then blocks
+        // every prepared tap behind it. A zero-length
+        // lineTo is a valid segment.
             for (pt in points) {
-                if (pt.first != streamLastX || pt.second != streamLastY) path.lineTo(pt.first, pt.second)
+                path.lineTo(pt.first, pt.second)
             }
             val last = points.last()
             val stroke = if (streamStroke == null) {
@@ -1063,6 +1074,7 @@ class ScreenMirrorService : Service() {
                 val pt = pointList.lastOrNull() ?: return
                 val path = Path()
                 path.moveTo(pt.first, pt.second)
+                path.lineTo(pt.first, pt.second)
                 val gesture = GestureDescription.Builder().setDisplayId(0)
                     .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
                     .build()
@@ -1196,7 +1208,7 @@ class ScreenMirrorService : Service() {
                     } else if (totalMove <= slop) {
                         val pt = pointList.lastOrNull()
                         if (pt != null) {
-                            val path = Path(); path.moveTo(pt.first, pt.second)
+                            val path = Path(); path.moveTo(pt.first, pt.second); path.lineTo(pt.first, pt.second)
                             val gesture = GestureDescription.Builder().setDisplayId(0)
                                 .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
                                 .build()
@@ -1209,7 +1221,7 @@ class ScreenMirrorService : Service() {
                     } else {
                         val pt = pointList.lastOrNull()
                         if (pt != null) {
-                            val path = Path(); path.moveTo(pt.first, pt.second)
+                            val path = Path(); path.moveTo(pt.first, pt.second); path.lineTo(pt.first, pt.second)
                             val gesture = GestureDescription.Builder().setDisplayId(0)
                                 .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
                                 .build()
