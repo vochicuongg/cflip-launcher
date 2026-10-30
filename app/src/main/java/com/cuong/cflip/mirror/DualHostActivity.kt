@@ -206,7 +206,7 @@ class DualHostActivity : Activity() {
         super.onTopResumedActivityChanged(isTopResumed)
         if (!isTopResumed || isFinishing || launchStarted) return
         mainHandler.removeCallbacks(fallbackRunnable)
-        enableDualAndLaunch()
+        launchPermission()
     }
 
     override fun onDestroy() {
