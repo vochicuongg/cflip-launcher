@@ -58,7 +58,22 @@
             android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
             android:resizeableActivity="true"
             android:taskAffinity="com.cuong.cflip.mirror"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <!-- vc195 SAMSUNG COVER FLAG (no-dual fix):
+                 DualHost (flagged since vc186) reaches the
+                 cover, but this permission activity had NO
+                 flag — in the vc191 no-dual run the consent
+                 degraded to a system notification bubble
+                 near the bottom and the flow stalled with
+                 no feed and no error pill. Flagging it
+                 marks it as a legitimate cover activity
+                 so the consent shows as a real dialog on
+                 the cover without dual mode, like
+                 PowerFlip's cover activities. -->
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
 
         <!-- vc83: dedicated dual host (9Flip host-first flow, own code).
              Tile opens this on the cover; it enables dual only when

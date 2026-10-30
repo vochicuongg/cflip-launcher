@@ -145,13 +145,9 @@ class MirrorPermissionActivity : ComponentActivity() {
         )
         window?.setLayout(1, 1)
         window?.setGravity(android.view.Gravity.TOP or android.view.Gravity.START)
-        // Dual must already be ON (DualHostActivity enabled it).
-        // If OFF, this dialog would be stale — refuse, never enable dual here.
-        if (!com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
-            Toast.makeText(this, "Phản chiếu chưa bật màn hình kép, thử bấm lại", Toast.LENGTH_SHORT).show()
-            finishAndRemoveTask()
-            return
-        }
+        // vc190 NO-DUAL: dual is no longer part of the mirror
+        // path (PowerFlip parity), so there is no dual refusal
+        // here anymore — proceed to the permission dialog regardless.
         // vc84: do NOT launchCapture() here. onResume below does it,
         // once the activity is foreground on its display.
     }
