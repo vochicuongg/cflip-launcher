@@ -115,6 +115,9 @@ class ScreenMirrorService : Service() {
     // vc198: cover display id actually used for the Activity
     // launch (fresh at launch time, see below). -1 = not launched.
     private var launchedCoverId: Int = -1
+    // vc199: one-shot display-0 transition wait for VD creation.
+    private var vdWaitListener: DisplayManager.DisplayListener? = null
+    private var vdCreated: Boolean = false
     private var failurePillView: View? = null
     private var failurePillWm: WindowManager? = null
     private val mirrorDisplayListener = object : DisplayManager.DisplayListener {
@@ -536,36 +539,30 @@ class ScreenMirrorService : Service() {
         MirrorSurfaceRelay.onSurfaceReady = { surface ->
             if (sessionGen == mirrorGeneration) {
                 mirrorSurface = surface
-                // vc190 LATE FEED (PowerFlip parity): PowerFlip's
-                // feed arrives 150-1650ms after its Activity is up
-                // (display-transition wait), so the Activity is
-                // input-ready before the first frame and touch works
-                // immediately. CFlip created the VD at once, so the
-                // feed appeared ~200ms after launch while the cover
-                // Activity was still gaining input focus — the
-                // 1-2s dead touch. Delaying VD creation moves the
-                // feed behind input readiness instead of in front.
-                // vc198 PLACEMENT NET (tunnel guard): if the
-                // Activity did not land on the cover (no-dual
-                // launches can fall back to main silently),
-                // creating the VD would mirror main's
-                // framebuffer containing this very Activity =
-                // the vc197 tunnel. Refuse the VD, say why,
-                // clean up. A null activity display means
-                // unverifiable, not wrong — proceed as before.
-                val actDisplayId = MirrorSurfaceRelay.activity?.display?.displayId
-                if (launchedCoverId >= 0 && actDisplayId != null && actDisplayId != launchedCoverId) {
-                    Log.w(TAG, "Mirror Activity on wrong display $actDisplayId, expected cover $launchedCoverId - refusing VD (tunnel guard)")
-                    cleanupAndDisableDual()
-                    showFailurePillAndStop(secondary, "Mirror failed: activity on wrong display")
-                } else {
-                    handler.postDelayed({
-                        if (sessionGen == mirrorGeneration && MirrorState.active) {
-                            createVirtualDisplay(proj, surface)
-                            Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc190 delayed)")
-                        }
-                    }, 1500)
+                // vc199 TRANSITION WAIT (PowerFlip parity) + VD-time
+                // placement check: vc198's surface-time net did not
+                // stop the tunnel, so the VD source must be decided
+                // at creation time, not surface time. PowerFlip waits
+                // for a display-0 state transition (1500ms fallback)
+                // and then 150ms before creating its VD. CFlip waited
+                // a fixed 1500ms from surface-ready regardless of
+                // display state, so a VD created mid-transition can
+                // latch onto the wrong source. Wait for the transition
+                // (or the fallback), then check placement at the latest
+                // moment (right before createVirtualDisplay) and only
+                // then create the VD. Both paths funnel through
+                // scheduleVdCreation exactly once (vdCreated guard).
+                vdCreated = false
+                val listener = object : DisplayManager.DisplayListener {
+                    override fun onDisplayAdded(id: Int) {}
+                    override fun onDisplayRemoved(id: Int) {}
+                    override fun onDisplayChanged(id: Int) {
+                        if (id == Display.DEFAULT_DISPLAY) scheduleVdCreation(sessionGen, proj, surface, secondary)
+                    }
                 }
+                vdWaitListener = listener
+                runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(listener, handler) }
+                handler.postDelayed({ scheduleVdCreation(sessionGen, proj, surface, secondary) }, 1500)
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {
@@ -661,6 +658,35 @@ class ScreenMirrorService : Service() {
             }, 3000)
         }, 1000)
     }
+    // vc199: single funnel for VD creation (display-0 transition
+    // event or 1500ms fallback, whichever first). Unregisters the
+    // wait listener, waits PowerFlip's extra 150ms, re-validates
+    // the session, checks placement at the latest moment (an
+    // Activity reparented to main after surface-ready would
+    // otherwise slip past the surface-time net), then creates
+    // the VD. If placement is wrong, refuse the VD with a pill
+    // instead of showing another tunnel.
+    private fun scheduleVdCreation(sessionGen: Int, proj: MediaProjection, surface: Surface, secondary: Display) {
+        if (sessionGen != mirrorGeneration || vdCreated || !MirrorState.active) return
+        vdCreated = true
+        vdWaitListener?.let { l ->
+            runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(l) }
+        }
+        vdWaitListener = null
+        handler.postDelayed({
+            if (sessionGen != mirrorGeneration || !MirrorState.active) return@postDelayed
+            val actDisplayId = MirrorSurfaceRelay.activity?.display?.displayId
+            if (launchedCoverId >= 0 && actDisplayId != null && actDisplayId != launchedCoverId) {
+                Log.w(TAG, "Mirror Activity on wrong display $actDisplayId at VD time, expected cover $launchedCoverId - refusing VD (tunnel guard)")
+                cleanupAndDisableDual()
+                showFailurePillAndStop(secondary, "Mirror failed: activity on wrong display")
+                return@postDelayed
+            }
+            createVirtualDisplay(proj, surface)
+            Log.i(TAG, "Mirror virtual display started (vc199 transition wait)")
+        }, 150)
+    }
+
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
         // correlated with vc79 mirror disconnect + second-attempt
@@ -734,6 +760,9 @@ class ScreenMirrorService : Service() {
         mirrorGeneration++
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorDisplayListener) }
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorSourceListener) }
+        vdWaitListener?.let { l -> runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(l) } }
+        vdWaitListener = null
+        vdCreated = false
         mirrorSecondaryId = -1
         launchedCoverId = -1
         removeFailurePill()
