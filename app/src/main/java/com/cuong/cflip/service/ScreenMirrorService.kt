@@ -602,31 +602,22 @@ class ScreenMirrorService : Service() {
                 // Activity was still gaining input focus — the
                 // 1-2s dead touch. Delaying VD creation moves the
                 // feed behind input readiness instead of in front.
-                // vc200 DUAL-ON + SETTLE WAIT: no-dual is closed
-                // (vc199 log: the VD mirrored Display 1, the cover,
-                // because a folded no-dual default display is OFF
-                // and the projection falls back to the active
-                // display - structural, not a code bug). Dual keeps
-                // Display 0 ON, so the projection captures main
-                // correctly (vc192/vc196 proven feed). The only
-                // dual-mode defect left is the input settling
-                // window: feed at ~3s still needs a nav swipe,
-                // a 5s wait works (user-confirmed) - so the window
-                // is 3-5s. Hold the VD until surface+6s so the
-                // feed appears AFTER settling and the first touch
-                // at feed works immediately (the user's criterion).
-                // The preparing pill makes the wait legible instead
-                // of looking like a dead black feed. Worst case
-                // this behaves like vc196 (nav swipe still unlocks);
-                // best case the first touch works at feed.
-                showPreparingPill(secondary)
+                // vc201 FAST FEED AGAIN: vc200 proved the settling window
+                // is NOT time-gated (feed at surface+6s still needed
+                // a nav swipe) - it is focus-gated and only a gesture
+                // ever unlocked it. The focus fix is MainHost
+                // NOT_FOCUSABLE (see MainHostActivity). With focus
+                // fixed, the VD delay goes back to the proven 1500ms
+                // for a fast feed, and the preparing pill is no longer
+                // shown (the wait is short again; hide calls below
+                // stay as harmless no-ops).
                 handler.postDelayed({
                     if (sessionGen == mirrorGeneration && MirrorState.active) {
                         hidePreparingPill()
                         createVirtualDisplay(proj, surface)
-                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc200 delayed 6s)")
+                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc201 delayed)")
                     }
-                }, 6000)
+                }, 1500)
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {

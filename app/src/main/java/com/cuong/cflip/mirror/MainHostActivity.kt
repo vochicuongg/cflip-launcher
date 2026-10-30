@@ -120,6 +120,19 @@ class MainHostActivity : Activity() {
         window?.setBackgroundDrawable(ColorDrawable(0))
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+        // vc201 FOCUS FIX: this 1x1 host is the ONLY CFlip window
+        // on MAIN, and as a resumed focusable activity it holds
+        // Display 0's input focus - so touches injected to main
+        // land on this 1x1 window (which ignores them) instead
+        // of the launcher/apps. A nav/home gesture is a SystemUI
+        // gesture that bypasses it and resets focus to the
+        // launcher - that is why ONLY a gesture ever unlocked
+        // touch (vc200 proved waiting pre-feed never does).
+        // NOT_FOCUSABLE leaves focus on the launcher while this
+        // host keeps its vc86 keep-awake job (KEEP_SCREEN_ON
+        // works regardless of focus), so the feed stays alive
+        // and touches work from the first frame.
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.setLayout(1, 1)
         window?.setGravity(Gravity.TOP or Gravity.START)
