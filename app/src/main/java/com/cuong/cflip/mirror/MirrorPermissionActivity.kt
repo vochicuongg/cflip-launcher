@@ -63,19 +63,25 @@ class MirrorPermissionActivity : ComponentActivity() {
                 putExtra(ScreenMirrorService.EXTRA_RESULT_DATA, data)
             }
             ContextCompat.startForegroundService(this, start)
-            // vc86 MAIN HOST: launch a 1x1 host on MAIN (display 0)
-            // right after grant, before the bridge finishes this
-            // cover instance. Without any activity on main, a folded
-            // main display sleeps and locks immediately after agree
-            // (vc85 test, device unlocked before tap), leaving no
-            // live main UI for AUTO_MIRROR to capture. Failure is
-            // ignored: mirror tries without a main host, like vc76.
-            runCatching {
-                val host = Intent(this, MainHostActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                val opts = android.app.ActivityOptions.makeBasic().setLaunchDisplayId(0).toBundle()
-                startActivity(host, opts)
-            }
+            // vc203 NO MAIN HOST IN DUAL MODE: vc86 launched a 1x1
+            // host on MAIN so a folded main display would not sleep
+            // and lock (vc85, no-dual). But in DUAL mode the main
+            // display is already forced on by dual, so the host is
+            // redundant - and harmful: as the top resumed activity
+            // on Display 0 it leaves the real app below (launcher)
+            // paused and unfocused, so injected touches have no
+            // focused window to land on and are dropped. vc201
+            // (NOT_FOCUSABLE) and vc202 (NOT_TOUCHABLE) could not
+            // fix that, because the problem is not the host eating
+            // touches - it is the real app never gaining focus.
+            // Only a Recents cycle ever refocused it (user: Recents
+            // +exit is still required on vc202). So do not launch
+            // the host at all in this dual-on branch: the real app
+            // stays top, resumed and focused on main from the first
+            // frame, and touches work immediately. (If dual ever
+            // stops keeping main awake, the feed - not the touch -
+            // will be the symptom, and the host can return in a
+            // form that does not sit on top.)
             // vc85 BRIDGE (vc84 lock gap): vc84 finished this activity
             // the instant grant arrived, leaving a windowless gap on
             // the cover between dialog dismiss and Presentation.show()
