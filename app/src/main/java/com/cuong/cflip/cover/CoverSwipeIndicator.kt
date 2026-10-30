@@ -110,10 +110,13 @@ object CoverSwipeIndicatorManager {
         val sizeScale = when (coverSettings?.assistiveTouchSize) { 0 -> 0.8f; 2 -> 1.2f; else -> 1.0f }
         val autoDimEnabled = coverSettings?.assistiveTouchAutoDim ?: true
         val barW = (dp(40) * sizeScale).toInt()
-        val barH = (dp(128) * sizeScale).toInt()
         val dispW = displayContext.resources.displayMetrics.widthPixels
         val dispH = displayContext.resources.displayMetrics.heightPixels
-        val edgeMargin = dp(8)
+        // vc194 FULL-HEIGHT BAR (user): the bar spans the whole
+        // cover height so it hugs the top AND bottom edges too
+        // (vc193 already hugged left/right). Width still scales
+        // with the size setting; height is always the full display.
+        val barH = dispH
         val barPrefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // Migrate vc134's bottom offset ("x") to a side: a negative
         // offset meant the left half, anything else the right half.
@@ -121,12 +124,9 @@ object CoverSwipeIndicatorManager {
             if (s >= 0) s else if (barPrefs.contains("x") && barPrefs.getInt("x", 0) < 0) 0 else 1
         }
         val startOnRight = savedSide != 0
-        // Height: restored (scaled to the current display height),
-        // centred by default, clamped so the bar stays on screen.
-        val savedY = barPrefs.getInt("y", -1)
-        val savedH = barPrefs.getInt("h", 0)
-        val startY = (if (savedY >= 0 && savedH > 0) savedY * dispH / savedH else (dispH - barH) / 2)
-            .coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
+        // vc194: full-height bar has no Y position — it
+        // always starts at the very top edge (y = 0).
+        val startY = 0
         // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
         // 9Flip's indicator draws a chevron affordance (^) over a pill
         // with contrast layers, so it reads on light wallpapers too.
@@ -140,7 +140,7 @@ object CoverSwipeIndicatorManager {
                 cornerRadius = (dp(3) * sizeScale).toFloat()
                 setColor(0xB3FFFFFF.toInt())
             }
-            layoutParams = android.widget.FrameLayout.LayoutParams((dp(5) * sizeScale).toInt(), (dp(56) * sizeScale).toInt()).apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams((dp(5) * sizeScale).toInt(), android.widget.FrameLayout.LayoutParams.MATCH_PARENT).apply {
                 // vc193 EDGE-FLUSH: pill hugs the window edge on the
                 // bar's side (was CENTER, leaving ~4.5dp inside halo).
                 gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
@@ -152,7 +152,7 @@ object CoverSwipeIndicatorManager {
                 cornerRadius = (dp(8) * sizeScale).toFloat()
                 setColor(0x66000000.toInt())
             }
-            layoutParams = LinearLayout.LayoutParams((dp(14) * sizeScale).toInt(), (dp(72) * sizeScale).toInt()).apply { gravity = Gravity.CENTER }
+            layoutParams = LinearLayout.LayoutParams((dp(14) * sizeScale).toInt(), LinearLayout.LayoutParams.MATCH_PARENT).apply { gravity = Gravity.CENTER }
             addView(pill)
         }
         val container = LinearLayout(displayContext).apply {
@@ -160,7 +160,7 @@ object CoverSwipeIndicatorManager {
             // vc193 EDGE-FLUSH: row hugs the window edge on the
             // bar's side (was CENTER, leaving ~13dp inside window).
             gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
-            setPadding(0, (dp(6) * sizeScale).toInt(), 0, (dp(6) * sizeScale).toInt())
+            setPadding(0, 0, 0, 0)
             // vc138: no chevron anymore - the pill alone is the bar.
             addView(halo)
         }
@@ -260,7 +260,7 @@ object CoverSwipeIndicatorManager {
                         val params = barParams
                         if (params != null && (dragH || dragV)) {
                             if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(0, dispW - barW)
-                            if (dragV) params.y = (dragStartY + (e.rawY - downRawY)).toInt().coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
+                            if (dragV) params.y = 0 // vc194: full-height bar, y pinned to top edge
                             runCatching { manager.updateViewLayout(container, params) }
                         }
                     }
@@ -292,7 +292,7 @@ object CoverSwipeIndicatorManager {
                                 // Same side: snap x back to the ORIGINAL edge.
                                 // vc136 bug fix: a right-edge bar's params are
                                 // in left coords after the DOWN re-anchor, so
-                                // snapping to edgeMargin would wrongly jump it
+                                // snapping to the left edge value would wrongly jump it
                                 // to the left edge - restore its own edge.
                                 params.x = if (startOnRight) dispW - barW else 0
                                 runCatching { manager.updateViewLayout(container, params) }
@@ -340,7 +340,7 @@ object CoverSwipeIndicatorManager {
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
             // vc193 EDGE-FLUSH: window touches the screen edge
-            // (was edgeMargin 8dp). Y clamps still use edgeMargin.
+            // (was edgeMargin 8dp; vc194: y is pinned to 0 for the full-height bar).
             x = 0
             y = startY
             // vc140: the bar window follows the same CFlip brightness as
