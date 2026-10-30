@@ -112,6 +112,9 @@ class ScreenMirrorService : Service() {
     // display, not on main's app); lock = freeze at start.
     private var mirrorRotateFollow: Boolean = true
     private var mirrorSecondaryId: Int = -1
+    // vc198: cover display id actually used for the Activity
+    // launch (fresh at launch time, see below). -1 = not launched.
+    private var launchedCoverId: Int = -1
     private var failurePillView: View? = null
     private var failurePillWm: WindowManager? = null
     private val mirrorDisplayListener = object : DisplayManager.DisplayListener {
@@ -542,12 +545,27 @@ class ScreenMirrorService : Service() {
                 // Activity was still gaining input focus — the
                 // 1-2s dead touch. Delaying VD creation moves the
                 // feed behind input readiness instead of in front.
-                handler.postDelayed({
-                    if (sessionGen == mirrorGeneration && MirrorState.active) {
-                        createVirtualDisplay(proj, surface)
-                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc190 delayed)")
-                    }
-                }, 1500)
+                // vc198 PLACEMENT NET (tunnel guard): if the
+                // Activity did not land on the cover (no-dual
+                // launches can fall back to main silently),
+                // creating the VD would mirror main's
+                // framebuffer containing this very Activity =
+                // the vc197 tunnel. Refuse the VD, say why,
+                // clean up. A null activity display means
+                // unverifiable, not wrong — proceed as before.
+                val actDisplayId = MirrorSurfaceRelay.activity?.display?.displayId
+                if (launchedCoverId >= 0 && actDisplayId != null && actDisplayId != launchedCoverId) {
+                    Log.w(TAG, "Mirror Activity on wrong display $actDisplayId, expected cover $launchedCoverId - refusing VD (tunnel guard)")
+                    cleanupAndDisableDual()
+                    showFailurePillAndStop(secondary, "Mirror failed: activity on wrong display")
+                } else {
+                    handler.postDelayed({
+                        if (sessionGen == mirrorGeneration && MirrorState.active) {
+                            createVirtualDisplay(proj, surface)
+                            Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc190 delayed)")
+                        }
+                    }, 1500)
+                }
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {
@@ -599,7 +617,24 @@ class ScreenMirrorService : Service() {
             val mirrorIntent = Intent(this, MirrorActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(secondary.displayId)
+            // vc198 POWERFLIP LAUNCH GUARD (b4/l case 0):
+            // PowerFlip looks display 1 up FRESH at launch time
+            // and skips the launch when it is null, instead of
+            // launching on a stale display id and landing on
+            // main. CFlip used the id captured at service start,
+            // 1000ms earlier. Refresh it here; a missing cover
+            // aborts with a pill instead of a silent main
+            // placement (which fed the VD back into itself =
+            // the vc197 tunnel).
+            val freshCover = DisplayRepository(this).secondaryDisplay()
+            if (freshCover == null) {
+                Log.w(TAG, "Mirror launch aborted: cover display gone at launch time")
+                cleanupAndDisableDual()
+                showFailurePillAndStop(secondary, "Mirror failed: cover display gone")
+                return@postDelayed
+            }
+            launchedCoverId = freshCover.displayId
+            val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(freshCover.displayId)
             val mirrorAcc = MyAccessibilityService.instance
             val launched = runCatching {
                 if (mirrorAcc != null) mirrorAcc.startActivity(mirrorIntent, mirrorOpts.toBundle())
@@ -612,7 +647,7 @@ class ScreenMirrorService : Service() {
             }
             MirrorState.active = true
             hideCoverBubble()
-            Log.i(TAG, "Mirror Activity launched on cover display ${secondary.displayId}")
+            Log.i(TAG, "Mirror Activity launched on cover display ${freshCover.displayId}")
             // vc187 3s SURFACE WATCHDOG (vc59 shape, no overlay
             // fallback): a launched Activity with no surface in 3s
             // means the launch was dropped (BAL) or the surface
@@ -700,6 +735,7 @@ class ScreenMirrorService : Service() {
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorDisplayListener) }
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorSourceListener) }
         mirrorSecondaryId = -1
+        launchedCoverId = -1
         removeFailurePill()
         // vc62 SECOND-START FIX: cancel any pending handler
         // callbacks from the previous session (notably the vc59
