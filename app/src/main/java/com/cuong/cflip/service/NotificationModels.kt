@@ -10,6 +10,9 @@ data class CoverNotification(
     val text: String,
     val timeMs: Long,
     val actionTitles: List<String> = emptyList(),
+    // vc209: per-action reply flag (an action with RemoteInput
+    // must never be fired bare - it needs typed input).
+    val actionIsReply: List<Boolean> = emptyList(),
     val canReply: Boolean = false,
 )
 

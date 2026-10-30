@@ -726,7 +726,10 @@ object CoverControlCenterManager {
         // label unit (One UI bottom-nav style) instead of a
         // text-only Button. Icons: gear, bell, grid, C.
         val tabUnits = mutableListOf<LinearLayout>()
-        val tabIcons = mutableListOf<TextView>()
+        // vc209: icon views are PanelIconView (drawn) except the
+        // CFlip tab, which uses the real app icon. Only
+        // PanelIconView entries get tinted on selection.
+        val tabIconViews = mutableListOf<View>()
         val tabLabels = mutableListOf<TextView>()
         // vc41 lazy apps: the apps tab used to be built on EVERY panel
         // open (queryIntentActivities + loadIcon for every app +
@@ -742,11 +745,11 @@ object CoverControlCenterManager {
             tabUnits.forEachIndexed { idx, u ->
                 if (idx == i) {
                     u.background = rounded(mint, 24)
-                    tabIcons[idx].setTextColor(0xFF000000.toInt())
+                    (tabIconViews[idx] as? PanelIconView)?.setTint(0xFF000000.toInt())
                     tabLabels[idx].setTextColor(0xFF000000.toInt())
                 } else {
                     u.background = null
-                    tabIcons[idx].setTextColor(0xFFFFFFFF.toInt())
+                    (tabIconViews[idx] as? PanelIconView)?.setTint(0xFFFFFFFF.toInt())
                     tabLabels[idx].setTextColor(0xFFFFFFFF.toInt())
                 }
             }
@@ -763,17 +766,29 @@ object CoverControlCenterManager {
             }
             resetTimer()
         }
-        for ((i, def) in listOf(
-            "\u2699" to "Điều khiển",
-            "\uD83D\uDD14" to "Thông báo",
-            "\u229E" to "Ứng dụng",
-            "C" to "CFlip"
-        ).withIndex()) {
-            val iconView = TextView(ctx).apply {
-                text = def.first; textSize = 20f; gravity = Gravity.CENTER
+        // vc209: no emoji/text symbols - drawn SystemUI-style
+        // icons (PanelIcons.kt) + the real app icon for CFlip.
+        val tabAppIcon = runCatching {
+            ctx.applicationContext.packageManager.getApplicationIcon(ctx.packageName)
+        }.getOrNull() ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
+        for ((i, label) in listOf("Điều khiển", "Thông báo", "Ứng dụng", "CFlip").withIndex()) {
+            val iconView: View = when (i) {
+                0 -> PanelIconView(ctx, PanelIcon.GEAR, 0xFFFFFFFF.toInt(), 0.9f).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                }
+                1 -> PanelIconView(ctx, PanelIcon.BELL, 0xFFFFFFFF.toInt(), 0.9f).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                }
+                2 -> PanelIconView(ctx, PanelIcon.GRID, 0xFFFFFFFF.toInt(), 0.9f).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                }
+                else -> android.widget.ImageView(ctx).apply {
+                    setImageDrawable(tabAppIcon)
+                    layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                }
             }
             val labelView = TextView(ctx).apply {
-                text = def.second; textSize = 10f; gravity = Gravity.CENTER
+                text = label; textSize = 10f; gravity = Gravity.CENTER
             }
             val unit = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -783,7 +798,7 @@ object CoverControlCenterManager {
                 setOnClickListener { selectTab(i) }
                 addView(iconView); addView(labelView)
             }
-            tabUnits.add(unit); tabIcons.add(iconView); tabLabels.add(labelView)
+            tabUnits.add(unit); tabIconViews.add(iconView); tabLabels.add(labelView)
             tabBar.addView(unit)
         }
         tabBar.addView(Button(ctx).apply {
@@ -2191,19 +2206,28 @@ object CoverControlCenterManager {
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
         }
-        // vc208 NOTIF ROWS: app icon + app name + title + text,
-        // and the WHOLE row taps to open (Samsung-style: tap a
-        // notification opens it). Xoa stays as a small button.
+        // vc209 NOTIF ROWS: friendly app name (launcher label
+        // first - the PackageManager label falls back to the raw
+        // package name for labelless apps, which is what the user
+        // saw as "com.xxx.xxx"), tap row to open, and ALL the
+        // notification's own action buttons below the text.
         val notifPm = ctx.applicationContext.packageManager
+        val notifLabelByPkg = runCatching {
+            com.cuong.cflip.data.AppRepository(ctx.applicationContext)
+                .loadLaunchableApps(true).associate { it.packageName to it.label }
+        }.getOrDefault(emptyMap())
         for (n in notifs) {
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
+            val card = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
                 background = rounded(cardColor, 12)
                 setPadding(dp(10), dp(10), dp(10), dp(10))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     setMargins(0, 0, 0, dp(8))
                 }
+            }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
                 setOnClickListener { NotificationController.open(n.key); hide() }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
@@ -2214,9 +2238,11 @@ object CoverControlCenterManager {
                     setMargins(0, 0, dp(10), 0)
                 }
             })
-            val appLabel = runCatching {
+            val pmLabel = runCatching {
                 notifPm.getApplicationLabel(notifPm.getApplicationInfo(n.packageName, 0)).toString()
-            }.getOrDefault(n.packageName.substringAfterLast('.'))
+            }.getOrNull()?.takeIf { it != n.packageName }
+            val appLabel = notifLabelByPkg[n.packageName]?.takeIf { it != n.packageName }
+                ?: pmLabel ?: n.packageName.substringAfterLast('.')
             val texts = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -2232,8 +2258,49 @@ object CoverControlCenterManager {
                 text = n.text; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
             row.addView(texts)
-            row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
-            notifContent.addView(row)
+            row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); card.visibility = View.GONE } })
+            card.addView(row)
+            // vc209 ACTION BUTTONS: every action the notification
+            // declares (Thich / Tra loi / Da xem...). A reply
+            // action needs typed input, so tapping it OPENS the
+            // app instead of firing a bare intent (which could
+            // post an empty reply); the listener guards this too.
+            val actionTitles = n.actionTitles.filter { it.isNotBlank() }
+            if (actionTitles.isNotEmpty()) {
+                val actionsRow = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(dp(50), dp(6), 0, 0)
+                    }
+                }
+                val scroll = android.widget.HorizontalScrollView(ctx).apply {
+                    isHorizontalScrollBarEnabled = false
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                    addView(actionsRow)
+                }
+                for ((idx, title) in n.actionTitles.withIndex()) {
+                    if (title.isBlank()) continue
+                    val isReply = n.actionIsReply.getOrNull(idx) == true
+                    actionsRow.addView(TextView(ctx).apply {
+                        text = title; textSize = 11f; gravity = Gravity.CENTER
+                        setTextColor(0xFFFFFFFF.toInt())
+                        background = rounded(0xFF23262B, 24)
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setMargins(0, 0, dp(6), 0)
+                        }
+                        setOnClickListener {
+                            if (isReply) { NotificationController.open(n.key); hide() }
+                            else NotificationController.clickAction(n.key, idx)
+                        }
+                    })
+                }
+                card.addView(scroll)
+            }
+            notifContent.addView(card)
         }
 
             }
@@ -2333,7 +2400,7 @@ object CoverControlCenterManager {
         // vc208 CFLIP ROWS: same icon-row treatment as the
         // notification tab - icon + label + explanation + chevron,
         // whole row tappable. Keeps the exact same destinations.
-        fun cflipRow(icon: android.graphics.drawable.Drawable?, iconText: String?, label: String, sub: String, onClick: () -> Unit) {
+        fun cflipRow(icon: android.graphics.drawable.Drawable?, panelIcon: PanelIcon?, label: String, sub: String, onClick: () -> Unit) {
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 background = rounded(cardColor, 12)
@@ -2351,10 +2418,8 @@ object CoverControlCenterManager {
                         setMargins(0, 0, dp(12), 0)
                     }
                 })
-            } else {
-                row.addView(TextView(ctx).apply {
-                    text = iconText ?: ""; textSize = 22f; gravity = Gravity.CENTER
-                    setTextColor(0xFFFFFFFF.toInt())
+            } else if (panelIcon != null) {
+                row.addView(PanelIconView(ctx, panelIcon, 0xFFFFFFFF.toInt(), 0.7f).apply {
                     layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
                         setMargins(0, 0, dp(12), 0)
                     }
@@ -2372,9 +2437,8 @@ object CoverControlCenterManager {
                 text = sub; textSize = 11f; setTextColor(0xFFBDBDBD.toInt())
             })
             row.addView(texts)
-            row.addView(TextView(ctx).apply {
-                text = "\u203A"; textSize = 20f; gravity = Gravity.CENTER
-                setTextColor(0xFFFFFFFF.toInt())
+            row.addView(PanelIconView(ctx, PanelIcon.CHEVRON, 0xFFFFFFFF.toInt(), 0.9f).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(20), dp(20))
             })
             cflipContent.addView(row)
         }
@@ -2384,13 +2448,13 @@ object CoverControlCenterManager {
         cflipRow(cflipAppIcon, null, "Mở CFlip", "Cài đặt và tùy chỉnh trên màn hình chính") {
             openOnMain(Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java))
         }
-        cflipRow(null, "\u267F", "Quyền Accessibility", "Bắt buộc để CFlip điều khiển màn ngoài") {
+        cflipRow(null, PanelIcon.PERSON, "Quyền Accessibility", "Bắt buộc để CFlip điều khiển màn ngoài") {
             openOnMain(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-        cflipRow(null, "\uD83D\uDD14", "Quyền Truy cập thông báo", "Để tab Thông báo hiện thông báo") {
+        cflipRow(null, PanelIcon.BELL, "Quyền Truy cập thông báo", "Để tab Thông báo hiện thông báo") {
             openOnMain(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
-        cflipRow(null, "\u25A3", "Quyền Hiện trên ứng dụng khác", "Để CFlip hiện bong bóng và panel trên màn ngoài") {
+        cflipRow(null, PanelIcon.LAYERS, "Quyền Hiện trên ứng dụng khác", "Để CFlip hiện bong bóng và panel trên màn ngoài") {
             openOnMain(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 android.net.Uri.parse("package:${ctx.packageName}")))
         }

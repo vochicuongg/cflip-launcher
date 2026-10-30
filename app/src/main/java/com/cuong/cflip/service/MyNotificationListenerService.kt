@@ -38,7 +38,10 @@ class MyNotificationListenerService : NotificationListenerService() {
         for (sbn in actives) {
             byKey[sbn.key] = sbn
             val extras = sbn.notification.extras
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: sbn.packageName
+            // vc209: a notification with no title used to fall back
+            // to the raw package name (user saw "com.xxx.xxx").
+            // Empty is correct - the row already shows the app name.
+            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
             val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
                 ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString() ?: ""
             val actions = sbn.notification.actions ?: emptyArray()
@@ -51,6 +54,7 @@ class MyNotificationListenerService : NotificationListenerService() {
                     text = text,
                     timeMs = sbn.postTime,
                     actionTitles = actions.map { it.title?.toString() ?: "" },
+                    actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
                     canReply = canReply,
                 )
             )
@@ -62,14 +66,33 @@ class MyNotificationListenerService : NotificationListenerService() {
 
     fun openByKey(key: String) {
         val sbn = byKey[key] ?: return
-        runCatching { sbn.notification.contentIntent?.send() }
-            .onFailure { Log.w(TAG, "contentIntent failed", it) }
+        val ci = sbn.notification.contentIntent
+        if (ci != null) {
+            val ok = runCatching { ci.send() }.isSuccess
+            if (ok) return
+            Log.w(TAG, "contentIntent send failed, falling back to launch")
+        }
+        // vc209: notifications with no content intent (or a failed
+        // send) used to do nothing on tap. Launch the app instead,
+        // so tapping a notification always lands somewhere.
+        runCatching {
+            val launch = packageManager.getLaunchIntentForPackage(sbn.packageName)
+            if (launch != null) {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(launch)
+            }
+        }.onFailure { Log.w(TAG, "launch app failed", it) }
     }
 
     fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
 
     fun clickActionByKey(key: String, index: Int) {
         val action = byKey[key]?.notification?.actions?.getOrNull(index) ?: return
+        // vc209: a reply action fired without RemoteInput results
+        // could post an empty reply. Open the app instead, so the
+        // user replies with real text. (The panel routes reply
+        // actions to open directly; this is the backstop.)
+        if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) { openByKey(key); return }
         runCatching { action.actionIntent?.send() }
             .onFailure { Log.w(TAG, "action send failed", it) }
     }
