@@ -112,14 +112,12 @@ class ScreenMirrorService : Service() {
     // display, not on main's app); lock = freeze at start.
     private var mirrorRotateFollow: Boolean = true
     private var mirrorSecondaryId: Int = -1
-    // vc198: cover display id actually used for the Activity
-    // launch (fresh at launch time, see below). -1 = not launched.
-    private var launchedCoverId: Int = -1
-    // vc199: one-shot display-0 transition wait for VD creation.
-    private var vdWaitListener: DisplayManager.DisplayListener? = null
-    private var vdCreated: Boolean = false
     private var failurePillView: View? = null
     private var failurePillWm: WindowManager? = null
+    // vc200: preparing pill shown on the cover while the VD is
+    // held back for the dual-mode input settling window.
+    private var preparingPillView: View? = null
+    private var preparingPillWm: WindowManager? = null
     private val mirrorDisplayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
@@ -195,6 +193,38 @@ class ScreenMirrorService : Service() {
             if (v != null && w != null) w.removeView(v)
         }
         failurePillView = null; failurePillWm = null
+    }
+    private fun hidePreparingPill() {
+        runCatching {
+            val v = preparingPillView; val w = preparingPillWm
+            if (v != null && w != null) w.removeView(v)
+        }
+        preparingPillView = null; preparingPillWm = null
+    }
+    // vc200: legible wait on the cover while the VD is held back
+    // (same overlay shape as the failure pill, no auto-hide, no
+    // dual disable, no stop - it is hidden explicitly at VD
+    // creation or in cleanupSession).
+    private fun showPreparingPill(secondary: Display) {
+        hidePreparingPill()
+        runCatching {
+            val pillCtx = createDisplayContext(secondary)
+            val pillWm = pillCtx.getSystemService(WindowManager::class.java) ?: return@runCatching
+            val pill = android.widget.TextView(pillCtx).apply {
+                this.text = "Đang chuẩn bị phản chiếu..."
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundColor(android.graphics.Color.BLACK)
+                textSize = 14f
+                setPadding(24, 24, 24, 24)
+            }
+            val pillParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL }
+            pillWm.addView(pill, pillParams)
+            preparingPillView = pill; preparingPillWm = pillWm
+        }
     }
     private fun hideCoverBubble() {
         runCatching {
@@ -343,14 +373,38 @@ class ScreenMirrorService : Service() {
         // only as a diagnostic in log/pill/toast, not a refusal.
         // vc62 feed success was open/flex posture (main ON), not
         // folded, which is why the old gate passed there.
-        // vc190 NO-DUAL GATE (PowerFlip parity): PowerFlip never
-        // toggles dual, and CFlip's 1-2s dead touch tracked the dual
-        // window (vc189's pre-launch delay did not fix it). Dual is
-        // kept only as a log diagnostic — it no longer gates, and
-        // the vc82 re-enable retry is deleted (it would reintroduce
-        // the very window being removed).
+        // vc192 REVERT: vc190/vc191 no-dual broke the feed
+        // (no main screen on cover), so dual is back exactly as
+        // in vc189. The vc190 late-feed delay (onSurfaceReady)
+        // is KEPT: it is now tested on a working mirror, isolating
+        // whether late feed alone fixes the 1-2s dead touch.
         val dualOn = DualDisplayHelper.isDualOn()
-        val gateFailed = (mainGate == null || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
+        // vc82 DUAL-ONLY RETRY: vc81 pill proved gate can fail on dual
+        // alone (dualOn=false, main OFF diagnostic only, cover ON,
+        // cover-sized, not self-capture) because dual was turned off
+        // between permission grant and service start (host death,
+        // posture change, or a failed disable/enable cycle). Giving up
+        // immediately wastes a granted permission. If ONLY dual fails,
+        // try enabling dual once more right here (synchronous transact,
+        // token set on success, no settle wait needed for the gate —
+        // gate checks token + cover state/size/name, not main ON).
+        // If re-enable restores dual, proceed; otherwise fall through
+        // to the original refusal (toast + disable + pill + stop).
+        // dualOn val stays false here, but on retry success the failure
+        // path below is skipped, and proceed code never uses dualOn.
+        var gateFailed = (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
+        if (gateFailed) {
+            val dualOnly = !dualOn && mainGate != null && secondary.state == Display.STATE_ON && isCoverSized && secondary.name != "CFlipMirror"
+            if (dualOnly) {
+                val reEnable = DualDisplayHelper.enable()
+                if (reEnable.isSuccess && DualDisplayHelper.isDualOn()) {
+                    Log.i(TAG, "Mirror gate dual retry succeeded, proceeding (vc82)")
+                    gateFailed = false
+                } else {
+                    Log.w(TAG, "Mirror gate dual retry failed: " + (reEnable.exceptionOrNull()?.message ?: "dual still off"))
+                }
+            }
+        }
         if (gateFailed) {
             Log.w(TAG, "Mirror gate refused: dualOn=$dualOn mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             // vc54 MINIMAL SUCCESS FIX: vc51-vc53 toasted the refusal
@@ -365,10 +419,10 @@ class ScreenMirrorService : Service() {
             // case (user looking at main). No gate logic changed:
             // main ON + cover ON + cover-sized + not self-capture
             // are still required, otherwise the vc47 tunnel returns.
-            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: can Dual ON + man phu that. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val coverCtx = createDisplayContext(secondary)
-                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: can Dual ON. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
             }
             runCatching { DualDisplayHelper.disable() }
             // vc55 REFUSAL PILL: Toasts are rate-limited by Android
@@ -381,7 +435,7 @@ class ScreenMirrorService : Service() {
                 val refusalCtx = createDisplayContext(secondary)
                 val refusalWm = refusalCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
                 val pill = android.widget.TextView(refusalCtx).apply {
-                    text = "Mirror stopped: dual=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
+                    text = "Mirror stopped: dualOn=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
                     setTextColor(android.graphics.Color.WHITE)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     textSize = 14f
@@ -539,30 +593,40 @@ class ScreenMirrorService : Service() {
         MirrorSurfaceRelay.onSurfaceReady = { surface ->
             if (sessionGen == mirrorGeneration) {
                 mirrorSurface = surface
-                // vc199 TRANSITION WAIT (PowerFlip parity) + VD-time
-                // placement check: vc198's surface-time net did not
-                // stop the tunnel, so the VD source must be decided
-                // at creation time, not surface time. PowerFlip waits
-                // for a display-0 state transition (1500ms fallback)
-                // and then 150ms before creating its VD. CFlip waited
-                // a fixed 1500ms from surface-ready regardless of
-                // display state, so a VD created mid-transition can
-                // latch onto the wrong source. Wait for the transition
-                // (or the fallback), then check placement at the latest
-                // moment (right before createVirtualDisplay) and only
-                // then create the VD. Both paths funnel through
-                // scheduleVdCreation exactly once (vdCreated guard).
-                vdCreated = false
-                val listener = object : DisplayManager.DisplayListener {
-                    override fun onDisplayAdded(id: Int) {}
-                    override fun onDisplayRemoved(id: Int) {}
-                    override fun onDisplayChanged(id: Int) {
-                        if (id == Display.DEFAULT_DISPLAY) scheduleVdCreation(sessionGen, proj, surface, secondary)
+                // vc190 LATE FEED (PowerFlip parity): PowerFlip's
+                // feed arrives 150-1650ms after its Activity is up
+                // (display-transition wait), so the Activity is
+                // input-ready before the first frame and touch works
+                // immediately. CFlip created the VD at once, so the
+                // feed appeared ~200ms after launch while the cover
+                // Activity was still gaining input focus — the
+                // 1-2s dead touch. Delaying VD creation moves the
+                // feed behind input readiness instead of in front.
+                // vc200 DUAL-ON + SETTLE WAIT: no-dual is closed
+                // (vc199 log: the VD mirrored Display 1, the cover,
+                // because a folded no-dual default display is OFF
+                // and the projection falls back to the active
+                // display - structural, not a code bug). Dual keeps
+                // Display 0 ON, so the projection captures main
+                // correctly (vc192/vc196 proven feed). The only
+                // dual-mode defect left is the input settling
+                // window: feed at ~3s still needs a nav swipe,
+                // a 5s wait works (user-confirmed) - so the window
+                // is 3-5s. Hold the VD until surface+6s so the
+                // feed appears AFTER settling and the first touch
+                // at feed works immediately (the user's criterion).
+                // The preparing pill makes the wait legible instead
+                // of looking like a dead black feed. Worst case
+                // this behaves like vc196 (nav swipe still unlocks);
+                // best case the first touch works at feed.
+                showPreparingPill(secondary)
+                handler.postDelayed({
+                    if (sessionGen == mirrorGeneration && MirrorState.active) {
+                        hidePreparingPill()
+                        createVirtualDisplay(proj, surface)
+                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc200 delayed 6s)")
                     }
-                }
-                vdWaitListener = listener
-                runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(listener, handler) }
-                handler.postDelayed({ scheduleVdCreation(sessionGen, proj, surface, secondary) }, 1500)
+                }, 6000)
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {
@@ -614,24 +678,7 @@ class ScreenMirrorService : Service() {
             val mirrorIntent = Intent(this, MirrorActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            // vc198 POWERFLIP LAUNCH GUARD (b4/l case 0):
-            // PowerFlip looks display 1 up FRESH at launch time
-            // and skips the launch when it is null, instead of
-            // launching on a stale display id and landing on
-            // main. CFlip used the id captured at service start,
-            // 1000ms earlier. Refresh it here; a missing cover
-            // aborts with a pill instead of a silent main
-            // placement (which fed the VD back into itself =
-            // the vc197 tunnel).
-            val freshCover = DisplayRepository(this).secondaryDisplay()
-            if (freshCover == null) {
-                Log.w(TAG, "Mirror launch aborted: cover display gone at launch time")
-                cleanupAndDisableDual()
-                showFailurePillAndStop(secondary, "Mirror failed: cover display gone")
-                return@postDelayed
-            }
-            launchedCoverId = freshCover.displayId
-            val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(freshCover.displayId)
+            val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(secondary.displayId)
             val mirrorAcc = MyAccessibilityService.instance
             val launched = runCatching {
                 if (mirrorAcc != null) mirrorAcc.startActivity(mirrorIntent, mirrorOpts.toBundle())
@@ -644,7 +691,7 @@ class ScreenMirrorService : Service() {
             }
             MirrorState.active = true
             hideCoverBubble()
-            Log.i(TAG, "Mirror Activity launched on cover display ${freshCover.displayId}")
+            Log.i(TAG, "Mirror Activity launched on cover display ${secondary.displayId}")
             // vc187 3s SURFACE WATCHDOG (vc59 shape, no overlay
             // fallback): a launched Activity with no surface in 3s
             // means the launch was dropped (BAL) or the surface
@@ -658,35 +705,6 @@ class ScreenMirrorService : Service() {
             }, 3000)
         }, 1000)
     }
-    // vc199: single funnel for VD creation (display-0 transition
-    // event or 1500ms fallback, whichever first). Unregisters the
-    // wait listener, waits PowerFlip's extra 150ms, re-validates
-    // the session, checks placement at the latest moment (an
-    // Activity reparented to main after surface-ready would
-    // otherwise slip past the surface-time net), then creates
-    // the VD. If placement is wrong, refuse the VD with a pill
-    // instead of showing another tunnel.
-    private fun scheduleVdCreation(sessionGen: Int, proj: MediaProjection, surface: Surface, secondary: Display) {
-        if (sessionGen != mirrorGeneration || vdCreated || !MirrorState.active) return
-        vdCreated = true
-        vdWaitListener?.let { l ->
-            runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(l) }
-        }
-        vdWaitListener = null
-        handler.postDelayed({
-            if (sessionGen != mirrorGeneration || !MirrorState.active) return@postDelayed
-            val actDisplayId = MirrorSurfaceRelay.activity?.display?.displayId
-            if (launchedCoverId >= 0 && actDisplayId != null && actDisplayId != launchedCoverId) {
-                Log.w(TAG, "Mirror Activity on wrong display $actDisplayId at VD time, expected cover $launchedCoverId - refusing VD (tunnel guard)")
-                cleanupAndDisableDual()
-                showFailurePillAndStop(secondary, "Mirror failed: activity on wrong display")
-                return@postDelayed
-            }
-            createVirtualDisplay(proj, surface)
-            Log.i(TAG, "Mirror virtual display started (vc199 transition wait)")
-        }, 150)
-    }
-
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
         // correlated with vc79 mirror disconnect + second-attempt
@@ -729,6 +747,7 @@ class ScreenMirrorService : Service() {
         // stale pills from a previous session were the "thong bao
         // khong bien mat" in the vc88 screenshot.
         removeFailurePill()
+        hidePreparingPill()
         val added = runCatching {
             val pillCtx = createDisplayContext(secondary)
             val pillWm = pillCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
@@ -760,12 +779,9 @@ class ScreenMirrorService : Service() {
         mirrorGeneration++
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorDisplayListener) }
         runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(mirrorSourceListener) }
-        vdWaitListener?.let { l -> runCatching { getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(l) } }
-        vdWaitListener = null
-        vdCreated = false
         mirrorSecondaryId = -1
-        launchedCoverId = -1
         removeFailurePill()
+        hidePreparingPill()
         // vc62 SECOND-START FIX: cancel any pending handler
         // callbacks from the previous session (notably the vc59
         // 3s Presentation->overlay fallback timer). Without this,
