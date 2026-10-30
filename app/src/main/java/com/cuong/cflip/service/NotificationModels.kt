@@ -25,7 +25,9 @@ object NotificationState {
 object NotificationController {
     @Volatile var listener: MyNotificationListenerService? = null
 
-    fun open(key: String) { listener?.openByKey(key) }
+    // vc212: true when something actually launched, so the
+    // panel only closes when the tap really went somewhere.
+    fun open(key: String): Boolean = listener?.openByKey(key) ?: false
     fun dismiss(key: String) { listener?.dismissByKey(key) }
     fun clickAction(key: String, index: Int) { listener?.clickActionByKey(key, index) }
     fun reply(key: String, message: String) { listener?.replyByKey(key, message) }

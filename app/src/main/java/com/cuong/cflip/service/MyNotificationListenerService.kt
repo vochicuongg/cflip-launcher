@@ -62,26 +62,45 @@ class MyNotificationListenerService : NotificationListenerService() {
         NotificationState.active.value = models.sortedByDescending { it.timeMs }
         // Keep the cover widget's notification count fresh.
         runCatching { com.cuong.cflip.widget.CoverWidgetProvider.requestUpdate(this) }
+        // vc212: the open panel's notification tab rebuilds live,
+        // so action results (liked / seen / replied) show at once
+        // instead of leaving a stale row until reopen.
+        runCatching { com.cuong.cflip.cover.CoverControlCenterManager.refreshNotifTab() }
     }
 
-    fun openByKey(key: String) {
-        val sbn = byKey[key] ?: return
+    /** ActivityOptions routing the opened UI to the cover display.
+     *  vc212 ROOT CAUSE of "tap goes nowhere": content intents sent
+     *  from this service used to land on the main display, which is
+     *  OFF while folded - so the user saw nothing. Routing to the
+     *  secondary (cover) display puts the app where they look. Null
+     *  when there is no cover display (unfolded) = default routing. */
+    private fun coverOptions(): android.os.Bundle? {
+        val coverId = runCatching {
+            com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay()?.displayId
+        }.getOrNull() ?: return null
+        return android.app.ActivityOptions.makeBasic().setLaunchDisplayId(coverId).toBundle()
+    }
+
+    fun openByKey(key: String): Boolean {
+        val sbn = byKey[key] ?: return false
         val ci = sbn.notification.contentIntent
         if (ci != null) {
-            val ok = runCatching { ci.send() }.isSuccess
-            if (ok) return
+            val ok = runCatching {
+                ci.send(this, 0, null, null, null, null, coverOptions())
+            }.isSuccess
+            if (ok) return true
             Log.w(TAG, "contentIntent send failed, falling back to launch")
         }
         // vc209: notifications with no content intent (or a failed
         // send) used to do nothing on tap. Launch the app instead,
         // so tapping a notification always lands somewhere.
-        runCatching {
-            val launch = packageManager.getLaunchIntentForPackage(sbn.packageName)
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(launch)
-            }
-        }.onFailure { Log.w(TAG, "launch app failed", it) }
+        return runCatching {
+            val launch = packageManager.getLaunchIntentForPackage(sbn.packageName) ?: return false
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val opts = coverOptions()
+            if (opts != null) startActivity(launch, opts) else startActivity(launch)
+            true
+        }.onFailure { Log.w(TAG, "launch app failed", it) }.getOrDefault(false)
     }
 
     fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
@@ -93,7 +112,9 @@ class MyNotificationListenerService : NotificationListenerService() {
         // user replies with real text. (The panel routes reply
         // actions to open directly; this is the backstop.)
         if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) { openByKey(key); return }
-        runCatching { action.actionIntent?.send() }
+        // vc212: action intents that open UI get the same cover
+        // routing as taps (background actions ignore the options).
+        runCatching { action.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
             .onFailure { Log.w(TAG, "action send failed", it) }
     }
 
@@ -108,7 +129,7 @@ class MyNotificationListenerService : NotificationListenerService() {
             val bundle = Bundle()
             for (ri in inputs) bundle.putCharSequence(ri.resultKey, message)
             RemoteInput.addResultsToIntent(inputs, intent, bundle)
-            runCatching { action.actionIntent?.send(this, 0, intent) }
+            runCatching { action.actionIntent?.send(this, 0, intent, null, null, null, coverOptions()) }
                 .onFailure { Log.w(TAG, "reply send failed", it) }
             return
         }

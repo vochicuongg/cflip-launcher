@@ -107,6 +107,28 @@
              with its own affinity so nothing else lands in its task;
              showWhenLocked + turnScreenOn like PowerFlip; the
              Samsung cover flag like vc186's DualHost entry. -->
+        <!-- vc212 REPLY CARD (LiveBridge-style Now Bar card on the
+             cover): a real Activity so the keyboard can appear on
+             the cover display. Translucent + dim-behind, own
+             affinity, never in recents, singleTop so a second reply
+             reuses it via onNewIntent. Launched from the panel's
+             notification tab with the notification's key + context. -->
+        <activity
+            android:name=".cover.CoverReplyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity="com.cuong.cflip.reply"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
         <activity
             android:name=".mirror.MirrorActivity"
             android:exported="false"

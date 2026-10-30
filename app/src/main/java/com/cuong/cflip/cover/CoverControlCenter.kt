@@ -226,6 +226,16 @@ object CoverControlCenterManager {
     // is open brought the bubble back inside the
     // panel, defeating vc109's hide-on-open.
     fun isPanelActive(): Boolean = view != null || loadingView != null
+
+    // vc212 LIVE NOTIF REFRESH: buildPanel installs a rebuild closure
+    // (same 3 steps as cachedReopen for the notif tab); the listener
+    // calls this on every notification change so action results show
+    // live. No-op when the panel is not open.
+    private var notifRebuild: (() -> Unit)? = null
+    fun refreshNotifTab() {
+        if (!isPanelActive()) return
+        handler.post { runCatching { notifRebuild?.invoke() } }
+    }
     private var panelExiting: Boolean = false
     private fun animatePanelIn(root: View) {
         val d = root.resources.displayMetrics.density
@@ -2189,6 +2199,28 @@ object CoverControlCenterManager {
         }
         mediaCardPositionSync = syncMediaCardPosition
 
+        // vc212 REPLY SCREEN: tapping a reply action opens a
+        // LiveBridge-style reply card on the cover display (its own
+        // Activity, so the keyboard can appear), instead of firing
+        // the reply intent bare or just opening the app. Returns
+        // true when the reply screen launched.
+        fun openReply(n: com.cuong.cflip.service.CoverNotification, appLabel: String): Boolean {
+            return runCatching {
+                val intent = Intent(ctx.applicationContext, CoverReplyActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra("cflip_reply_key", n.key)
+                    putExtra("cflip_reply_pkg", n.packageName)
+                    putExtra("cflip_reply_app", appLabel)
+                    putExtra("cflip_reply_title", n.title)
+                    putExtra("cflip_reply_text", n.text)
+                }
+                val opts = android.app.ActivityOptions.makeBasic()
+                    .setLaunchDisplayId(display.displayId).toBundle()
+                ctx.applicationContext.startActivity(intent, opts)
+                true
+            }.getOrDefault(false)
+        }
+
         // ---- Tab 2: Thông báo ---- (vc44 lazy, like apps:
         // notification rows used to build on EVERY panel open even
         // though the user only sees Điều khiển first. Now they build
@@ -2228,7 +2260,7 @@ object CoverControlCenterManager {
             }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setOnClickListener { NotificationController.open(n.key); hide() }
+                setOnClickListener { if (NotificationController.open(n.key)) hide() }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
                 ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
@@ -2293,7 +2325,10 @@ object CoverControlCenterManager {
                             setMargins(0, 0, dp(6), 0)
                         }
                         setOnClickListener {
-                            if (isReply) { NotificationController.open(n.key); hide() }
+                            if (isReply) {
+                                if (openReply(n, appLabel)) hide()
+                                else if (NotificationController.open(n.key)) hide()
+                            }
                             else NotificationController.clickAction(n.key, idx)
                         }
                     })
@@ -2486,6 +2521,11 @@ object CoverControlCenterManager {
         cachedHiddenKey = runCatching {
             com.cuong.cflip.data.HiddenAppsStore(ctx.applicationContext).getHidden().sorted().joinToString(",")
         }.getOrElse { "" }
+        notifRebuild = {
+            notifTabBuilt = false
+            notifContent.removeAllViews()
+            buildNotifTab?.invoke()
+        }
         cachedReopen = { tab: Int ->
             notifTabBuilt = false
             notifContent.removeAllViews()
