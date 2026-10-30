@@ -2247,9 +2247,18 @@ object CoverControlCenterManager {
         // beat - NEW_TASK reuses the cover task that now exists, so
         // the specific conversation lands on the cover too. If the
         // send fails, the app is at least already open on the cover.
+        // vc218: send WHILE the panel is still visible on the
+        // cover (the caller hides only after this returns).
+        // Previously the send was delayed 500ms, by which time
+        // the panel was hidden and the send came from a background
+        // context - the system then routed the conversation to the
+        // main display, so the cover showed only the app's main
+        // screen (from the launch) while the conversation opened
+        // invisibly on main. Sending while visible gives the
+        // system a visible caller on the cover to route to.
         fun openNotifOnCover(n: com.cuong.cflip.service.CoverNotification): Boolean {
             if (!launchAppOnCover(n.packageName)) return false
-            handler.postDelayed({ NotificationController.open(n.key) }, 500)
+            NotificationController.open(n.key)
             return true
         }
 
