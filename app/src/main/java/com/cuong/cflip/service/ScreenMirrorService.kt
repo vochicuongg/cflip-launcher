@@ -593,31 +593,17 @@ class ScreenMirrorService : Service() {
         MirrorSurfaceRelay.onSurfaceReady = { surface ->
             if (sessionGen == mirrorGeneration) {
                 mirrorSurface = surface
-                // vc190 LATE FEED (PowerFlip parity): PowerFlip's
-                // feed arrives 150-1650ms after its Activity is up
-                // (display-transition wait), so the Activity is
-                // input-ready before the first frame and touch works
-                // immediately. CFlip created the VD at once, so the
-                // feed appeared ~200ms after launch while the cover
-                // Activity was still gaining input focus — the
-                // 1-2s dead touch. Delaying VD creation moves the
-                // feed behind input readiness instead of in front.
-                // vc201 FAST FEED AGAIN: vc200 proved the settling window
-                // is NOT time-gated (feed at surface+6s still needed
-                // a nav swipe) - it is focus-gated and only a gesture
-                // ever unlocked it. The focus fix is MainHost
-                // NOT_FOCUSABLE (see MainHostActivity). With focus
-                // fixed, the VD delay goes back to the proven 1500ms
-                // for a fast feed, and the preparing pill is no longer
-                // shown (the wait is short again; hide calls below
-                // stay as harmless no-ops).
-                handler.postDelayed({
+                // vc204 AUTO-PRIME (see primeMainInput): run the
+                // Recents+back prime BEFORE creating the VD, so the
+                // feed appears with main input already awake and the
+                // first touch works immediately.
+                primeMainInput(sessionGen) {
                     if (sessionGen == mirrorGeneration && MirrorState.active) {
                         hidePreparingPill()
                         createVirtualDisplay(proj, surface)
-                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc201 delayed)")
+                        Log.i(TAG, "Mirror virtual display started (vc204 primed)")
                     }
-                }, 1500)
+                }
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {
@@ -696,6 +682,71 @@ class ScreenMirrorService : Service() {
             }, 3000)
         }, 1000)
     }
+    // vc204 AUTO-PRIME: dual-mode main input is not awake at mirror
+    // start (vc203: MainHost gone, feed alive, touch still dead
+    // until a manual Recents cycle - so the wake is a SystemUI
+    // gesture, not a window, not time, not MainHost). Replicate the
+    // user's manual prime synthetically, BEFORE the VD exists, so
+    // the feed appears already primed and the first touch works.
+    // All gestures go through the same dispatcher the user's own
+    // nav swipe uses (GestureDescription, displayId 0), so they
+    // land on main exactly like a finger would. The phone is folded
+    // (dual, main panel shut), so the Recents flash on main is
+    // invisible; the cover still shows only the black TextureView
+    // until the VD starts. Fixed-timing chain (no callback
+    // dependency): swipe-up-and-hold (Recents gesture; if the
+    // system reads it as Home instead, that still lands on the
+    // launcher, which is the goal either way) -> release -> back
+    // gesture (exits Recents to the launcher; a no-op on Home) ->
+    // done. Any step failing just falls through to VD creation
+    // (same as now, manual prime still available) - prime never
+    // blocks the mirror. If accessibility is off, prime is skipped
+    // and the old 1500ms delay is used.
+    private fun primeMainInput(sessionGen: Int, onDone: () -> Unit) {
+        val acc = MyAccessibilityService.instance
+        if (acc == null) {
+            handler.postDelayed({ onDone() }, 1500)
+            return
+        }
+        val w = mainWidth.coerceAtLeast(1); val h = mainHeight.coerceAtLeast(1)
+        val cx = w / 2f
+        val noopCb = object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(g: android.accessibilityservice.GestureDescription?) {}
+            override fun onCancelled(g: android.accessibilityservice.GestureDescription?) {}
+        }
+        // Step 1 (t=0): swipe up from the very bottom edge and HOLD
+        // (willContinue) - the Recents gesture on main.
+        val swipePath = android.graphics.Path().apply {
+            moveTo(cx, (h - 5).toFloat())
+            lineTo(cx, (h * 0.65).toFloat())
+        }
+        val swipe = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(swipePath, 0L, 300L, true)).build()
+        val swipeOk = runCatching { acc.dispatchGesture(swipe, noopCb) }.getOrDefault(false)
+        Log.i(TAG, "vc204 prime: nav swipe dispatched=" + swipeOk)
+        // Step 2 (t=1000): release the held finger (single point).
+        handler.postDelayed({
+            if (sessionGen != mirrorGeneration || !MirrorState.active) { onDone(); return@postDelayed }
+            val releasePath = android.graphics.Path().apply { moveTo(cx, (h * 0.65).toFloat()) }
+            val release = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
+                .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(releasePath, 0L, 50L, false)).build()
+            runCatching { acc.dispatchGesture(release, noopCb) }
+            // Step 3 (t=1500): back gesture from the left edge.
+            handler.postDelayed({
+                if (sessionGen != mirrorGeneration || !MirrorState.active) { onDone(); return@postDelayed }
+                val backPath = android.graphics.Path().apply {
+                    moveTo(5f, (h / 2).toFloat())
+                    lineTo(300f, (h / 2).toFloat())
+                }
+                val back = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
+                    .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(backPath, 0L, 200L, false)).build()
+                runCatching { acc.dispatchGesture(back, noopCb) }
+                // Step 4 (t=2300): done.
+                handler.postDelayed({ onDone() }, 800)
+            }, 500)
+        }, 1000)
+    }
+
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
         // correlated with vc79 mirror disconnect + second-attempt
