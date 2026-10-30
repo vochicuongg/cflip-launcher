@@ -133,6 +133,23 @@ class MainHostActivity : Activity() {
         // works regardless of focus), so the feed stays alive
         // and touches work from the first frame.
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        // vc202 INPUT-INVISIBLE: MainHost's theme is Translucent.
+        // NoTitleBar (NOT floating), so window.setLayout(1,1) is
+        // ignored and this window is actually FULLSCREEN -
+        // transparent, but it still eats every touch on main
+        // (NOT_TOUCH_MODAL passes only touches OUTSIDE the window,
+        // and a fullscreen window has no outside). That is the
+        // user's "invisible layer": taps land on this empty window
+        // and die, while SystemUI gestures (nav swipe) bypass
+        // windows entirely - which is why only Recents+exit ever
+        // cleared it (Recents puts the launcher back on top).
+        // vc201's NOT_FOCUSABLE alone could not fix it, because a
+        // not-focusable window is still a touch target.
+        // NOT_TOUCHABLE removes this window from touch dispatch
+        // completely, so taps fall through to the launcher below,
+        // while the host stays alive and resumed for its vc86
+        // keep-awake job (KEEP_SCREEN_ON is unaffected).
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window?.setLayout(1, 1)
         window?.setGravity(Gravity.TOP or Gravity.START)
