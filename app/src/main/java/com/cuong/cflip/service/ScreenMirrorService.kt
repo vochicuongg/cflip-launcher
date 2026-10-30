@@ -682,6 +682,10 @@ class ScreenMirrorService : Service() {
             }, 3000)
         }, 1000)
     }
+    // vc205 FIX: vc204 did not compile - dispatchGesture takes
+    // THREE args (gesture, callback, handler), not two; the
+    // working MirrorActivity calls all pass gestureHandler as the
+    // third arg. The service handler (main looper) is passed here.
     // vc204 AUTO-PRIME: dual-mode main input is not awake at mirror
     // start (vc203: MainHost gone, feed alive, touch still dead
     // until a manual Recents cycle - so the wake is a SystemUI
@@ -722,7 +726,7 @@ class ScreenMirrorService : Service() {
         }
         val swipe = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(swipePath, 0L, 300L, true)).build()
-        val swipeOk = runCatching { acc.dispatchGesture(swipe, noopCb) }.getOrDefault(false)
+        val swipeOk = runCatching { acc.dispatchGesture(swipe, noopCb, handler) }.getOrDefault(false)
         Log.i(TAG, "vc204 prime: nav swipe dispatched=" + swipeOk)
         // Step 2 (t=1000): release the held finger (single point).
         handler.postDelayed({
@@ -730,7 +734,7 @@ class ScreenMirrorService : Service() {
             val releasePath = android.graphics.Path().apply { moveTo(cx, (h * 0.65).toFloat()) }
             val release = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
                 .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(releasePath, 0L, 50L, false)).build()
-            runCatching { acc.dispatchGesture(release, noopCb) }
+            runCatching { acc.dispatchGesture(release, noopCb, handler) }
             // Step 3 (t=1500): back gesture from the left edge.
             handler.postDelayed({
                 if (sessionGen != mirrorGeneration || !MirrorState.active) { onDone(); return@postDelayed }
@@ -740,7 +744,7 @@ class ScreenMirrorService : Service() {
                 }
                 val back = android.accessibilityservice.GestureDescription.Builder().setDisplayId(0)
                     .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(backPath, 0L, 200L, false)).build()
-                runCatching { acc.dispatchGesture(back, noopCb) }
+                runCatching { acc.dispatchGesture(back, noopCb, handler) }
                 // Step 4 (t=2300): done.
                 handler.postDelayed({ onDone() }, 800)
             }, 500)
