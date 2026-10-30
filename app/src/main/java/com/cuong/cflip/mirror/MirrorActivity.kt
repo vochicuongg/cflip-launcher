@@ -1052,7 +1052,7 @@ class MirrorActivity : ComponentActivity() {
                             touchLastViewX = event.x; touchLastViewY = event.y
                             touchTotalViewMove = 0f
                             touchLiveStarted = false
-                            touchSlopView = android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                            touchSlopView = android.view.ViewConfiguration.get(this@MirrorActivity).scaledTouchSlop.toFloat()
                             touchLongPressFlag = false
                             touchMultiFlag = false
                             touchDoubleTapCandidate = false
@@ -1078,7 +1078,7 @@ class MirrorActivity : ComponentActivity() {
                         touchLastViewX = event.x; touchLastViewY = event.y
                         touchTotalViewMove = 0f
                         touchLiveStarted = false
-                        touchSlopView = android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                        touchSlopView = android.view.ViewConfiguration.get(this@MirrorActivity).scaledTouchSlop.toFloat()
                         val dt = event.eventTime - touchLastUpMs
                         touchDoubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
                         touchLongPressFlag = false
