@@ -337,14 +337,38 @@ class ScreenMirrorService : Service() {
         // only as a diagnostic in log/pill/toast, not a refusal.
         // vc62 feed success was open/flex posture (main ON), not
         // folded, which is why the old gate passed there.
-        // vc190 NO-DUAL GATE (PowerFlip parity): PowerFlip never
-        // toggles dual, and CFlip's 1-2s dead touch tracked the dual
-        // window (vc189's pre-launch delay did not fix it). Dual is
-        // kept only as a log diagnostic — it no longer gates, and
-        // the vc82 re-enable retry is deleted (it would reintroduce
-        // the very window being removed).
+        // vc192 REVERT: vc190/vc191 no-dual broke the feed
+        // (no main screen on cover), so dual is back exactly as
+        // in vc189. The vc190 late-feed delay (onSurfaceReady)
+        // is KEPT: it is now tested on a working mirror, isolating
+        // whether late feed alone fixes the 1-2s dead touch.
         val dualOn = DualDisplayHelper.isDualOn()
-        val gateFailed = (mainGate == null || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
+        // vc82 DUAL-ONLY RETRY: vc81 pill proved gate can fail on dual
+        // alone (dualOn=false, main OFF diagnostic only, cover ON,
+        // cover-sized, not self-capture) because dual was turned off
+        // between permission grant and service start (host death,
+        // posture change, or a failed disable/enable cycle). Giving up
+        // immediately wastes a granted permission. If ONLY dual fails,
+        // try enabling dual once more right here (synchronous transact,
+        // token set on success, no settle wait needed for the gate —
+        // gate checks token + cover state/size/name, not main ON).
+        // If re-enable restores dual, proceed; otherwise fall through
+        // to the original refusal (toast + disable + pill + stop).
+        // dualOn val stays false here, but on retry success the failure
+        // path below is skipped, and proceed code never uses dualOn.
+        var gateFailed = (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
+        if (gateFailed) {
+            val dualOnly = !dualOn && mainGate != null && secondary.state == Display.STATE_ON && isCoverSized && secondary.name != "CFlipMirror"
+            if (dualOnly) {
+                val reEnable = DualDisplayHelper.enable()
+                if (reEnable.isSuccess && DualDisplayHelper.isDualOn()) {
+                    Log.i(TAG, "Mirror gate dual retry succeeded, proceeding (vc82)")
+                    gateFailed = false
+                } else {
+                    Log.w(TAG, "Mirror gate dual retry failed: " + (reEnable.exceptionOrNull()?.message ?: "dual still off"))
+                }
+            }
+        }
         if (gateFailed) {
             Log.w(TAG, "Mirror gate refused: dualOn=$dualOn mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             // vc54 MINIMAL SUCCESS FIX: vc51-vc53 toasted the refusal
@@ -359,10 +383,10 @@ class ScreenMirrorService : Service() {
             // case (user looking at main). No gate logic changed:
             // main ON + cover ON + cover-sized + not self-capture
             // are still required, otherwise the vc47 tunnel returns.
-            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: can Dual ON + man phu that. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val coverCtx = createDisplayContext(secondary)
-                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: can Dual ON. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
             }
             runCatching { DualDisplayHelper.disable() }
             // vc55 REFUSAL PILL: Toasts are rate-limited by Android
@@ -375,7 +399,7 @@ class ScreenMirrorService : Service() {
                 val refusalCtx = createDisplayContext(secondary)
                 val refusalWm = refusalCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
                 val pill = android.widget.TextView(refusalCtx).apply {
-                    text = "Mirror stopped: dual=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
+                    text = "Mirror stopped: dualOn=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
                     setTextColor(android.graphics.Color.WHITE)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     textSize = 14f
