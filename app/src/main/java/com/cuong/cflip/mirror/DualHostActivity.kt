@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
+import com.cuong.cflip.service.MyAccessibilityService
 
 /**
  * vc84 DEDICATED DUAL HOST (vc83 host-first flow + cover-dialog fixes).
@@ -26,7 +27,7 @@ import android.widget.Toast
  *    cover activity on this device, dual never enables and nothing
  *    follows — silently. Now onResume posts a 500ms fallback: if the
  *    top-resumed path has not enabled dual by then, enable here
- *    (guarded by dualEnabled, so the normal path still wins first).
+ *    (guarded by launchStarted, so the normal path still wins first).
  * 2. Visible pills ON THE COVER (WindowManager overlay on the
  *    secondary display context, not a Toast that can land on the
  *    folded main display): "dual ON" and "permission launch failed"
@@ -50,14 +51,26 @@ class DualHostActivity : Activity() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var dualEnabled = false
+    private var launchStarted = false
     private var permissionLaunched = false
     private var pollingStopped = false
 
+    // vc190 NO-DUAL host lifecycle: dual is never enabled now
+    // (PowerFlip parity), so the old dual-off finish can never
+    // fire. Finish instead when (a) mirror ran and then stopped,
+    // or (b) permission was launched but no mirror ever started
+    // within 10s (decline / failure) — the host is 1x1 invisible
+    // and must not linger into the next start, or its stale
+    // permissionLaunched flag would block the next launch.
+    private var sawActive = false
+    private var permissionLaunchTimeMs = 0L
     private val pollRunnable = Runnable {
         if (!isFinishing && !pollingStopped) {
-            if (!com.cuong.cflip.service.DualDisplayHelper.isDualOn()) {
-                Log.i(TAG, "Dual OFF, finishing host (vc84)")
+            if (MirrorState.active) sawActive = true
+            val timedOut = permissionLaunched && !MirrorState.active &&
+                android.os.SystemClock.uptimeMillis() - permissionLaunchTimeMs > 10_000L
+            if ((sawActive && !MirrorState.active) || timedOut) {
+                Log.i(TAG, "Host finishing: mirror ended or permission never led to mirror (vc190)")
                 finishAndRemoveTask()
             } else {
                 startPolling()
@@ -66,9 +79,9 @@ class DualHostActivity : Activity() {
     }
 
     private val fallbackRunnable = Runnable {
-        if (!isFinishing && !dualEnabled) {
-            Log.i(TAG, "Top-resumed callback never fired, fallback enable in onResume (vc84)")
-            enableDualAndLaunch()
+        if (!isFinishing && !launchStarted) {
+            Log.i(TAG, "Top-resumed callback never fired, fallback launch in onResume (vc190)")
+            launchPermission()
         }
     }
 
@@ -108,22 +121,19 @@ class DualHostActivity : Activity() {
         }
     }
 
-    private fun enableDualAndLaunch() {
-        if (isFinishing || dualEnabled) return
-        val res = com.cuong.cflip.service.DualDisplayHelper.enable()
-        if (res.isFailure) {
-            showCoverPill("Bật màn hình kép thất bại, thử bấm lại")
-            Toast.makeText(
-                this,
-                "Dual display failed: " + (res.exceptionOrNull()?.message ?: "unknown"),
-                Toast.LENGTH_LONG
-            ).show()
-            finishAndRemoveTask()
-            return
-        }
-        dualEnabled = true
-        Log.i(TAG, "Dual enabled, launching permission on cover (vc84)")
-        showCoverPill("Đã bật màn hình kép, đang mở dialog trên màn hình ngoài")
+    // vc190 NO-DUAL (PowerFlip parity): PowerFlip never toggles
+    // dual at all — its mirror Activity runs on the cover via
+    // show_on_cover alone — and CFlip's 1-2s dead touch tracked
+    // the dual window (vc189's pre-launch delay did not fix it).
+    // So this host no longer enables dual; it only launches the
+    // permission activity on the cover. If show_on_cover alone
+    // does not put MirrorActivity on the cover, the service gate
+    // (secondary display missing) fails with a pill, cleanly.
+    private fun launchPermission() {
+        if (isFinishing || launchStarted) return
+        launchStarted = true
+        Log.i(TAG, "Launching permission on cover, no dual (vc190)")
+        showCoverPill("Đang mở dialog trên màn hình ngoài")
         launchPermissionOnCover()
     }
 
@@ -138,6 +148,7 @@ class DualHostActivity : Activity() {
             return
         }
         permissionLaunched = true
+        permissionLaunchTimeMs = android.os.SystemClock.uptimeMillis()
         val permIntent = Intent(this, MirrorPermissionActivity::class.java)
             .addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -148,7 +159,24 @@ class DualHostActivity : Activity() {
             .setLaunchDisplayId(cover.displayId).toBundle()
         // vc84: a swallowed startActivity failure used to look exactly
         // like the vc83 symptom (rotated cover, nothing else). Surface it.
-        val ok = runCatching { startActivity(permIntent, opts) }.isSuccess
+        // vc197 NO-DUAL PERMISSION VIA ACCESSIBILITY (PowerFlip
+        // b4/q parity): launching the permission activity from
+        // another cover activity degrades to a system notification
+        // bubble without dual (vc191, vc195) even with
+        // show_on_cover on the permission activity — the
+        // activity-to-activity hop never lands foreground on
+        // the cover. PowerFlip launches its ProjectionRequest-
+        // Activity from its accessibility service instead.
+        // Route through MyAccessibilityService when present
+        // (the same path that already launches MirrorActivity);
+        // fall back to the direct launch when the service is
+        // not connected.
+        val acc = MyAccessibilityService.instance
+        Log.i(TAG, "Launching permission via accessibility=" + (acc != null) + " (vc197)")
+        val ok = runCatching {
+            if (acc != null) acc.startActivity(permIntent, opts)
+            else startActivity(permIntent, opts)
+        }.isSuccess
         if (!ok) {
             showCoverPill("Không mở được dialog trên màn hình ngoài, thử bấm lại")
             finishAndRemoveTask()
@@ -178,8 +206,8 @@ class DualHostActivity : Activity() {
         window?.setLayout(1, 1)
         window?.setGravity(Gravity.TOP or Gravity.START)
         window?.attributes?.dimAmount = 0f
-        // Do NOT enable dual here (onCreate, before top-resumed).
-        // Enabling happens in onTopResumedActivityChanged, with an
+        // vc190: no dual anywhere now. The permission launch
+        // happens in onTopResumedActivityChanged, with an
         // onResume fallback below for the case that callback never fires.
     }
 
@@ -189,14 +217,14 @@ class DualHostActivity : Activity() {
         // milliseconds; if it never fires, this 500ms fallback enables
         // dual instead of leaving a rotated cover with no dialog.
         mainHandler.removeCallbacks(fallbackRunnable)
-        if (!dualEnabled) mainHandler.postDelayed(fallbackRunnable, 500L)
+        if (!launchStarted) mainHandler.postDelayed(fallbackRunnable, 500L)
     }
 
     override fun onTopResumedActivityChanged(isTopResumed: Boolean) {
         super.onTopResumedActivityChanged(isTopResumed)
-        if (!isTopResumed || isFinishing || dualEnabled) return
+        if (!isTopResumed || isFinishing || launchStarted) return
         mainHandler.removeCallbacks(fallbackRunnable)
-        enableDualAndLaunch()
+        launchPermission()
     }
 
     override fun onDestroy() {
