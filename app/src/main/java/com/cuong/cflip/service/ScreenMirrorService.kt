@@ -337,33 +337,14 @@ class ScreenMirrorService : Service() {
         // only as a diagnostic in log/pill/toast, not a refusal.
         // vc62 feed success was open/flex posture (main ON), not
         // folded, which is why the old gate passed there.
+        // vc190 NO-DUAL GATE (PowerFlip parity): PowerFlip never
+        // toggles dual, and CFlip's 1-2s dead touch tracked the dual
+        // window (vc189's pre-launch delay did not fix it). Dual is
+        // kept only as a log diagnostic — it no longer gates, and
+        // the vc82 re-enable retry is deleted (it would reintroduce
+        // the very window being removed).
         val dualOn = DualDisplayHelper.isDualOn()
-        // vc82 DUAL-ONLY RETRY: vc81 pill proved gate can fail on dual
-        // alone (dualOn=false, main OFF diagnostic only, cover ON,
-        // cover-sized, not self-capture) because dual was turned off
-        // between permission grant and service start (host death,
-        // posture change, or a failed disable/enable cycle). Giving up
-        // immediately wastes a granted permission. If ONLY dual fails,
-        // try enabling dual once more right here (synchronous transact,
-        // token set on success, no settle wait needed for the gate —
-        // gate checks token + cover state/size/name, not main ON).
-        // If re-enable restores dual, proceed; otherwise fall through
-        // to the original refusal (toast + disable + pill + stop).
-        // dualOn val stays false here, but on retry success the failure
-        // path below is skipped, and proceed code never uses dualOn.
-        var gateFailed = (mainGate == null || !dualOn || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
-        if (gateFailed) {
-            val dualOnly = !dualOn && mainGate != null && secondary.state == Display.STATE_ON && isCoverSized && secondary.name != "CFlipMirror"
-            if (dualOnly) {
-                val reEnable = DualDisplayHelper.enable()
-                if (reEnable.isSuccess && DualDisplayHelper.isDualOn()) {
-                    Log.i(TAG, "Mirror gate dual retry succeeded, proceeding (vc82)")
-                    gateFailed = false
-                } else {
-                    Log.w(TAG, "Mirror gate dual retry failed: " + (reEnable.exceptionOrNull()?.message ?: "dual still off"))
-                }
-            }
-        }
+        val gateFailed = (mainGate == null || secondary.state != Display.STATE_ON || !isCoverSized || secondary.name == "CFlipMirror")
         if (gateFailed) {
             Log.w(TAG, "Mirror gate refused: dualOn=$dualOn mainState=${mainGate?.state} coverState=${secondary.state} cover=${secW}x$secH name=${secondary.name}")
             // vc54 MINIMAL SUCCESS FIX: vc51-vc53 toasted the refusal
@@ -378,10 +359,10 @@ class ScreenMirrorService : Service() {
             // case (user looking at main). No gate logic changed:
             // main ON + cover ON + cover-sized + not self-capture
             // are still required, otherwise the vc47 tunnel returns.
-            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: can Dual ON + man phu that. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(applicationContext, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state + " cover=" + secondary.state, android.widget.Toast.LENGTH_LONG).show()
             runCatching {
                 val coverCtx = createDisplayContext(secondary)
-                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: can Dual ON. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(coverCtx, "Phan chieu da dung: man phu khong san sang. dual=" + dualOn + " main=" + mainGate?.state, android.widget.Toast.LENGTH_LONG).show()
             }
             runCatching { DualDisplayHelper.disable() }
             // vc55 REFUSAL PILL: Toasts are rate-limited by Android
@@ -394,7 +375,7 @@ class ScreenMirrorService : Service() {
                 val refusalCtx = createDisplayContext(secondary)
                 val refusalWm = refusalCtx.getSystemService(WindowManager::class.java) ?: return@runCatching false
                 val pill = android.widget.TextView(refusalCtx).apply {
-                    text = "Mirror stopped: dualOn=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
+                    text = "Mirror stopped: dual=$dualOn main=${mainGate?.state} cover=${secondary.state} ${secW}x$secH"
                     setTextColor(android.graphics.Color.WHITE)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     textSize = 14f
@@ -552,8 +533,21 @@ class ScreenMirrorService : Service() {
         MirrorSurfaceRelay.onSurfaceReady = { surface ->
             if (sessionGen == mirrorGeneration) {
                 mirrorSurface = surface
-                createVirtualDisplay(proj, surface)
-                Log.i(TAG, "Mirror Activity surface ready, virtual display started")
+                // vc190 LATE FEED (PowerFlip parity): PowerFlip's
+                // feed arrives 150-1650ms after its Activity is up
+                // (display-transition wait), so the Activity is
+                // input-ready before the first frame and touch works
+                // immediately. CFlip created the VD at once, so the
+                // feed appeared ~200ms after launch while the cover
+                // Activity was still gaining input focus — the
+                // 1-2s dead touch. Delaying VD creation moves the
+                // feed behind input readiness instead of in front.
+                handler.postDelayed({
+                    if (sessionGen == mirrorGeneration && MirrorState.active) {
+                        createVirtualDisplay(proj, surface)
+                        Log.i(TAG, "Mirror Activity surface ready, virtual display started (vc190 delayed)")
+                    }
+                }, 1500)
             }
         }
         MirrorSurfaceRelay.onSurfaceGone = {
@@ -591,15 +585,15 @@ class ScreenMirrorService : Service() {
         // direct start, which the just-finished permission
         // activity's foreground grace window may still allow.
         // vc189 START DELAY (PowerFlip parity): PowerFlip waits 1000ms
-        // after its trigger before launching the mirror Activity, so
-        // the dual/input stack settles BEFORE the feed appears and
-        // the feed is touchable from the first frame. CFlip launched
-        // immediately, so the same settling window showed up as
-        // 1-2s of dead touch AFTER the feed appeared. The delay
-        // moves that window to before the feed, it does not remove
-        // system settling. Guarded by generation: a cleanup during
-        // the delay bumps mirrorGeneration and skips the launch
-        // (cleanup also cancels this post via removeCallbacks).
+        // after its trigger before launching the mirror Activity.
+        // vc190 CORRECTION: this pre-launch delay did NOT fix the
+        // 1-2s dead touch (user report on vc189) — the window tracks
+        // Activity launch / dual, not pre-launch time. Kept for
+        // PowerFlip parity (harmless); the real fixes are no-dual
+        // (above) and the late feed (onSurfaceReady, vc190).
+        // Guarded by generation: a cleanup during the delay bumps
+        // mirrorGeneration and skips the launch (cleanup also
+        // cancels this post via removeCallbacks).
         handler.postDelayed({
             if (sessionGen != mirrorGeneration) return@postDelayed
             val mirrorIntent = Intent(this, MirrorActivity::class.java).apply {
@@ -779,12 +773,10 @@ class ScreenMirrorService : Service() {
         }
     }
     private fun cleanupAndDisableDual() {
-        // vc63 STOP ORDER: vc62 did cleanup (which re-shows the
-        // bubble) BEFORE disabling dual, so the bubble re-show ran
-        // while dual was still ON, when cover overlays are hidden
-        // in dual mode, and the bubble never came back until the
-        // user restarted AssistiveTouch. Disable dual first, then
-        // cleanup re-shows the bubble in normal mode.
+        // vc63 STOP ORDER: disable first, then cleanup re-shows
+        // the bubble in normal mode (not hidden dual mode).
+        // vc190: dual is no longer enabled by CFlip, so this
+        // disable only clears a dual stuck on from an older session.
         runCatching { DualDisplayHelper.disable() }
         cleanupSession()
     }
