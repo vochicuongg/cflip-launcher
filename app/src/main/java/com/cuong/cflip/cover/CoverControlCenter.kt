@@ -2286,7 +2286,7 @@ object CoverControlCenterManager {
                     actionsRow.addView(TextView(ctx).apply {
                         text = title; textSize = 11f; gravity = Gravity.CENTER
                         setTextColor(0xFFFFFFFF.toInt())
-                        background = rounded(0xFF23262B, 24)
+                        background = rounded(0xFF23262B.toInt(), 24)
                         setPadding(dp(10), dp(6), dp(10), dp(6))
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
