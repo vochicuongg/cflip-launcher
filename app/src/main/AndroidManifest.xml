@@ -86,6 +86,28 @@
                 android:value="true" />
         </activity>
 
+        <!-- vc187 ACTIVITY PORT (PowerFlip CoverMirrorActivity parity,
+             own code): the mirror feed is now a real Activity on
+             display 1 instead of a Presentation window. singleInstance
+             with its own affinity so nothing else lands in its task;
+             showWhenLocked + turnScreenOn like PowerFlip; the
+             Samsung cover flag like vc186's DualHost entry. -->
+        <activity
+            android:name=".mirror.MirrorActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity="com.cuong.cflip.mirroractivity"
+            android:theme="@style/CflipMirrorTheme">
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
         <!-- vc95: lock bubble activity (9Flip UnlockActivity pattern,
              own code). An Activity window with setShowWhenLocked,
              so it is visible over the secure keyguard where the
