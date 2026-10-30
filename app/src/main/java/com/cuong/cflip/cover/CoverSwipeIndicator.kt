@@ -141,7 +141,9 @@ object CoverSwipeIndicatorManager {
                 setColor(0xB3FFFFFF.toInt())
             }
             layoutParams = android.widget.FrameLayout.LayoutParams((dp(5) * sizeScale).toInt(), (dp(56) * sizeScale).toInt()).apply {
-                gravity = Gravity.CENTER
+                // vc193 EDGE-FLUSH: pill hugs the window edge on the
+                // bar's side (was CENTER, leaving ~4.5dp inside halo).
+                gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
             }
         }
         val halo = android.widget.FrameLayout(displayContext).apply {
@@ -155,8 +157,10 @@ object CoverSwipeIndicatorManager {
         }
         val container = LinearLayout(displayContext).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding((dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt(), (dp(3) * sizeScale).toInt(), (dp(6) * sizeScale).toInt())
+            // vc193 EDGE-FLUSH: row hugs the window edge on the
+            // bar's side (was CENTER, leaving ~13dp inside window).
+            gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
+            setPadding(0, (dp(6) * sizeScale).toInt(), 0, (dp(6) * sizeScale).toInt())
             // vc138: no chevron anymore - the pill alone is the bar.
             addView(halo)
         }
@@ -223,7 +227,7 @@ object CoverSwipeIndicatorManager {
                         val params = barParams
                         if (params != null && (params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT) {
                             params.gravity = Gravity.TOP or Gravity.LEFT
-                            params.x = dispW - edgeMargin - barW
+                            params.x = dispW - barW
                             runCatching { manager.updateViewLayout(container, params) }
                         }
                         val r = Runnable {
@@ -255,7 +259,7 @@ object CoverSwipeIndicatorManager {
                         if ((dragH || dragV) && !wasDragging) cancelTapRunnables()
                         val params = barParams
                         if (params != null && (dragH || dragV)) {
-                            if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(edgeMargin, dispW - barW - edgeMargin)
+                            if (dragH) params.x = (e.rawX - barW / 2f).toInt().coerceIn(0, dispW - barW)
                             if (dragV) params.y = (dragStartY + (e.rawY - downRawY)).toInt().coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
                             runCatching { manager.updateViewLayout(container, params) }
                         }
@@ -290,7 +294,7 @@ object CoverSwipeIndicatorManager {
                                 // in left coords after the DOWN re-anchor, so
                                 // snapping to edgeMargin would wrongly jump it
                                 // to the left edge - restore its own edge.
-                                params.x = if (startOnRight) dispW - edgeMargin - barW else edgeMargin
+                                params.x = if (startOnRight) dispW - barW else 0
                                 runCatching { manager.updateViewLayout(container, params) }
                                 barPrefs.edit().putInt("y", params.y).putInt("h", dispH).apply()
                             }
@@ -335,7 +339,9 @@ object CoverSwipeIndicatorManager {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
-            x = edgeMargin
+            // vc193 EDGE-FLUSH: window touches the screen edge
+            // (was edgeMargin 8dp). Y clamps still use edgeMargin.
+            x = 0
             y = startY
             // vc140: the bar window follows the same CFlip brightness as
             // the bubble (manual -> stored value, auto -> system), so
