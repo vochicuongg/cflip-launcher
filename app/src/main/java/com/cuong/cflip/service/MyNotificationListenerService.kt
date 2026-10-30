@@ -68,6 +68,10 @@ class MyNotificationListenerService : NotificationListenerService() {
         runCatching { com.cuong.cflip.cover.CoverControlCenterManager.refreshNotifTab() }
     }
 
+    private fun coverDisplayIdForLog(): String = runCatching {
+        com.cuong.cflip.display.DisplayRepository(this).secondaryDisplay()?.displayId?.toString()
+    }.getOrNull() ?: "none"
+
     /** ActivityOptions routing the opened UI to the cover display.
      *  vc212 ROOT CAUSE of "tap goes nowhere": content intents sent
      *  from this service used to land on the main display, which is
@@ -82,23 +86,32 @@ class MyNotificationListenerService : NotificationListenerService() {
     }
 
     fun openByKey(key: String): Boolean {
-        val sbn = byKey[key] ?: return false
+        val sbn = byKey[key] ?: run {
+            Log.i(TAG, "open: no sbn for key, listener has ${byKey.size} active")
+            return false
+        }
+        Log.i(TAG, "open: pkg=${sbn.packageName} cover=${coverDisplayIdForLog()} hasContentIntent=${sbn.notification.contentIntent != null}")
         val ci = sbn.notification.contentIntent
         if (ci != null) {
-            val ok = runCatching {
+            val res = runCatching {
                 ci.send(this, 0, null, null, null, null, coverOptions())
-            }.isSuccess
-            if (ok) return true
+            }
+            Log.i(TAG, "open: contentIntent send ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
+            if (res.isSuccess) return true
             Log.w(TAG, "contentIntent send failed, falling back to launch")
         }
         // vc209: notifications with no content intent (or a failed
         // send) used to do nothing on tap. Launch the app instead,
         // so tapping a notification always lands somewhere.
         return runCatching {
-            val launch = packageManager.getLaunchIntentForPackage(sbn.packageName) ?: return false
+            val launch = packageManager.getLaunchIntentForPackage(sbn.packageName) ?: run {
+                Log.i(TAG, "open: no launch intent for ${sbn.packageName}")
+                return false
+            }
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             val opts = coverOptions()
             if (opts != null) startActivity(launch, opts) else startActivity(launch)
+            Log.i(TAG, "open: launch started for ${sbn.packageName}")
             true
         }.onFailure { Log.w(TAG, "launch app failed", it) }.getOrDefault(false)
     }
@@ -106,7 +119,11 @@ class MyNotificationListenerService : NotificationListenerService() {
     fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
 
     fun clickActionByKey(key: String, index: Int) {
-        val action = byKey[key]?.notification?.actions?.getOrNull(index) ?: return
+        val action = byKey[key]?.notification?.actions?.getOrNull(index) ?: run {
+            Log.i(TAG, "action: no action key=$key idx=$index (have ${byKey.size} active)")
+            return
+        }
+        Log.i(TAG, "action: pkg=${byKey[key]?.packageName} idx=$index isReply=${(action.remoteInputs ?: emptyArray()).isNotEmpty()} cover=${coverDisplayIdForLog()}")
         // vc209: a reply action fired without RemoteInput results
         // could post an empty reply. Open the app instead, so the
         // user replies with real text. (The panel routes reply
@@ -114,8 +131,9 @@ class MyNotificationListenerService : NotificationListenerService() {
         if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) { openByKey(key); return }
         // vc212: action intents that open UI get the same cover
         // routing as taps (background actions ignore the options).
-        runCatching { action.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
-            .onFailure { Log.w(TAG, "action send failed", it) }
+        val res = runCatching { action.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
+        Log.i(TAG, "action: send ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
+        res.onFailure { Log.w(TAG, "action send failed", it) }
     }
 
     /** Inline reply through the notification's RemoteInput, exactly like the shade reply. */

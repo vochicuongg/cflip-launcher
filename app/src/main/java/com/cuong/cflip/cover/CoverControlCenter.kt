@@ -2221,6 +2221,39 @@ object CoverControlCenterManager {
             }.getOrDefault(false)
         }
 
+        // vc213 PANEL-SIDE LAUNCH: the reply screen works because
+        // it launches straight from the panel, while taps/actions go
+        // through the listener service - and the service path is the
+        // one failing. So the panel itself can now launch the app
+        // on the cover display as a fallback (same mechanism as the
+        // working reply screen), no listener needed.
+        fun launchAppOnCover(pkg: String): Boolean {
+            return runCatching {
+                val launch = ctx.applicationContext.packageManager
+                    .getLaunchIntentForPackage(pkg) ?: return false
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val opts = android.app.ActivityOptions.makeBasic()
+                    .setLaunchDisplayId(display.displayId).toBundle()
+                ctx.applicationContext.startActivity(launch, opts)
+                true
+            }.getOrDefault(false)
+        }
+
+        // vc213 NOTIF-ACCESS SETTINGS: opened on the cover display
+        // first (falls back to the main display if that fails).
+        fun openNotifSettings() {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val ok = runCatching {
+                val opts = android.app.ActivityOptions.makeBasic()
+                    .setLaunchDisplayId(display.displayId).toBundle()
+                ctx.applicationContext.startActivity(intent, opts)
+                true
+            }.getOrDefault(false)
+            if (!ok) runCatching { ctx.applicationContext.startActivity(intent) }
+        }
+
         // ---- Tab 2: Thông báo ---- (vc44 lazy, like apps:
         // notification rows used to build on EVERY panel open even
         // though the user only sees Điều khiển first. Now they build
@@ -2231,6 +2264,37 @@ object CoverControlCenterManager {
                 notifTabBuilt = true
         // ---- Tab 2: Thông báo ----
         notifContent.addView(title("Thông báo"))
+        // vc213 LISTENER STATUS: taps/actions need the listener
+        // service. If it is not connected, the tab may still show a
+        // stale list while every tap/action silently does nothing -
+        // so say so plainly, with a one-tap fix, instead of a list
+        // that looks alive but is dead.
+        if (!NotificationController.isConnected()) {
+            val warnRow = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(cardColor, 12)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, dp(8))
+                }
+                setOnClickListener { openNotifSettings() }
+            }
+            warnRow.addView(TextView(ctx).apply {
+                text = "Dịch vụ thông báo chưa kết nối — bấm vào đây để cấp quyền Truy cập thông báo cho CFlip."
+                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            warnRow.addView(TextView(ctx).apply {
+                text = "Mở Cài đặt"; textSize = 12f; gravity = Gravity.CENTER
+                setTextColor(0xFF000000.toInt())
+                background = rounded(mint, 24)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                setOnClickListener { openNotifSettings() }
+            })
+            notifContent.addView(warnRow)
+        }
         val notifs = NotificationState.active.value
         if (notifs.isEmpty()) {
             notifContent.addView(TextView(ctx).apply {
@@ -2260,7 +2324,7 @@ object CoverControlCenterManager {
             }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setOnClickListener { if (NotificationController.open(n.key)) hide() }
+                setOnClickListener { if (NotificationController.open(n.key) || launchAppOnCover(n.packageName)) hide() }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
                 ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
@@ -2327,7 +2391,7 @@ object CoverControlCenterManager {
                         setOnClickListener {
                             if (isReply) {
                                 if (openReply(n, appLabel)) hide()
-                                else if (NotificationController.open(n.key)) hide()
+                                else if (NotificationController.open(n.key) || launchAppOnCover(n.packageName)) hide()
                             }
                             else NotificationController.clickAction(n.key, idx)
                         }
