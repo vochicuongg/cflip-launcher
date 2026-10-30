@@ -276,11 +276,13 @@ class ScreenMirrorService : Service() {
         val stopIntent = Intent(this, ScreenMirrorService::class.java).apply { action = ACTION_STOP }
         val stopPi = PendingIntent.getService(this, 9042, stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification: Notification = NotificationCompat.Builder(this, CFlipApp.CHANNEL_ID)
+        val notification: Notification = NotificationCompat.Builder(this, CFlipApp.CHANNEL_ID_MIRROR)
             .setContentTitle("CFlip Launcher")
             .setContentText("Đang phản chiếu màn hình chính lên cover")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
             .addAction(R.drawable.ic_launcher_foreground, "Dừng phản chiếu", stopPi)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -588,34 +590,47 @@ class ScreenMirrorService : Service() {
         // accessibility service the same way); fall back to a
         // direct start, which the just-finished permission
         // activity's foreground grace window may still allow.
-        val mirrorIntent = Intent(this, MirrorActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        }
-        val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(secondary.displayId)
-        val mirrorAcc = MyAccessibilityService.instance
-        val launched = runCatching {
-            if (mirrorAcc != null) mirrorAcc.startActivity(mirrorIntent, mirrorOpts.toBundle())
-            else startActivity(mirrorIntent, mirrorOpts.toBundle())
-            true
-        }.onFailure { Log.w(TAG, "Mirror Activity launch failed", it) }.getOrDefault(false)
-        if (!launched) {
-            showFailurePillAndStop(secondary, "Mirror failed: activity launch error")
-            return
-        }
-        MirrorState.active = true
-        hideCoverBubble()
-        Log.i(TAG, "Mirror Activity launched on cover display ${secondary.displayId}")
-        // vc187 3s SURFACE WATCHDOG (vc59 shape, no overlay
-        // fallback): a launched Activity with no surface in 3s
-        // means the launch was dropped (BAL) or the surface
-        // died - clean up and say why, never hang black.
+        // vc189 START DELAY (PowerFlip parity): PowerFlip waits 1000ms
+        // after its trigger before launching the mirror Activity, so
+        // the dual/input stack settles BEFORE the feed appears and
+        // the feed is touchable from the first frame. CFlip launched
+        // immediately, so the same settling window showed up as
+        // 1-2s of dead touch AFTER the feed appeared. The delay
+        // moves that window to before the feed, it does not remove
+        // system settling. Guarded by generation: a cleanup during
+        // the delay bumps mirrorGeneration and skips the launch
+        // (cleanup also cancels this post via removeCallbacks).
         handler.postDelayed({
-            if (mirrorSurface == null && sessionGen == mirrorGeneration && MirrorState.active) {
-                Log.i(TAG, "Mirror Activity surface not ready in 3s, cleaning up")
-                cleanupAndDisableDual()
-                showFailurePillAndStop(secondary, "Mirror failed: activity surface not ready in 3s")
+            if (sessionGen != mirrorGeneration) return@postDelayed
+            val mirrorIntent = Intent(this, MirrorActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-        }, 3000)
+            val mirrorOpts = ActivityOptions.makeBasic().setLaunchDisplayId(secondary.displayId)
+            val mirrorAcc = MyAccessibilityService.instance
+            val launched = runCatching {
+                if (mirrorAcc != null) mirrorAcc.startActivity(mirrorIntent, mirrorOpts.toBundle())
+                else startActivity(mirrorIntent, mirrorOpts.toBundle())
+                true
+            }.onFailure { Log.w(TAG, "Mirror Activity launch failed", it) }.getOrDefault(false)
+            if (!launched) {
+                showFailurePillAndStop(secondary, "Mirror failed: activity launch error")
+                return@postDelayed
+            }
+            MirrorState.active = true
+            hideCoverBubble()
+            Log.i(TAG, "Mirror Activity launched on cover display ${secondary.displayId}")
+            // vc187 3s SURFACE WATCHDOG (vc59 shape, no overlay
+            // fallback): a launched Activity with no surface in 3s
+            // means the launch was dropped (BAL) or the surface
+            // died - clean up and say why, never hang black.
+            handler.postDelayed({
+                if (mirrorSurface == null && sessionGen == mirrorGeneration && MirrorState.active) {
+                    Log.i(TAG, "Mirror Activity surface not ready in 3s, cleaning up")
+                    cleanupAndDisableDual()
+                    showFailurePillAndStop(secondary, "Mirror failed: activity surface not ready in 3s")
+                }
+            }, 3000)
+        }, 1000)
     }
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
