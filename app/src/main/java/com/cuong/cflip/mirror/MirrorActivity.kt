@@ -112,9 +112,10 @@ class MirrorActivity : ComponentActivity() {
         panFractionX = 0.5f; panFractionY = 0.5f
         applyTransform()
         // vc207 ZOOM ICON: level digit + direction, so the user
-        // always knows the level: 1+ (fit, tap zooms in), 2+
-        // (crop fill), 3+ (x1.3), 4- (x1.6 max, tap wraps to fit).
-        zoomBtn?.text = "${zoomLevel + 1}" + if (zoomLevel < 3) "+" else "\u2212"
+        // always knows the level: 1+ (fit), 2+ (crop fill),
+        // 3+ (x1.3). vc208: max level shows just "-" (no digit),
+        // per user: 1+ -> 2+ -> 3+ -> - -> 1+.
+        zoomBtn?.text = if (zoomLevel < 3) "${zoomLevel + 1}+" else "\u2212"
     }
     // vc206 ALIGN: one button cycles left->center->right. Icon
     // shows the CURRENT alignment. Applies to the fit strip's

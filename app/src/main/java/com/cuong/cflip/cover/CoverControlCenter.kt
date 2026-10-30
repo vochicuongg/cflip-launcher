@@ -722,7 +722,12 @@ object CoverControlCenterManager {
             }
         }
         val tabContents = listOf(controlContent, notifContent, appsContent, cflipContent)
-        val tabButtons = mutableListOf<Button>()
+        // vc208 SAMSUNG-STYLE TABS: each tab is an icon + small
+        // label unit (One UI bottom-nav style) instead of a
+        // text-only Button. Icons: gear, bell, grid, C.
+        val tabUnits = mutableListOf<LinearLayout>()
+        val tabIcons = mutableListOf<TextView>()
+        val tabLabels = mutableListOf<TextView>()
         // vc41 lazy apps: the apps tab used to be built on EVERY panel
         // open (queryIntentActivities + loadIcon for every app +
         // getPackageInfo for every package), even though the user
@@ -734,9 +739,16 @@ object CoverControlCenterManager {
             if (i == 1) buildNotifTab?.invoke()
             if (i == 2) buildAppsTab?.invoke()
             tabContents.forEachIndexed { idx, v -> v.visibility = if (idx == i) View.VISIBLE else View.GONE }
-            tabButtons.forEachIndexed { idx, b ->
-                if (idx == i) { b.background = rounded(mint, 24); b.setTextColor(0xFF000000.toInt()) }
-                else { b.background = null; b.setTextColor(0xFFFFFFFF.toInt()) }
+            tabUnits.forEachIndexed { idx, u ->
+                if (idx == i) {
+                    u.background = rounded(mint, 24)
+                    tabIcons[idx].setTextColor(0xFF000000.toInt())
+                    tabLabels[idx].setTextColor(0xFF000000.toInt())
+                } else {
+                    u.background = null
+                    tabIcons[idx].setTextColor(0xFFFFFFFF.toInt())
+                    tabLabels[idx].setTextColor(0xFFFFFFFF.toInt())
+                }
             }
             // vc112: smooth tab switch - fade the
             // newly visible tab in (150ms). At
@@ -751,14 +763,28 @@ object CoverControlCenterManager {
             }
             resetTimer()
         }
-        for ((i, label) in listOf("Điều khiển", "Thông báo", "Ứng dụng", "CFlip").withIndex()) {
-            val b = Button(ctx).apply {
-                text = label; textSize = 11f; isAllCaps = false
-                setPadding(0, dp(8), 0, dp(8))
+        for ((i, def) in listOf(
+            "\u2699" to "Điều khiển",
+            "\uD83D\uDD14" to "Thông báo",
+            "\u229E" to "Ứng dụng",
+            "C" to "CFlip"
+        ).withIndex()) {
+            val iconView = TextView(ctx).apply {
+                text = def.first; textSize = 20f; gravity = Gravity.CENTER
+            }
+            val labelView = TextView(ctx).apply {
+                text = def.second; textSize = 10f; gravity = Gravity.CENTER
+            }
+            val unit = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(0, dp(6), 0, dp(6))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 setOnClickListener { selectTab(i) }
+                addView(iconView); addView(labelView)
             }
-            tabButtons.add(b); tabBar.addView(b)
+            tabUnits.add(unit); tabIcons.add(iconView); tabLabels.add(labelView)
+            tabBar.addView(unit)
         }
         tabBar.addView(Button(ctx).apply {
             text = "✕"; setOnClickListener { hide() }
@@ -898,169 +924,6 @@ object CoverControlCenterManager {
                         textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
                     }
                     widgetCard.addView(clockDetailView)
-                }
-                if ("appgrid" in chosen) {
-                    // vc149 APP GROUPS (user, 29/10): the widget
-                    // groups apps into the curated important groups
-                    // (AppGroups) instead of one flat favorites grid.
-                    // vc152 CUSTOM GROUPS (user, 29/10): user-built
-                    // groups come first (CustomGroupStore.sections),
-                    // then the auto groups for the remaining apps.
-                    // loadLaunchableApps is cached (vc111), so this
-                    // second call is cheap. When no group has any
-                    // app, the else below keeps the exact old
-                    // favorites behavior so the widget never empties.
-                    val (sections, _) = run {
-                        val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
-                        val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
-                        val custom = com.cuong.cflip.data.CustomGroupStore.load(ctx.applicationContext)
-                        val hiddenAuto = com.cuong.cflip.data.CustomGroupStore.loadHiddenAuto(ctx.applicationContext)
-                        val overrides = com.cuong.cflip.data.CustomGroupStore.loadOverrides(ctx.applicationContext)
-                        val autoOrder = com.cuong.cflip.data.CustomGroupStore.loadAutoOrder(ctx.applicationContext)
-                        val unifiedOrder = com.cuong.cflip.data.CustomGroupStore.loadUnifiedOrder(ctx.applicationContext)
-                        val deletedSections = com.cuong.cflip.data.CustomGroupStore.loadDeletedSections(ctx.applicationContext)
-                        com.cuong.cflip.data.CustomGroupStore.sections(all, custom, hiddenAuto, overrides, autoOrder, unifiedOrder, deletedSections)
-                    }
-                    if (sections.isNotEmpty()) {
-                        widgetCard.addView(TextView(ctx).apply {
-                            text = "Nhóm ứng dụng"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
-                        })
-                        for ((index, section) in sections.withIndex()) {
-                            val sectionTitle = TextView(ctx).apply {
-                                text = section.title; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                            }
-                            widgetCard.addView(sectionTitle)
-                            val groupGrid = GridLayout(ctx).apply { columnCount = 4 }
-                            for (app in section.members) {
-                                groupGrid.addView(Button(ctx).apply {
-                                    text = app.label; textSize = 10f; isAllCaps = false
-                                    background = rounded(0xFF23262B.toInt(), 12)
-                                    setTextColor(0xFFFFFFFF.toInt())
-                                    if (app.icon != null) {
-                                        val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
-                                        d.setBounds(0, 0, dp(40), dp(40))
-                                        setCompoundDrawables(null, d, null, null)
-                                    }
-                                    setOnClickListener {
-                                        com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
-                                        hide()
-                                    }
-                                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
-                            }
-                            widgetCard.addView(groupGrid)
-                            // vc153 ENTRANCE: sections fade + slide in,
-                            // staggered, when the card builds fresh.
-                            // (Cached panel opens reuse views, so no
-                            // animation there — by design, not a bug.)
-                            val delay = index * 50L
-                            for (v in listOf(sectionTitle, groupGrid)) {
-                                v.alpha = 0f
-                                v.translationY = dp(8).toFloat()
-                                v.animate().alpha(1f).translationY(0f)
-                                    .setStartDelay(delay).setDuration(200).start()
-                            }
-                        }
-                        widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
-                            setOnClickListener { selectTab(2) }
-                        })
-                    } else {
-                    widgetCard.addView(TextView(ctx).apply {
-                        text = "Ứng dụng yêu thích"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
-                    })
-                    // vc56 APPGRID FALLBACK: vc55 report was "widget
-                    // app does not show apps". The old code dropped
-                    // a pinned app entirely if loadLaunchableApps()
-                    // did not contain its package (query failed,
-                    // icon load failed, package renamed) - then the
-                    // widget showed the misleading "no pinned app"
-                    // text even though favorites were still saved.
-                    // Now a pinned package always renders as a
-                    // text button (label = last package segment,
-                    // no icon) so it stays visible and launchable.
-                    // vc59 WIDGET FALLBACK: vc56 fixed pinned apps
-                    // disappearing when the query failed, but if
-                    // the user has pinned ZERO apps, the widget
-                    // still showed only "Chưa ghim" text and no
-                    // apps at all - which reads as "widget doesn't
-                    // show apps". Now, with no pins, the widget
-                    // shows the first 8 launchable apps instead,
-                    // with a note that pinning in CFlip replaces
-                    // them with the user's own picks. Only if the
-                    // query itself returns empty does it show the
-                    // empty text. Query uses applicationContext
-                    // (not the cover display context) to avoid
-                    // display-specific PackageManager quirks.
-                    // vc111: favorites read ONCE (was
-                    // read twice: pins + hasPins).
-                    // loadLaunchableApps() itself is
-                    // now cached in AppRepository, so
-                    // this widget no longer re-queries
-                    // PackageManager + icons on every
-                    // panel build - the main widget
-                    // loading cost the user reported.
-                    val favoritesSet = com.cuong.cflip.data.FavoritesStore(ctx.applicationContext).getFavorites()
-                    val favApps = run {
-                        val repo = com.cuong.cflip.data.AppRepository(ctx.applicationContext)
-                        val all = runCatching { repo.loadLaunchableApps() }.getOrDefault(emptyList())
-                        val byPkg = all.associateBy { it.packageName }
-                        val pins = favoritesSet.map { pkg ->
-                            byPkg[pkg] ?: com.cuong.cflip.data.AppInfo(packageName = pkg, label = pkg.substringAfterLast('.'), icon = null)
-                        }.take(8)
-                        if (pins.isNotEmpty()) pins else all.take(8)
-                    }
-                    val hasPins = favoritesSet.isNotEmpty()
-                    if (favApps.isEmpty()) {
-                        // vc71 WIDGET RETRY: the old text blamed
-                        // pinning ("Chưa ghim...") even when the query
-                        // itself failed, and offered no recovery - the
-                        // widget stayed empty until the panel was
-                        // closed and reopened, and if the query failed
-                        // systematically it stayed empty forever. Now
-                        // the text says honestly that the list failed
-                        // to load, and a retry button rebuilds the
-                        // panel fresh (same pattern as addWidgetOnCover),
-                        // so a transient empty recovers with one tap,
-                        // no AssistiveTouch restart needed.
-                        widgetCard.addView(TextView(ctx).apply {
-                            text = "Không tải được danh sách ứng dụng (0 app) - bấm Thử lại."
-                            textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                        })
-                        widgetCard.addView(modernButton("Thử lại").apply {
-                            setOnClickListener {
-                                hidePanelOnly()
-                                CoverControlCenterManager.showFresh(ctx.applicationContext, display, 0)
-                            }
-                        })
-                    } else {
-                        if (!hasPins) {
-                            widgetCard.addView(TextView(ctx).apply {
-                                text = "Chưa ghim app nào - hiện 8 app đầu, ghim ở CFlip để chọn riêng."
-                                textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                            })
-                        }
-                        val favGrid = GridLayout(ctx).apply { columnCount = 4 }
-                        for (app in favApps) {
-                            favGrid.addView(Button(ctx).apply {
-                                text = app.label; textSize = 10f; isAllCaps = false
-                                background = rounded(0xFF23262B.toInt(), 12)
-                                setTextColor(0xFFFFFFFF.toInt())
-                                if (app.icon != null) {
-                                    val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
-                                    d.setBounds(0, 0, dp(40), dp(40))
-                                    setCompoundDrawables(null, d, null, null)
-                                }
-                                setOnClickListener {
-                                    com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
-                                    hide()
-                                }
-                            }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
-                        }
-                        widgetCard.addView(favGrid)
-                    }
-                    widgetCard.addView(modernButton("Xem tất cả ứng dụng").apply {
-                        setOnClickListener { selectTab(2) }
-                    })
-                    } // vc149: end else (no groups -> favorites fallback)
                 }
             }
             if (chosen.isNotEmpty()) {
@@ -2328,6 +2191,10 @@ object CoverControlCenterManager {
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
         }
+        // vc208 NOTIF ROWS: app icon + app name + title + text,
+        // and the WHOLE row taps to open (Samsung-style: tap a
+        // notification opens it). Xoa stays as a small button.
+        val notifPm = ctx.applicationContext.packageManager
         for (n in notifs) {
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2337,12 +2204,34 @@ object CoverControlCenterManager {
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     setMargins(0, 0, 0, dp(8))
                 }
+                setOnClickListener { NotificationController.open(n.key); hide() }
             }
-            row.addView(TextView(ctx).apply {
-                text = "${n.title}\n${n.text}"; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
+                ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
+            row.addView(android.widget.ImageView(ctx).apply {
+                setImageDrawable(appIcon)
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                    setMargins(0, 0, dp(10), 0)
+                }
             })
-            row.addView(modernButton("Mở", true).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.open(n.key); hide() } })
+            val appLabel = runCatching {
+                notifPm.getApplicationLabel(notifPm.getApplicationInfo(n.packageName, 0)).toString()
+            }.getOrDefault(n.packageName.substringAfterLast('.'))
+            val texts = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            texts.addView(TextView(ctx).apply {
+                text = appLabel; textSize = 11f; setTextColor(0xFFBDBDBD.toInt())
+            })
+            texts.addView(TextView(ctx).apply {
+                text = n.title; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            })
+            texts.addView(TextView(ctx).apply {
+                text = n.text; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
+            })
+            row.addView(texts)
             row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); row.visibility = View.GONE } })
             notifContent.addView(row)
         }
@@ -2441,23 +2330,70 @@ object CoverControlCenterManager {
             ctx.applicationContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             hide()
         }
-        cflipContent.addView(modernButton("Mở CFlip (màn hình chính)", true).apply {
-            setOnClickListener {
-                openOnMain(Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java))
+        // vc208 CFLIP ROWS: same icon-row treatment as the
+        // notification tab - icon + label + explanation + chevron,
+        // whole row tappable. Keeps the exact same destinations.
+        fun cflipRow(icon: android.graphics.drawable.Drawable?, iconText: String?, label: String, sub: String, onClick: () -> Unit) {
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = rounded(cardColor, 12)
+                setPadding(dp(12), dp(12), dp(12), dp(12))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, 0, 0, dp(8))
+                }
+                setOnClickListener { onClick() }
             }
-        })
-        cflipContent.addView(modernButton("Quyền Accessibility").apply {
-            setOnClickListener { openOnMain(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        })
-        cflipContent.addView(modernButton("Quyền Truy cập thông báo").apply {
-            setOnClickListener { openOnMain(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        })
-        cflipContent.addView(modernButton("Quyền Hiện trên ứng dụng khác").apply {
-            setOnClickListener {
-                openOnMain(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:${ctx.packageName}")))
+            if (icon != null) {
+                row.addView(android.widget.ImageView(ctx).apply {
+                    setImageDrawable(icon)
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                        setMargins(0, 0, dp(12), 0)
+                    }
+                })
+            } else {
+                row.addView(TextView(ctx).apply {
+                    text = iconText ?: ""; textSize = 22f; gravity = Gravity.CENTER
+                    setTextColor(0xFFFFFFFF.toInt())
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                        setMargins(0, 0, dp(12), 0)
+                    }
+                })
             }
-        })
+            val texts = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            texts.addView(TextView(ctx).apply {
+                text = label; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            })
+            texts.addView(TextView(ctx).apply {
+                text = sub; textSize = 11f; setTextColor(0xFFBDBDBD.toInt())
+            })
+            row.addView(texts)
+            row.addView(TextView(ctx).apply {
+                text = "\u203A"; textSize = 20f; gravity = Gravity.CENTER
+                setTextColor(0xFFFFFFFF.toInt())
+            })
+            cflipContent.addView(row)
+        }
+        val cflipAppIcon = runCatching {
+            ctx.applicationContext.packageManager.getApplicationIcon(ctx.packageName)
+        }.getOrNull() ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
+        cflipRow(cflipAppIcon, null, "Mở CFlip", "Cài đặt và tùy chỉnh trên màn hình chính") {
+            openOnMain(Intent(ctx.applicationContext, com.cuong.cflip.MainActivity::class.java))
+        }
+        cflipRow(null, "\u267F", "Quyền Accessibility", "Bắt buộc để CFlip điều khiển màn ngoài") {
+            openOnMain(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        cflipRow(null, "\uD83D\uDD14", "Quyền Truy cập thông báo", "Để tab Thông báo hiện thông báo") {
+            openOnMain(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        cflipRow(null, "\u25A3", "Quyền Hiện trên ứng dụng khác", "Để CFlip hiện bong bóng và panel trên màn ngoài") {
+            openOnMain(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${ctx.packageName}")))
+        }
 
         // vc110: capture everything the next
         // open needs to reuse this root. The
