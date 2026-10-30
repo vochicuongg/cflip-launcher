@@ -3,13 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#111111"
-    android:padding="10dp">
+    android:background="@drawable/bg_widget_card"
+    android:padding="12dp">
     <TextView
         android:id="@+id/music_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:maxLines="1"
+        android:ellipsize="end"
         android:text="Chưa có nhạc"
         android:textColor="#FFFFFF"
         android:textSize="15sp"
@@ -19,17 +20,34 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:maxLines="1"
+        android:ellipsize="end"
         android:text="Mở nhạc rồi bấm làm mới"
         android:textColor="#BBBBBB"
         android:textSize="12sp" />
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:orientation="horizontal">
-        <Button android:id="@+id/music_prev" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏮" android:textSize="13sp" />
-        <Button android:id="@+id/music_playpause" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="▶ Phát" android:textSize="12sp" />
-        <Button android:id="@+id/music_next" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏭" android:textSize="13sp" />
-        <Button android:id="@+id/music_refresh" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="↻" android:textSize="13sp" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/music_prev" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_prev"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Bài trước" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/music_playpause" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_play"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Phát / tạm dừng" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/music_next" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_next"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Bài kế" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/music_refresh" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_refresh"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Làm mới" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

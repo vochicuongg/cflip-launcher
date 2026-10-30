@@ -4,15 +4,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#111111"
-    android:padding="10dp">
+    android:background="@drawable/bg_widget_card"
+    android:padding="12dp">
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:format24Hour="HH:mm"
         android:format12Hour="hh:mm"
         android:textColor="#FFFFFF"
-        android:textSize="34sp"
+        android:textSize="38sp"
         android:textStyle="bold" />
     <TextClock
         android:layout_width="wrap_content"
@@ -24,21 +24,28 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
-        <TextView
-            android:id="@+id/clock_battery"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pin —"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_w_bell"
+            android:contentDescription="Thông báo" />
         <TextView
             android:id="@+id/clock_notif"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="0 thông báo"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+        <TextView
+            android:id="@+id/clock_battery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:text="🔔 0 thông báo"
+            android:text="Pin —"
             android:textColor="#FFFFFF"
             android:textSize="13sp" />
     </LinearLayout>

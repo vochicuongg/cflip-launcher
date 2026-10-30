@@ -31,9 +31,10 @@ class MusicWidgetProvider : AppWidgetProvider() {
                 R.id.music_artist,
                 info?.artist?.takeIf { it.isNotBlank() } ?: "Mở nhạc rồi bấm làm mới",
             )
-            views.setTextViewText(
+            // vc210: round icon button now - play/pause is an icon, not text.
+            views.setImageViewResource(
                 R.id.music_playpause,
-                if (info?.isPlaying == true) "⏸ Tạm dừng" else "▶ Phát",
+                if (info?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play,
             )
             fun broadcast(requestCode: Int, action: String): PendingIntent {
                 return PendingIntent.getBroadcast(
