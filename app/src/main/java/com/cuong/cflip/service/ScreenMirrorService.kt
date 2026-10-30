@@ -621,6 +621,8 @@ class ScreenMirrorService : Service() {
                 }
                 "zoom_in" -> MirrorSurfaceRelay.activity?.zoomIn()
                 "zoom_out" -> MirrorSurfaceRelay.activity?.zoomOut()
+                "zoom_toggle" -> MirrorSurfaceRelay.activity?.zoomToggle()
+                "align" -> MirrorSurfaceRelay.activity?.alignCycle()
             }
         }
         MirrorSurfaceRelay.onDestroyed = {

@@ -80,12 +80,51 @@ class MirrorActivity : ComponentActivity() {
     // the transform immediately (no virtual-display recreate),
     // so the response is visible on that tap.
     private var zoomLevel: Int = 0
-    private var panFraction: Float = 0.5f
+    // vc206 PAN/ALIGN: panFraction was one value for both axes
+    // and never changed (crop always centred). Split it so a
+    // drag can pan X and Y independently, and add alignMode
+    // for the fit strip's horizontal slack (0=left, 1=center,
+    // 2=right). touchPanMode + panStart* track an in-progress
+    // view-pan drag (never sent to main).
+    private var panFractionX: Float = 0.5f
+    private var panFractionY: Float = 0.5f
+    private var alignMode: Int = 1
+    private var touchPanMode: Boolean = false
+    private var panStartViewX: Float = 0f
+    private var panStartViewY: Float = 0f
+    private var panStartFractionX: Float = 0.5f
+    private var panStartFractionY: Float = 0.5f
+    private var zoomBtn: android.widget.TextView? = null
+    private var alignBtn: android.widget.TextView? = null
     fun zoomIn() {
         if (zoomLevel < 3) { zoomLevel++; applyTransform() }
     }
     fun zoomOut() {
         if (zoomLevel > 0) { zoomLevel--; applyTransform() }
+    }
+    // vc206 ZOOM TOGGLE: one button cycles levels 0->1->2->3->0
+    // (fit, crop fill, x1.3, x1.6) instead of separate + and -.
+    // Icon shows the NEXT tap's direction: "+" while a further
+    // zoom-in exists, "-" at max (next tap wraps back to fit).
+    // Pan resets to centre on every level change.
+    fun zoomToggle() {
+        if (zoomLevel < 3) zoomLevel++ else zoomLevel = 0
+        panFractionX = 0.5f; panFractionY = 0.5f
+        applyTransform()
+        zoomBtn?.text = if (zoomLevel < 3) "+" else "\u2212"
+    }
+    // vc206 ALIGN: one button cycles left->center->right. Icon
+    // shows the CURRENT alignment. Applies to the fit strip's
+    // horizontal slack; in crop mode there is no slack, so it
+    // takes effect when returning to fit.
+    fun alignCycle() {
+        alignMode = (alignMode + 1) % 3
+        applyTransform()
+        alignBtn?.text = when (alignMode) {
+            0 -> "\u2190"
+            2 -> "\u2192"
+            else -> "\u2194"
+        }
     }
     fun hideStatus() {
         statusView?.post { statusView?.visibility = android.view.View.GONE }
@@ -109,8 +148,9 @@ class MirrorActivity : ComponentActivity() {
         val sy = fMin / f12
         val scaledW = vw * sx
         val scaledH = vh * sy
-        val dx = if (scaledW > vw) -(scaledW - vw) * panFraction else (vw - scaledW) / 2f
-        val dy = if (scaledH > vh) -(scaledH - vh) * panFraction else (vh - scaledH) / 2f
+        val dx = if (scaledW > vw) -(scaledW - vw) * panFractionX
+            else when (alignMode) { 0 -> 0f; 2 -> vw - scaledW; else -> (vw - scaledW) / 2f }
+        val dy = if (scaledH > vh) -(scaledH - vh) * panFractionY else (vh - scaledH) / 2f
         return FitParams(fMin, sx, sy, dx, dy, scaledW, scaledH)
     }
 
@@ -1052,6 +1092,7 @@ class MirrorActivity : ComponentActivity() {
                             touchLastViewX = event.x; touchLastViewY = event.y
                             touchTotalViewMove = 0f
                             touchLiveStarted = false
+                            touchPanMode = false
                             touchSlopView = android.view.ViewConfiguration.get(this@MirrorActivity).scaledTouchSlop.toFloat()
                             touchLongPressFlag = false
                             touchMultiFlag = false
@@ -1078,6 +1119,7 @@ class MirrorActivity : ComponentActivity() {
                         touchLastViewX = event.x; touchLastViewY = event.y
                         touchTotalViewMove = 0f
                         touchLiveStarted = false
+                            touchPanMode = false
                         touchSlopView = android.view.ViewConfiguration.get(this@MirrorActivity).scaledTouchSlop.toFloat()
                         val dt = event.eventTime - touchLastUpMs
                         touchDoubleTapCandidate = dt in 1..android.view.ViewConfiguration.getDoubleTapTimeout().toLong()
@@ -1118,6 +1160,7 @@ class MirrorActivity : ComponentActivity() {
                         // stream exactly as u2 does.
                         gestureHandler.removeCallbacks(touchLongPressRunnable)
                         touchMultiFlag = true
+                        touchPanMode = false
                         touchLongPressFlag = false
                         touchDoubleTapCandidate = false
                         val p0 = mirrorViewToMain(event.getX(0), event.getY(0))
@@ -1199,6 +1242,48 @@ class MirrorActivity : ComponentActivity() {
                                 gestureHandler.postDelayed(touchLongPressRunnable, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                                 return@setOnTouchListener true
                             }
+                            // vc206 PAN: when zoomed, the crop
+                            // overflows the view, so a drag pans
+                            // the frame instead of swiping main.
+                            // It only engages before a live main
+                            // stream starts (DOWN sends nothing
+                            // to main yet), so a pan never leaves
+                            // a stuck finger on main; a tap (no
+                            // slop) still goes to main as before.
+                            // Pan range is [0,1] per axis: 0 =
+                            // frame edge at view edge on one
+                            // side, 1 = the other side - the
+                            // WHOLE frame is reachable, and the
+                            // only limit is the frame edge
+                            // itself (the frame can never be
+                            // dragged off-screen and lost).
+                            // View delta -> content delta uses
+                            // the inverse rotation (0/180 exact;
+                            // 90/270 axis-swapped, magnitude
+                            // follows the existing fit approx).
+                            if (touchPanMode) {
+                                val fp = fitParams(textureView.width.toFloat(), textureView.height.toFloat())
+                                if (fp != null) {
+                                    val vdx = event.x - panStartViewX
+                                    val vdy = event.y - panStartViewY
+                                    val rot = ((rotationDeg % 360) + 360) % 360
+                                    val cdx = when (rot) { 90 -> vdy; 180 -> -vdx; 270 -> -vdy; else -> vdx }
+                                    val cdy = when (rot) { 90 -> -vdx; 180 -> -vdy; 270 -> vdx; else -> vdy }
+                                    if (fp.scaledW > textureView.width) panFractionX = (panStartFractionX - cdx / (fp.scaledW - textureView.width)).coerceIn(0f, 1f)
+                                    if (fp.scaledH > textureView.height) panFractionY = (panStartFractionY - cdy / (fp.scaledH - textureView.height)).coerceIn(0f, 1f)
+                                    applyTransform()
+                                }
+                                return@setOnTouchListener true
+                            }
+                            if (zoomLevel > 0 && !touchLiveStarted && !touchLongPressFlag && touchTotalViewMove > touchSlopView) {
+                                val fp = fitParams(textureView.width.toFloat(), textureView.height.toFloat())
+                                if (fp != null && (fp.scaledW > textureView.width || fp.scaledH > textureView.height)) {
+                                    touchPanMode = true
+                                    panStartViewX = event.x; panStartViewY = event.y
+                                    panStartFractionX = panFractionX; panStartFractionY = panFractionY
+                                    return@setOnTouchListener true
+                                }
+                            }
                             val main = mirrorViewToMainClamped(event.x, event.y)
                             if (main != null) {
                                 touchLastX = main.first; touchLastY = main.second
@@ -1220,6 +1305,7 @@ class MirrorActivity : ComponentActivity() {
                         if (!pinchActive) return@setOnTouchListener true
                         pinchActive = false
                         touchActive = false
+                        touchPanMode = false
                         stopTouchLoop()
                         val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
                         endPinch(durationMs)
@@ -1238,6 +1324,22 @@ class MirrorActivity : ComponentActivity() {
                             gestureHandler.removeCallbacks(touchLongPressRunnable)
                             touchActive = false
                             touchPendingOutside = false
+                            touchLiveStarted = false
+                            touchLongPressFlag = false
+                            touchMultiFlag = false
+                            touchDoubleTapCandidate = false
+                            touchTotalViewMove = 0f
+                            touchPointList.clear()
+                            stopTouchLoop()
+                            return@setOnTouchListener true
+                        }
+                        if (touchPanMode) {
+                            // vc206 PAN END: a pan drag never
+                            // went to main, so UP just clears
+                            // state (no tap/swipe dispatch).
+                            gestureHandler.removeCallbacks(touchLongPressRunnable)
+                            touchPanMode = false
+                            touchActive = false
                             touchLiveStarted = false
                             touchLongPressFlag = false
                             touchMultiFlag = false
@@ -1334,6 +1436,7 @@ class MirrorActivity : ComponentActivity() {
                             if (touchLiveStarted) queueStreamSegment(touchLastX, touchLastY, true)
                         }
                         touchActive = false
+                        touchPanMode = false
                         touchPendingOutside = false
                         pinchActive = false
                         touchLiveStarted = false
@@ -1401,10 +1504,20 @@ class MirrorActivity : ComponentActivity() {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER
         }
+        // vc206 BUTTONS: one zoom-toggle (levels 0->1->2->3->0,
+        // icon + while zoom-in remains, - at max) and one align
+        // button (left->center->right, icon shows current).
+        // Stop stays last. All buttons get one FIXED square size
+        // below, so the OVAL background renders as a perfect
+        // circle instead of a glyph-sized ellipse.
+        val zoomButton = iconBtn("+", "zoom_toggle")
+        zoomBtn = zoomButton
+        val alignButton = iconBtn("\u2194", "align")
+        alignBtn = alignButton
         val icons = listOf(
             iconBtn("\u21bb", "rotate"),
-            iconBtn("+", "zoom_in"),
-            iconBtn("\u2212", "zoom_out"),
+            zoomButton,
+            alignButton,
             android.widget.TextView(this).apply {
                 text = "\u25a0"
                 textSize = 20f
@@ -1437,10 +1550,11 @@ class MirrorActivity : ComponentActivity() {
                 }
             }
         )
+        val btnSize = (56 * resources.displayMetrics.density).toInt()
         for (v in icons) {
             val lp = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(0, 10, 0, 10) }
+                btnSize,
+                btnSize).apply { setMargins(0, 10, 0, 10) }
             column.addView(v, lp)
         }
         root.addView(column, android.widget.FrameLayout.LayoutParams(
