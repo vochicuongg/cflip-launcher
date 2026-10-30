@@ -2264,21 +2264,51 @@ object CoverControlCenterManager {
             return n.actionCreatorPackages.firstOrNull { it != null && it != n.packageName }
         }
 
-        // vc216 LIVEBRIDGE MIRROR UNWRAP (per app): a mirror about
-        // Messenger must open Messenger, a mirror about Zalo must
-        // open Zalo. The reliable per-app signal is the source
-        // package from the mirror's own actions (see
-        // mirrorSourcePackage) - not title/text matching alone.
-        // Falls back to vc215's title+text match when no action
-        // reveals the source.
+        // vc217: LiveBridge's mirror id, replicated exactly
+        // (its mirrorIdForKey): abs(sourceKey.hashCode()), with
+        // MIN_VALUE mapped to 0. String.hashCode is specified by
+        // the language, so the value computed here equals the one
+        // LiveBridge computed for the same source key.
+        fun mirrorIdForKey(key: String): Int {
+            val v = key.hashCode()
+            return if (v == Int.MIN_VALUE) 0 else kotlin.math.abs(v)
+        }
+
+        // vc217 LIVEBRIDGE MIRROR UNWRAP (per app, layered):
+        // Tier 0 - exact: hash every active key; the one whose
+        // hash equals the mirror's id IS the source, regardless
+        // of reformatted title/text or missing actions. This is
+        // what fixes mirrors like Muse that beat vc216.
+        // Tier 1 - source package from the mirror's own plain
+        // actions' creators (vc216).
+        // Tier 2 - title+text exact, any package (vc215).
+        // Tier 3 - timing: the mirror is posted right after its
+        // source, so a single candidate in the 60s before the
+        // mirror (or a unique title match in that window) is the
+        // source. Covers aggregate mirrors, whose id hashes an
+        // internal aggregate key instead of a source key.
+        // Tier 4 - title-only unique (vc215).
+        // Every tier logs, so a misfire is visible in logcat.
         fun unwrapLiveBridge(n: com.cuong.cflip.service.CoverNotification): com.cuong.cflip.service.CoverNotification? {
             if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
+            val active = NotificationState.active.value
+            val title = n.title.trim()
+            val text = n.text.trim()
+            val byHash = active.filter {
+                it.packageName != n.packageName && mirrorIdForKey(it.key) == n.notifId
+            }
+            if (byHash.isNotEmpty()) {
+                val exact = if (title.isNotEmpty() && text.isNotEmpty()) {
+                    byHash.filter { it.title.trim() == title && it.text.trim() == text }
+                } else emptyList()
+                val target = exact.firstOrNull() ?: byHash.minByOrNull { it.timeMs }!!
+                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${target.packageName} via mirror id hash")
+                return target
+            }
             val sourcePkg = mirrorSourcePackage(n)
             if (sourcePkg != null) {
-                val fromPkg = NotificationState.active.value.filter { it.packageName == sourcePkg }
+                val fromPkg = active.filter { it.packageName == sourcePkg }
                 if (fromPkg.isNotEmpty()) {
-                    val title = n.title.trim()
-                    val text = n.text.trim()
                     val exact = if (title.isNotEmpty() && text.isNotEmpty()) {
                         fromPkg.filter { it.title.trim() == title && it.text.trim() == text }
                     } else emptyList()
@@ -2290,20 +2320,32 @@ object CoverControlCenterManager {
                 // openMirrorOrNotif launches the app itself below.
                 return null
             }
-            val title = n.title.trim()
-            val text = n.text.trim()
-            if (title.isEmpty() || text.isEmpty()) return null
-            val candidates = NotificationState.active.value.filter {
-                it.packageName != n.packageName && it.title.trim() == title && it.text.trim() == text
+            if (title.isNotEmpty() && text.isNotEmpty()) {
+                val candidates = active.filter {
+                    it.packageName != n.packageName && it.title.trim() == title && it.text.trim() == text
+                }
+                if (candidates.isNotEmpty()) {
+                    val earliest = candidates.minByOrNull { it.timeMs }!!
+                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${earliest.packageName} (title+text)")
+                    return earliest
+                }
             }
-            if (candidates.isNotEmpty()) {
-                val earliest = candidates.minByOrNull { it.timeMs }!!
-                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${earliest.packageName} (title+text)")
-                return earliest
+            val window = active.filter {
+                it.packageName != n.packageName && it.timeMs <= n.timeMs && n.timeMs - it.timeMs <= 60_000
             }
-            // Second tier: unique title-only match (the mirror may
-            // reformat the body). Only when unambiguous.
-            val byTitle = NotificationState.active.value.filter {
+            if (window.size == 1) {
+                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${window[0].packageName} (timing, single candidate)")
+                return window[0]
+            }
+            if (window.isNotEmpty() && title.isNotEmpty()) {
+                val byTitle = window.filter { it.title.trim() == title }
+                if (byTitle.size == 1) {
+                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${byTitle[0].packageName} (timing+title)")
+                    return byTitle[0]
+                }
+            }
+            if (title.isEmpty()) return null
+            val byTitle = active.filter {
                 it.packageName != n.packageName && it.title.trim() == title
             }
             if (byTitle.size != 1) return null

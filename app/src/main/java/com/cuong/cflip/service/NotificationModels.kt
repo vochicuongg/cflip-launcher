@@ -9,6 +9,9 @@ data class CoverNotification(
     val title: String,
     val text: String,
     val timeMs: Long,
+    // vc217: StatusBarNotification id - for a LiveBridge mirror
+    // this is abs(sourceKey.hashCode()), the exact key to its source.
+    val notifId: Int = 0,
     val actionTitles: List<String> = emptyList(),
     // vc209: per-action reply flag (an action with RemoteInput
     // must never be fired bare - it needs typed input).

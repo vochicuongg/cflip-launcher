@@ -53,6 +53,7 @@ class MyNotificationListenerService : NotificationListenerService() {
                     title = title,
                     text = text,
                     timeMs = sbn.postTime,
+                    notifId = sbn.id,
                     actionTitles = actions.map { it.title?.toString() ?: "" },
                     actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
                     actionCreatorPackages = actions.map { it.actionIntent?.creatorPackage },
