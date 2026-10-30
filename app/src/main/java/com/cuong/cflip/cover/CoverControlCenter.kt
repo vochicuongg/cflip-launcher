@@ -2253,6 +2253,39 @@ object CoverControlCenterManager {
             return true
         }
 
+        // vc215 LIVEBRIDGE MIRROR UNWRAP: LiveBridge re-posts
+        // other apps' notifications under its own package, hiding
+        // the source app's content intent inside a broadcast proxy.
+        // Tapping the mirror opens LiveBridge (wrong app) and the
+        // proxied source intent then lands on the main display.
+        // So: if this row is a LiveBridge mirror, find the source
+        // notification it mirrors (same title + text, different
+        // package, posted first) and open THAT instead. Strict
+        // match only; on any doubt return null and the normal
+        // mirror path runs.
+        fun unwrapLiveBridge(n: com.cuong.cflip.service.CoverNotification): com.cuong.cflip.service.CoverNotification? {
+            if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
+            val title = n.title.trim()
+            val text = n.text.trim()
+            if (title.isEmpty() || text.isEmpty()) return null
+            val candidates = NotificationState.active.value.filter {
+                it.packageName != n.packageName && it.title.trim() == title && it.text.trim() == text
+            }
+            if (candidates.isNotEmpty()) {
+                val earliest = candidates.minByOrNull { it.timeMs }!!
+                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${earliest.packageName} (title+text)")
+                return earliest
+            }
+            // Second tier: unique title-only match (the mirror may
+            // reformat the body). Only when unambiguous.
+            val byTitle = NotificationState.active.value.filter {
+                it.packageName != n.packageName && it.title.trim() == title
+            }
+            if (byTitle.size != 1) return null
+            android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${byTitle[0].packageName} (title-only)")
+            return byTitle[0]
+        }
+
         // vc213 NOTIF-ACCESS SETTINGS: opened on the cover display
         // first (falls back to the main display if that fails).
         fun openNotifSettings() {
@@ -2338,7 +2371,10 @@ object CoverControlCenterManager {
             }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setOnClickListener { if (openNotifOnCover(n) || NotificationController.open(n.key)) hide() }
+                setOnClickListener {
+                    val target = unwrapLiveBridge(n) ?: n
+                    if (openNotifOnCover(target) || NotificationController.open(target.key)) hide()
+                }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
                 ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
@@ -2405,13 +2441,30 @@ object CoverControlCenterManager {
                         setOnClickListener { view ->
                             if (isReply) {
                                 if (openReply(n, appLabel)) hide()
-                                else if (openNotifOnCover(n) || NotificationController.open(n.key)) hide()
+                                else {
+                                    val target = unwrapLiveBridge(n) ?: n
+                                    if (openNotifOnCover(target) || NotificationController.open(target.key)) hide()
+                                }
                             }
-                            // vc214: a dead action (canceled PendingIntent)
-                            // hides its button instead of sitting there
-                            // silently doing nothing on every tap.
-                            else if (!NotificationController.clickAction(n.key, idx)) {
-                                view.visibility = View.GONE
+                            // vc215: a mirror's plain action is the SOURCE
+                            // app's own intent (LiveBridge copies it
+                            // verbatim), so its creator is the source
+                            // app, not the mirror - launch the source
+                            // app on the cover first, then send, exactly
+                            // like taps. Only for mirror actions
+                            // (creator != this package): a normal app's
+                            // own background action (e.g. Like) must NOT
+                            // pop the app open just for being tapped.
+                            // A dead action still hides its button.
+                            else {
+                                val creator = n.actionCreatorPackages.getOrNull(idx)
+                                if (creator != null && creator != n.packageName && launchAppOnCover(creator)) {
+                                    handler.postDelayed({
+                                        if (!NotificationController.clickAction(n.key, idx)) view.visibility = View.GONE
+                                    }, 500)
+                                } else if (!NotificationController.clickAction(n.key, idx)) {
+                                    view.visibility = View.GONE
+                                }
                             }
                         }
                     })

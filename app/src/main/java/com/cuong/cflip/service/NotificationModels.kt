@@ -13,6 +13,10 @@ data class CoverNotification(
     // vc209: per-action reply flag (an action with RemoteInput
     // must never be fired bare - it needs typed input).
     val actionIsReply: List<Boolean> = emptyList(),
+    // vc215: per-action creator package (PendingIntent
+    // creator) - a mirror's plain action is the SOURCE app's own
+    // intent, so its creator is the source app, not the mirror.
+    val actionCreatorPackages: List<String?> = emptyList(),
     val canReply: Boolean = false,
 )
 

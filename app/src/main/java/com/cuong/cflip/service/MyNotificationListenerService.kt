@@ -55,6 +55,7 @@ class MyNotificationListenerService : NotificationListenerService() {
                     timeMs = sbn.postTime,
                     actionTitles = actions.map { it.title?.toString() ?: "" },
                     actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
+                    actionCreatorPackages = actions.map { it.actionIntent?.creatorPackage },
                     canReply = canReply,
                 )
             )
@@ -162,8 +163,9 @@ class MyNotificationListenerService : NotificationListenerService() {
             val bundle = Bundle()
             for (ri in inputs) bundle.putCharSequence(ri.resultKey, message)
             RemoteInput.addResultsToIntent(inputs, intent, bundle)
-            runCatching { action.actionIntent?.send(this, 0, intent, null, null, null, coverOptions()) }
-                .onFailure { Log.w(TAG, "reply send failed", it) }
+            val res = runCatching { action.actionIntent?.send(this, 0, intent, null, null, null, coverOptions()) }
+            Log.i(TAG, "reply: pkg=${sbn.packageName} ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
+            res.onFailure { Log.w(TAG, "reply send failed", it) }
             return
         }
     }
