@@ -2253,18 +2253,43 @@ object CoverControlCenterManager {
             return true
         }
 
-        // vc215 LIVEBRIDGE MIRROR UNWRAP: LiveBridge re-posts
-        // other apps' notifications under its own package, hiding
-        // the source app's content intent inside a broadcast proxy.
-        // Tapping the mirror opens LiveBridge (wrong app) and the
-        // proxied source intent then lands on the main display.
-        // So: if this row is a LiveBridge mirror, find the source
-        // notification it mirrors (same title + text, different
-        // package, posted first) and open THAT instead. Strict
-        // match only; on any doubt return null and the normal
-        // mirror path runs.
+        // vc216: the source app a LiveBridge mirror is about,
+        // read from the mirror's own actions - a plain action is
+        // the source app's intent copied verbatim, so its creator
+        // IS the source app (a proxied reply action's creator is
+        // LiveBridge itself and is skipped). Null when this row is
+        // not a mirror or no usable action exists.
+        fun mirrorSourcePackage(n: com.cuong.cflip.service.CoverNotification): String? {
+            if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
+            return n.actionCreatorPackages.firstOrNull { it != null && it != n.packageName }
+        }
+
+        // vc216 LIVEBRIDGE MIRROR UNWRAP (per app): a mirror about
+        // Messenger must open Messenger, a mirror about Zalo must
+        // open Zalo. The reliable per-app signal is the source
+        // package from the mirror's own actions (see
+        // mirrorSourcePackage) - not title/text matching alone.
+        // Falls back to vc215's title+text match when no action
+        // reveals the source.
         fun unwrapLiveBridge(n: com.cuong.cflip.service.CoverNotification): com.cuong.cflip.service.CoverNotification? {
             if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
+            val sourcePkg = mirrorSourcePackage(n)
+            if (sourcePkg != null) {
+                val fromPkg = NotificationState.active.value.filter { it.packageName == sourcePkg }
+                if (fromPkg.isNotEmpty()) {
+                    val title = n.title.trim()
+                    val text = n.text.trim()
+                    val exact = if (title.isNotEmpty() && text.isNotEmpty()) {
+                        fromPkg.filter { it.title.trim() == title && it.text.trim() == text }
+                    } else emptyList()
+                    val target = exact.minByOrNull { it.timeMs } ?: fromPkg.maxByOrNull { it.timeMs }!!
+                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> $sourcePkg via action creator (${if (exact.isNotEmpty()) "title+text" else "most recent"})")
+                    return target
+                }
+                // Known source app, no active notification from it:
+                // openMirrorOrNotif launches the app itself below.
+                return null
+            }
             val title = n.title.trim()
             val text = n.text.trim()
             if (title.isEmpty() || text.isEmpty()) return null
@@ -2284,6 +2309,19 @@ object CoverControlCenterManager {
             if (byTitle.size != 1) return null
             android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${byTitle[0].packageName} (title-only)")
             return byTitle[0]
+        }
+
+        // vc216: one tap path for mirrors and normal rows alike.
+        // Mirror with a known source notification -> open it.
+        // Mirror with a known source app but no active notification
+        // -> open the source app itself (right app, if not the exact
+        // conversation). Anything else -> the normal launch-first tap.
+        fun openMirrorOrNotif(n: com.cuong.cflip.service.CoverNotification): Boolean {
+            val target = unwrapLiveBridge(n)
+            if (target != null) return openNotifOnCover(target) || NotificationController.open(target.key)
+            val sourcePkg = mirrorSourcePackage(n)
+            if (sourcePkg != null && launchAppOnCover(sourcePkg)) return true
+            return openNotifOnCover(n) || NotificationController.open(n.key)
         }
 
         // vc213 NOTIF-ACCESS SETTINGS: opened on the cover display
@@ -2371,10 +2409,7 @@ object CoverControlCenterManager {
             }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setOnClickListener {
-                    val target = unwrapLiveBridge(n) ?: n
-                    if (openNotifOnCover(target) || NotificationController.open(target.key)) hide()
-                }
+                setOnClickListener { if (openMirrorOrNotif(n)) hide() }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
                 ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
@@ -2441,10 +2476,7 @@ object CoverControlCenterManager {
                         setOnClickListener { view ->
                             if (isReply) {
                                 if (openReply(n, appLabel)) hide()
-                                else {
-                                    val target = unwrapLiveBridge(n) ?: n
-                                    if (openNotifOnCover(target) || NotificationController.open(target.key)) hide()
-                                }
+                                else if (openMirrorOrNotif(n)) hide()
                             }
                             // vc215: a mirror's plain action is the SOURCE
                             // app's own intent (LiveBridge copies it

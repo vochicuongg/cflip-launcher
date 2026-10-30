@@ -120,7 +120,15 @@ class MyNotificationListenerService : NotificationListenerService() {
     fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
 
     fun clickActionByKey(key: String, index: Int): Boolean {
-        val sbn = byKey[key]
+        // vc216: the tab's delayed send (500ms after launching the
+        // app) can race a notification update/removal that drops
+        // the key from byKey. Fall back to a fresh fetch instead
+        // of giving up on a key that still exists.
+        val sbn = byKey[key] ?: runCatching {
+            activeNotifications?.find { it.key == key }
+        }.getOrNull()?.also {
+            Log.i(TAG, "action: byKey missed key=$key, fresh fetch found pkg=${it.packageName}")
+        }
         val action = sbn?.notification?.actions?.getOrNull(index) ?: run {
             Log.i(TAG, "action: no action key=$key idx=$index (have ${byKey.size} active)")
             return false
