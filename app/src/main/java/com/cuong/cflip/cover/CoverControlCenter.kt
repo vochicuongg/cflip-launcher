@@ -2239,6 +2239,20 @@ object CoverControlCenterManager {
             }.getOrDefault(false)
         }
 
+        // vc214 LAUNCH-FIRST TAP: vc213's log proved a foreign
+        // content intent sent with cover options still lands on the
+        // main display (send ok=true, nothing visible on the cover).
+        // So: launch the app on the cover FIRST (direct, proven by
+        // the reply screen), then send the content intent after a
+        // beat - NEW_TASK reuses the cover task that now exists, so
+        // the specific conversation lands on the cover too. If the
+        // send fails, the app is at least already open on the cover.
+        fun openNotifOnCover(n: com.cuong.cflip.service.CoverNotification): Boolean {
+            if (!launchAppOnCover(n.packageName)) return false
+            handler.postDelayed({ NotificationController.open(n.key) }, 500)
+            return true
+        }
+
         // vc213 NOTIF-ACCESS SETTINGS: opened on the cover display
         // first (falls back to the main display if that fails).
         fun openNotifSettings() {
@@ -2324,7 +2338,7 @@ object CoverControlCenterManager {
             }
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setOnClickListener { if (NotificationController.open(n.key) || launchAppOnCover(n.packageName)) hide() }
+                setOnClickListener { if (openNotifOnCover(n) || NotificationController.open(n.key)) hide() }
             }
             val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
                 ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
@@ -2388,12 +2402,17 @@ object CoverControlCenterManager {
                             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                             setMargins(0, 0, dp(6), 0)
                         }
-                        setOnClickListener {
+                        setOnClickListener { view ->
                             if (isReply) {
                                 if (openReply(n, appLabel)) hide()
-                                else if (NotificationController.open(n.key) || launchAppOnCover(n.packageName)) hide()
+                                else if (openNotifOnCover(n) || NotificationController.open(n.key)) hide()
                             }
-                            else NotificationController.clickAction(n.key, idx)
+                            // vc214: a dead action (canceled PendingIntent)
+                            // hides its button instead of sitting there
+                            // silently doing nothing on every tap.
+                            else if (!NotificationController.clickAction(n.key, idx)) {
+                                view.visibility = View.GONE
+                            }
                         }
                     })
                 }

@@ -118,22 +118,37 @@ class MyNotificationListenerService : NotificationListenerService() {
 
     fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
 
-    fun clickActionByKey(key: String, index: Int) {
-        val action = byKey[key]?.notification?.actions?.getOrNull(index) ?: run {
+    fun clickActionByKey(key: String, index: Int): Boolean {
+        val sbn = byKey[key]
+        val action = sbn?.notification?.actions?.getOrNull(index) ?: run {
             Log.i(TAG, "action: no action key=$key idx=$index (have ${byKey.size} active)")
-            return
+            return false
         }
-        Log.i(TAG, "action: pkg=${byKey[key]?.packageName} idx=$index isReply=${(action.remoteInputs ?: emptyArray()).isNotEmpty()} cover=${coverDisplayIdForLog()}")
+        Log.i(TAG, "action: pkg=${sbn.packageName} idx=$index isReply=${(action.remoteInputs ?: emptyArray()).isNotEmpty()} cover=${coverDisplayIdForLog()}")
         // vc209: a reply action fired without RemoteInput results
         // could post an empty reply. Open the app instead, so the
         // user replies with real text. (The panel routes reply
         // actions to open directly; this is the backstop.)
-        if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) { openByKey(key); return }
+        if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) return openByKey(key)
         // vc212: action intents that open UI get the same cover
         // routing as taps (background actions ignore the options).
         val res = runCatching { action.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
         Log.i(TAG, "action: send ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
-        res.onFailure { Log.w(TAG, "action send failed", it) }
+        if (res.isSuccess) return true
+        // vc214: a CanceledException usually means the stored copy
+        // is stale (one-shot already consumed, or the app re-posted).
+        // Retry once with a freshly fetched copy before giving up -
+        // the panel hides the button when this still returns false.
+        val freshAction = runCatching {
+            activeNotifications?.find { it.key == key }?.notification?.actions?.getOrNull(index)
+        }.getOrNull()
+        if (freshAction != null && freshAction !== action) {
+            val retry = runCatching { freshAction.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
+            Log.i(TAG, "action: fresh retry ok=${retry.isSuccess} err=${retry.exceptionOrNull()?.message}")
+            if (retry.isSuccess) return true
+        }
+        res.exceptionOrNull()?.let { Log.w(TAG, "action send failed", it) }
+        return false
     }
 
     /** Inline reply through the notification's RemoteInput, exactly like the shade reply. */

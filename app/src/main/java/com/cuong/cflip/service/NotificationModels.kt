@@ -29,7 +29,7 @@ object NotificationController {
     // panel only closes when the tap really went somewhere.
     fun open(key: String): Boolean = listener?.openByKey(key) ?: false
     fun dismiss(key: String) { listener?.dismissByKey(key) }
-    fun clickAction(key: String, index: Int) { listener?.clickActionByKey(key, index) }
+    fun clickAction(key: String, index: Int): Boolean = listener?.clickActionByKey(key, index) ?: false
     fun reply(key: String, message: String) { listener?.replyByKey(key, message) }
     fun isConnected(): Boolean = listener != null
 }
