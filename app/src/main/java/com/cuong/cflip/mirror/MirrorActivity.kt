@@ -111,7 +111,10 @@ class MirrorActivity : ComponentActivity() {
         if (zoomLevel < 3) zoomLevel++ else zoomLevel = 0
         panFractionX = 0.5f; panFractionY = 0.5f
         applyTransform()
-        zoomBtn?.text = if (zoomLevel < 3) "+" else "\u2212"
+        // vc207 ZOOM ICON: level digit + direction, so the user
+        // always knows the level: 1+ (fit, tap zooms in), 2+
+        // (crop fill), 3+ (x1.3), 4- (x1.6 max, tap wraps to fit).
+        zoomBtn?.text = "${zoomLevel + 1}" + if (zoomLevel < 3) "+" else "\u2212"
     }
     // vc206 ALIGN: one button cycles left->center->right. Icon
     // shows the CURRENT alignment. Applies to the fit strip's
@@ -120,9 +123,12 @@ class MirrorActivity : ComponentActivity() {
     fun alignCycle() {
         alignMode = (alignMode + 1) % 3
         applyTransform()
+        // vc207 ALIGN ICON: the arrow of the NEXT alignment, not
+        // the current one - entry shows right (first tap goes
+        // right), then left, then center, then right again.
         alignBtn?.text = when (alignMode) {
-            0 -> "\u2190"
-            2 -> "\u2192"
+            1 -> "\u2192"
+            2 -> "\u2190"
             else -> "\u2194"
         }
     }
@@ -1504,15 +1510,17 @@ class MirrorActivity : ComponentActivity() {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = android.view.Gravity.CENTER
         }
-        // vc206 BUTTONS: one zoom-toggle (levels 0->1->2->3->0,
-        // icon + while zoom-in remains, - at max) and one align
-        // button (left->center->right, icon shows current).
+        // vc206 BUTTONS: one zoom-toggle (levels 0->1->2->3->0)
+        // and one align button (center->right->left).
+        // vc207 ICONS: zoom shows level+direction (1+/2+/3+/4-);
+        // align shows the NEXT arrow (entry right, then left,
+        // then center).
         // Stop stays last. All buttons get one FIXED square size
         // below, so the OVAL background renders as a perfect
         // circle instead of a glyph-sized ellipse.
-        val zoomButton = iconBtn("+", "zoom_toggle")
+        val zoomButton = iconBtn("1+", "zoom_toggle")
         zoomBtn = zoomButton
-        val alignButton = iconBtn("\u2194", "align")
+        val alignButton = iconBtn("\u2192", "align")
         alignBtn = alignButton
         val icons = listOf(
             iconBtn("\u21bb", "rotate"),
