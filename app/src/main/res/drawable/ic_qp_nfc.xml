@@ -3,12 +3,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- NFC, hand-drawn to match Samsung qs_nfc composition: rounded square
-         frame with a stylised N inside -->
+    <!-- NFC, enlarged to match the other tiles: rounded square frame spans
+         4-20 with a larger N inside -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M6,8 Q6,6 8,6 H16 Q18,6 18,8 V16 Q18,18 16,18 H8 Q6,18 6,16 Z M9,16 V8 L15,16 V8" />
+        android:pathData="M4,6 Q4,4 6,4 H18 Q20,4 20,6 V18 Q20,20 18,20 H6 Q4,20 4,18 Z M7,17 V7 L17,17 V7" />
 </vector>

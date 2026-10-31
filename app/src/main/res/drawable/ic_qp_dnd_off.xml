@@ -3,11 +3,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- DND off: Samsung uses the identical circle-minus glyph for both
-         states (confirmed by both on/off frames), only the tile colour
-         changes, so this matches the on glyph -->
+    <!-- DND off: same vc38 circle-minus as on, tile colour shows the state -->
     <path
         android:fillColor="#FFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M12,5.5 m-6.5,0 a6.5,6.5 0 1,1 13,0 a6.5,6.5 0 1,1 -13,0 M8,11.2 H16 V12.8 H8 Z" />
+        android:pathData="M12,2 a10,10 0 1,0 0.01,0 Z M5,11 H19 V13 H5 Z" />
 </vector>

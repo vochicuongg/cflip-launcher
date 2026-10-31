@@ -3,10 +3,10 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Flashlight, hand-drawn to match Samsung quick-panel composition:
-         vertical torch (wide rounded head + straight rounded body) with
-         three light dots fanning above it -->
+    <!-- Flashlight, refined to Samsung frame composition: single torch
+         silhouette with sloped shoulders (no step between head and body)
+         and three small light dots fanning wide, nearly level, above it -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M7,8 V6.5 Q7,5 8.5,5 H15.5 Q17,5 17,6.5 V8 Z M9,8 H15 V18 Q15,20 13,20 H11 Q9,20 9,18 Z M12,3 m-1.2,0 a1.2,1.2 0 1,1 2.4,0 a1.2,1.2 0 1,1 -2.4,0 M8,4.5 m-1.1,0 a1.1,1.1 0 1,1 2.2,0 a1.1,1.1 0 1,1 -2.2,0 M16,4.5 m-1.1,0 a1.1,1.1 0 1,1 2.2,0 a1.1,1.1 0 1,1 -2.2,0" />
+        android:pathData="M7,7 V6 Q7,5 8,5 H16 Q17,5 17,6 V7 L15,9 V18 Q15,20 13,20 H11 Q9,20 9,18 V9 Z M12,2.8 m-0.7,0 a0.7,0.7 0 1,1 1.4,0 a0.7,0.7 0 1,1 -1.4,0 M7.3,3.1 m-0.7,0 a0.7,0.7 0 1,1 1.4,0 a0.7,0.7 0 1,1 -1.4,0 M16.7,3.1 m-0.7,0 a0.7,0.7 0 1,1 1.4,0 a0.7,0.7 0 1,1 -1.4,0" />
 </vector>
