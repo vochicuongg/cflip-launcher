@@ -8,7 +8,16 @@
          group is what the ON/OFF animation toggles). Viewport kept at
          672 so no coordinate conversion is needed. Fill white so CFlip
          tile tint applies. -->
-    <group android:name="s2" android:translateX="335.905" android:translateY="333.236">
+        <!-- vc228: enlarge glyph to 90% (21.6 tall): Samsung 672 viewport
+         glyph is only 384 tall -> 13.7 in a 24 box, too small. Outer group
+         scale 1.575 (=21.6/13.71) + translate recenters it; body stays at
+         the same place in ON and OFF (only rays appear/disappear). -->
+    <group
+        android:scaleX="1.575"
+        android:scaleY="1.575"
+        android:translateX="-193.2"
+        android:translateY="-219.98">
+<group android:name="s2" android:translateX="335.905" android:translateY="333.236">
         <clip-path android:name="s2m1" android:pathData="M-1007.905-1005.236H2688V2688h-5376v-5376M21.177 87.027c0-11.459-9.289-20.748-20.748-20.748s-20.834 9.289-20.834 20.748v.692c0 11.459 9.375 20.748 20.834 20.748s20.748-9.289 20.748-20.748z" />
         <group android:name="s2pg1">
             <group android:name="s2pg1pg1" android:translateX="-0.071" android:translateY="52.107">
@@ -16,4 +25,5 @@
             </group>
         </group>
     </group>
+</group>
 </vector>

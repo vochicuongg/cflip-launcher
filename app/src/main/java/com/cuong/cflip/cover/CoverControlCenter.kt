@@ -1808,6 +1808,16 @@ object CoverControlCenterManager {
             grid.addView(tile(label, iconRes, onClick),
                 GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
+        // vc228: NFC N-Mark is two-tone (black square + white N). The
+        // tile's white tint would flatten it to all-white, so NFC uses
+        // a no-tint tile: same layout, but the white filter is cleared
+        // so the icon shows as-is on the dark circle.
+        fun tileRowNoTint(label: String, iconRes: Int, onClick: () -> Unit) {
+            val (card, _) = tileWithLabel(iconRes, label, false, onClick)
+            (card.getChildAt(0) as? ImageView)?.clearColorFilter()
+            grid.addView(card,
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+        }
         fun tileRowActive(label: String, iconRes: Int, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
                 GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
@@ -1890,7 +1900,7 @@ object CoverControlCenterManager {
         // circle mint when on, dark when off, in place.
         run {
             var torchTileRef: Pair<LinearLayout, TextView>? = null
-            val torchTile = tileWithLabel(if (QuickControls.torchOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off, "Đèn", QuickControls.torchOn) {
+            val torchTile = tileWithLabel(if (QuickControls.torchOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off, "Đèn pin", QuickControls.torchOn) {
                 val nextOn = !QuickControls.torchOn
                 QuickControls.setTorch(ctx, nextOn)
                 val nowOn = QuickControls.torchOn
@@ -1907,7 +1917,7 @@ object CoverControlCenterManager {
         tileRow("Wi-Fi", R.drawable.ic_qp_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_qp_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
-        tileRow("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRowNoTint("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }

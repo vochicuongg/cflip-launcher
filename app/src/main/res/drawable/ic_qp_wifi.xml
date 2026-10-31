@@ -4,7 +4,14 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!-- Quick Panel style wifi, hand-drawn: 3 arcs above a dot -->
-    <path
+        <!-- vc228: enlarge to 90% (21.6 tall): glyph was 12x15.9, too small.
+         Group scale 1.358 (=21.6/15.9) + translate centers it at 16.3x21.6. -->
+    <group
+        android:scaleX="1.358"
+        android:scaleY="1.358"
+        android:translateX="-4.29"
+        android:translateY="-3.55">
+<path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
@@ -13,4 +20,5 @@
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M12,18 m-1.4,0 a1.4,1.4 0 1,1 2.8,0 a1.4,1.4 0 1,1 -2.8,0" />
+</group>
 </vector>
