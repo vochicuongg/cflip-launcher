@@ -1681,7 +1681,12 @@ object CoverControlCenterManager {
                         QuickControls.setVolume(ctx, 0)
                     }
                     android.widget.Toast.makeText(ctx, "Đã bật Tắt âm", android.widget.Toast.LENGTH_SHORT).show()
-                    refreshVol2()
+                    // vc233 MUTE ANIMATION: the volume slider glides
+                    // to min (130ms, DecelerateInterpolator) instead
+                    // of jumping there — the fill shrinks to a stub
+                    // then hides at min (vc231 hide-at-min + vc232
+                    // white icon on the dark track).
+                    volSlider2?.setValue(0f, animate = true)
                 }
             }
             setVolModeIcon(next); resetTimer()

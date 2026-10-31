@@ -188,6 +188,10 @@ class NineFlipSlider @JvmOverloads constructor(
     fun setValue(v: Float, animate: Boolean = false) {
         val target = v.coerceIn(minValue, 1.0f)
         animator?.cancel()
+        // vc233: a programmatic set (e.g. the mute-to-min glide) must
+        // not fight a lingering drag glide — stop it first.
+        dragFillAnimator?.cancel()
+        dragFillAnimator = null
         if (!animate || !isAttachedToWindow || kotlin.math.abs(target - value) < 0.005f) {
             value = target
             updateFill()
