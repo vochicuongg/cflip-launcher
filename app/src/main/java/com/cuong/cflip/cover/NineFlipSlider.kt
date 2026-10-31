@@ -210,7 +210,13 @@ class NineFlipSlider @JvmOverloads constructor(
                 post { updateFill() }
                 return
             }
-            val fillHeight = (thumbSize + (h - thumbSize) * value).toInt()
+            // vc230 MAX GLITCH: the fill must fit the CONTENT height
+            // (inside padding), not the full view height. At value 1.0
+            // the old formula gave fillHeight = h, 8dp taller than the
+            // content area, so the fill's rounded top end was clipped
+            // flat (same for the horizontal width below).
+            val trackH = (h - paddingTop - paddingBottom).coerceAtLeast(thumbSize)
+            val fillHeight = (thumbSize + (trackH - thumbSize) * value).toInt()
             val params = fillView.layoutParams as LayoutParams
             if (params.height != fillHeight) {
                 params.height = fillHeight
@@ -223,7 +229,9 @@ class NineFlipSlider @JvmOverloads constructor(
             post { updateFill() }
             return
         }
-        val fillWidth = (thumbSize + (w - thumbSize) * value).toInt()
+        // vc230 MAX GLITCH: see vertical branch above.
+        val trackW = (w - paddingLeft - paddingRight).coerceAtLeast(thumbSize)
+        val fillWidth = (thumbSize + (trackW - thumbSize) * value).toInt()
         val params = fillView.layoutParams as LayoutParams
         if (params.width != fillWidth) {
             params.width = fillWidth
@@ -296,11 +304,17 @@ class NineFlipSlider @JvmOverloads constructor(
                 if (dragging) {
                     if (vertical) {
                         val h = height
-                        if (h > thumbSize) {
+                        // vc230: drag maps within the CONTENT area
+                        // (inside padding), matching the fixed fill
+                        // geometry, so the fill edge tracks the
+                        // finger and max is reached exactly at the
+                        // content top, not past the view edge.
+                        val trackH = (h - paddingTop - paddingBottom).coerceAtLeast(thumbSize)
+                        if (trackH > thumbSize) {
                             // Fill from bottom: y at top
                             // (thumb/2) = max, y at bottom
                             // (h - thumb/2) = min.
-                            val v = (1f - (event.y - thumbSize / 2f) / (h - thumbSize)).coerceIn(minValue, 1.0f)
+                            val v = (1f - (event.y - paddingTop - thumbSize / 2f) / (trackH - thumbSize)).coerceIn(minValue, 1.0f)
                             if (v != value) {
                                 value = v
                                 updateFill()
@@ -309,8 +323,10 @@ class NineFlipSlider @JvmOverloads constructor(
                         }
                     } else {
                         val w = width
-                        if (w > thumbSize) {
-                            val v = ((event.x - thumbSize / 2f) / (w - thumbSize)).coerceIn(minValue, 1.0f)
+                        // vc230: see vertical branch above.
+                        val trackW = (w - paddingLeft - paddingRight).coerceAtLeast(thumbSize)
+                        if (trackW > thumbSize) {
+                            val v = ((event.x - paddingLeft - thumbSize / 2f) / (trackW - thumbSize)).coerceIn(minValue, 1.0f)
                             if (v != value) {
                                 value = v
                                 updateFill()
