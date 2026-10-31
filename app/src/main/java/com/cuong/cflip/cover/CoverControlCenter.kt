@@ -1367,18 +1367,24 @@ object CoverControlCenterManager {
             }
             mediaProgress.waveformSeed = cur.title.hashCode()
             mediaProgress.wavePlaying = cur.isPlaying
-            // vc236: bars follow playback, only on change (not every tick,
-            // or the animation would restart every second like the old
-            // marquee bug). Static bars when paused, animated when playing.
+            // vc236: bars follow playback. vc237 FIX: while playing, ENSURE
+            // the animation is running every tick (not only on change).
+            // Build-time start() can fail because the view is not attached
+            // yet, and the old change-only check then never re-started it,
+            // leaving static bars. isRunning check avoids restarting an
+            // already-running animation every second.
             if (mediaBarsView?.visibility != View.VISIBLE) mediaBarsView?.visibility = View.VISIBLE
-            if (lastBarsPlaying != cur.isPlaying) {
-                lastBarsPlaying = cur.isPlaying
-                if (cur.isPlaying) {
+            if (cur.isPlaying) {
+                if (mediaBarsView?.drawable !is android.graphics.drawable.AnimatedVectorDrawable) {
                     mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars_anim)
-                    (mediaBarsView?.drawable as? android.graphics.drawable.AnimatedVectorDrawable)?.start()
-                } else {
-                    mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars)
                 }
+                (mediaBarsView?.drawable as? android.graphics.drawable.AnimatedVectorDrawable)?.let {
+                    if (!it.isRunning) it.start()
+                }
+                lastBarsPlaying = true
+            } else if (lastBarsPlaying != false) {
+                lastBarsPlaying = false
+                mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars)
             }
             if (lastPlayIconState != cur.isPlaying) {
                 lastPlayIconState = cur.isPlaying
@@ -1979,7 +1985,9 @@ object CoverControlCenterManager {
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
-        tileRow("Cài đặt nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
+        // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
+        // Accessibility openQuickSettings() does not work, so the tile
+        // is gone instead of dead. "Cài đặt" (Settings app) stays.
         tileRow("Cài đặt", R.drawable.ic_sec_settings) { hide(); runCatching { QuickControls.openDeviceSettings(ctx) } }
         // vc41: Chụp màn hình works directly - Accessibility
         // GLOBAL_ACTION_TAKE_SCREENSHOT (MyAccessibilityService).
