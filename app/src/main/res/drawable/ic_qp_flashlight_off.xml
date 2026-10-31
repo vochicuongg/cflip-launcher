@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="672"
+    android:viewportHeight="672">
+    <!-- Flashlight OFF: Samsung quick_panel_icon_flashlight_off — same
+         body as the ON vector but without the 3 light dots (the dots
+         group is what the ON/OFF animation toggles). Viewport kept at
+         672 so no coordinate conversion is needed. Fill white so CFlip
+         tile tint applies. -->
+    <group android:name="s2" android:translateX="335.905" android:translateY="333.236">
+        <clip-path android:name="s2m1" android:pathData="M-1007.905-1005.236H2688V2688h-5376v-5376M21.177 87.027c0-11.459-9.289-20.748-20.748-20.748s-20.834 9.289-20.834 20.748v.692c0 11.459 9.375 20.748 20.834 20.748s20.748-9.289 20.748-20.748z" />
+        <group android:name="s2pg1">
+            <group android:name="s2pg1pg1" android:translateX="-0.071" android:translateY="52.107">
+                <path android:name="s2pg1pg1p10" android:fillColor="#FFFFFF" android:pathData="M-95.76-92.089v-44.858c0-12.511 10.142-22.653 22.653-22.653H73.107c12.511 0 22.653 10.142 22.653 22.653v44.858c0 4.929-1.57 9.739-4.472 13.776L58.39-32.647v168.143c0 13.306-11.161 24.104-24.913 24.104h-66.954c-13.752 0-24.913-10.798-24.913-24.104V-32.647l-32.898-45.654c-2.915-4.05-4.472-8.859-4.472-13.788" />
+            </group>
+        </group>
+    </group>
+</vector>

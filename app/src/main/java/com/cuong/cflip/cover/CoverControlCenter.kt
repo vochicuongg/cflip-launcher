@@ -741,6 +741,10 @@ object CoverControlCenterManager {
         // PanelIconView entries get tinted on selection.
         val tabIconViews = mutableListOf<View>()
         val tabLabels = mutableListOf<TextView>()
+        // vc227: notification tab uses the user-supplied bell drawable
+        // (ic_qp_bell) as an ImageView, not PanelIconView, so it needs
+        // its own tint reference (PanelIconView cast skips ImageViews).
+        var bellTabIcon: android.widget.ImageView? = null
         // vc41 lazy apps: the apps tab used to be built on EVERY panel
         // open (queryIntentActivities + loadIcon for every app +
         // getPackageInfo for every package), even though the user
@@ -762,6 +766,7 @@ object CoverControlCenterManager {
                     (tabIconViews[idx] as? PanelIconView)?.setTint(0xFFFFFFFF.toInt())
                     tabLabels[idx].setTextColor(0xFFFFFFFF.toInt())
                 }
+                if (idx == 1) bellTabIcon?.setColorFilter(if (idx == i) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
             }
             // vc112: smooth tab switch - fade the
             // newly visible tab in (150ms). At
@@ -786,8 +791,11 @@ object CoverControlCenterManager {
                 0 -> PanelIconView(ctx, PanelIcon.GEAR, 0xFFFFFFFF.toInt(), 0.9f).apply {
                     layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
                 }
-                1 -> PanelIconView(ctx, PanelIcon.BELL, 0xFFFFFFFF.toInt(), 0.9f).apply {
+                1 -> android.widget.ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_qp_bell)
+                    setColorFilter(0xFFFFFFFF.toInt())
                     layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                    bellTabIcon = this
                 }
                 2 -> PanelIconView(ctx, PanelIcon.GRID, 0xFFFFFFFF.toInt(), 0.9f).apply {
                     layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
@@ -1882,12 +1890,13 @@ object CoverControlCenterManager {
         // circle mint when on, dark when off, in place.
         run {
             var torchTileRef: Pair<LinearLayout, TextView>? = null
-            val torchTile = tileWithLabel(R.drawable.ic_qp_flashlight, "Đèn", QuickControls.torchOn) {
+            val torchTile = tileWithLabel(if (QuickControls.torchOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off, "Đèn", QuickControls.torchOn) {
                 val nextOn = !QuickControls.torchOn
                 QuickControls.setTorch(ctx, nextOn)
                 val nowOn = QuickControls.torchOn
                 torchTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
                 val circle = torchTileRef?.first?.getChildAt(0) as? ImageView
+                circle?.setImageResource(if (nowOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off)
                 circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
                 (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
                     if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
