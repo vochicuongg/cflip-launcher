@@ -1804,16 +1804,16 @@ object CoverControlCenterManager {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
                 GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
-        // vc31: Rotate is ONE tile cycling FOLLOW -> LOCK -> SYSTEM.
-        // Press 1 = FOLLOW (FULL_SENSOR host, follows flip direction),
-        // press 2 = LOCK (fixed host at current rotation),
-        // press 3 = SYSTEM (remove host, back to Samsung default),
-        // press 4 = FOLLOW again. Label shows the CURRENT mode; the
-        // tile is mint/active while a host exists, dark when SYSTEM.
+        // vc225: Rotate is ONE tile toggling Xoay <-> Khoa, like Samsung's
+        // main-screen auto-rotate tile: Xoay (FULL_SENSOR host, follows
+        // flip direction) is mint/active, Khoa (fixed host at current
+        // rotation) is dark/inactive. Legacy SYSTEM (mode 2, host
+        // removed) still shows "Mac dinh" dark and goes to Xoay on the
+        // next tap; it is no longer part of the cycle.
         run {
             val currentMode = store.load().rotateMode
             val rotateLabel = when (currentMode) {
-                0 -> "Theo lật"
+                0 -> "Xoay"
                 1 -> "Khóa xoay"
                 else -> "Mặc định"
             }
@@ -1829,17 +1829,17 @@ object CoverControlCenterManager {
             // initializer lambda (Kotlin: unresolved reference). Use a
             // holder declared BEFORE the tile, assigned right after.
             var rotateTileRef: Pair<LinearLayout, TextView>? = null
-            val rotateTile = tileWithLabel(rotateIcon, rotateLabel, currentMode != 2) {
+            val rotateTile = tileWithLabel(rotateIcon, rotateLabel, currentMode == 0) {
                 // vc39 FIX: previously `next` was computed from `currentMode`,
                 // a val captured when the panel was built. First click
                 // worked, second click recomputed the SAME next, so the
                 // tile looked stuck until the panel was rebuilt (close +
                 // reopen, or toggle AssistiveTouch off/on). Now every
-                // click re-reads the stored mode, so the cycle
-                // FOLLOW -> LOCK -> SYSTEM -> FOLLOW works repeatedly
+                // click re-reads the stored mode, so the toggle
+                // Xoay <-> Khoa works repeatedly
                 // in the same panel, with no reopen needed.
                 val curMode = store.load().rotateMode
-                val next = when (curMode) { 0 -> 1; 1 -> 2; else -> 0 }
+                val next = when (curMode) { 0 -> 1; else -> 0 }
                 store.save(store.load().copy(rotateMode = next))
                 CoverRotateState.contentFallback = false
                 when (next) {
@@ -1858,18 +1858,12 @@ object CoverControlCenterManager {
                             ctx, "Đã khóa xoay màn hình ngoài ở hướng hiện tại.",
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
-                    else -> {
-                        CoverRotateHostManager.remove()
-                        android.widget.Toast.makeText(
-                            ctx, "Đã về xoay mặc định hệ thống — gỡ host xoay.",
-                            android.widget.Toast.LENGTH_SHORT).show()
-                    }
                 }
                 // vc33: panel stays open, bubble untouched. Update the
                 // tile itself in place so the new mode is visible immediately.
-                val newLabel = when (next) { 0 -> "Theo lật"; 1 -> "Khóa xoay"; else -> "Mặc định" }
+                val newLabel = if (next == 1) "Khóa xoay" else "Xoay"
                 val newIcon = if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_qp_rotate_auto
-                val newActive = next != 2
+                val newActive = next == 0
                 rotateTileRef?.second?.text = newLabel
                 rotateTileRef?.second?.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
                 val circle = rotateTileRef?.first?.getChildAt(0) as? ImageView ?: return@tileWithLabel
