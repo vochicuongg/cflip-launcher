@@ -5,10 +5,17 @@
     android:viewportHeight="24">
     <!-- Screenshot, enlarged to match the other tiles: crop brackets span
          4-20 with a larger picture (frame + mountain skyline) inside -->
-    <path
+        <!-- vc234: enlarge 16x16 -> 21.6x21.6 (was 66% of box) -->
+    <group
+        android:scaleX="1.35"
+        android:scaleY="1.35"
+        android:translateX="-4.2"
+        android:translateY="-4.2">
+<path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M4,10 L4,6 Q4,4 6,4 L10,4 M14,4 L18,4 Q20,4 20,6 L20,10 M20,14 L20,18 Q20,20 18,20 L14,20 M10,20 L6,20 Q4,20 4,18 L4,14 M8,9 Q8,8 9,8 H15 Q16,8 16,9 V15 Q16,16 15,16 H9 Q8,16 8,15 Z M8.5,14.5 L10.5,11.5 L11.5,13 L13,10.5 L15.5,13" />
+</group>
 </vector>
