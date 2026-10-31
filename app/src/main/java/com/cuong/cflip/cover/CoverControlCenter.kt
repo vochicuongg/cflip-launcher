@@ -1888,7 +1888,7 @@ object CoverControlCenterManager {
         // circle mint when on, dark when off, in place.
         run {
             var torchTileRef: Pair<LinearLayout, TextView>? = null
-            val torchTile = tileWithLabel(R.drawable.ic_sec_flashlight, "Đèn", QuickControls.torchOn) {
+            val torchTile = tileWithLabel(R.drawable.ic_qp_flashlight, "Đèn", QuickControls.torchOn) {
                 val nextOn = !QuickControls.torchOn
                 QuickControls.setTorch(ctx, nextOn)
                 val nowOn = QuickControls.torchOn
@@ -1901,8 +1901,8 @@ object CoverControlCenterManager {
             torchTileRef = torchTile
             grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
         }
-        tileRow("Wi-Fi", R.drawable.ic_cflip_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth", R.drawable.ic_cflip_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
+        tileRow("Wi-Fi", R.drawable.ic_qp_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
+        tileRow("Bluetooth", R.drawable.ic_qp_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
         tileRow("NFC", R.drawable.ic_cflip_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
@@ -2046,12 +2046,12 @@ object CoverControlCenterManager {
         // (the supported route, like 9Flip's Settings-opening tiles),
         // with an honest toast. DND CAN toggle when CFlip has
         // Notification Policy Access, otherwise it opens that grant page.
-        tileRow("Dữ liệu", R.drawable.ic_cflip_mobiledata) {
+        tileRow("Dữ liệu", R.drawable.ic_qp_data) {
             hide()
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Dữ liệu di động để bật/tắt (Android không cho app thường bật/tắt trực tiếp)", android.widget.Toast.LENGTH_LONG).show()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        tileRow("Chia sẻ Internet", R.drawable.ic_cflip_hotspot) {
+        tileRow("Chia sẻ Internet", R.drawable.ic_qp_hotspot) {
             hide()
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Chia sẻ kết nối để bật/tắt điểm phát sóng", android.widget.Toast.LENGTH_LONG).show()
             runCatching {
@@ -2061,7 +2061,7 @@ object CoverControlCenterManager {
                 else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        tileRow("Máy bay", R.drawable.ic_cflip_airplane) {
+        tileRow("Máy bay", R.drawable.ic_qp_airplane) {
             hide()
             runCatching {
                 val appCtx = ctx.applicationContext
@@ -2070,7 +2070,7 @@ object CoverControlCenterManager {
                 else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        tileRow("Vị trí", R.drawable.ic_cflip_location) {
+        tileRow("Vị trí", R.drawable.ic_qp_location) {
             hide()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
@@ -2084,7 +2084,7 @@ object CoverControlCenterManager {
             val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
             val dndOn = nm?.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
             var dndTileRef: Pair<LinearLayout, TextView>? = null
-            val dndTile = tileWithLabel(if (dndOn) R.drawable.ic_cflip_dnd else R.drawable.ic_cflip_dnd_off, "Không làm phiền", dndOn) {
+            val dndTile = tileWithLabel(if (dndOn) R.drawable.ic_qp_dnd else R.drawable.ic_qp_dnd_off, "Không làm phiền", dndOn) {
                 if (nm != null && nm.isNotificationPolicyAccessGranted) {
                     val next = if (nm.currentInterruptionFilter == android.app.NotificationManager.INTERRUPTION_FILTER_ALL)
                         android.app.NotificationManager.INTERRUPTION_FILTER_NONE
@@ -2094,7 +2094,7 @@ object CoverControlCenterManager {
                     android.widget.Toast.makeText(ctx, if (nowOn) "Đã bật Không làm phiền" else "Đã tắt Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
                     dndTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
                     val circle = dndTileRef?.first?.getChildAt(0) as? ImageView
-                    circle?.setImageResource(if (nowOn) R.drawable.ic_cflip_dnd else R.drawable.ic_cflip_dnd_off)
+                    circle?.setImageResource(if (nowOn) R.drawable.ic_qp_dnd else R.drawable.ic_qp_dnd_off)
                     circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
                     (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
                         if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
