@@ -1488,7 +1488,7 @@ object CoverControlCenterManager {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
-            setIcon(R.drawable.ic_sec_brightness)
+            setIcon(R.drawable.ic_qp_brightness)
             // vc118 BASE-ICON ONLY: tip auto icon
             // removed; its toggle moves to the base
             // sun icon below (setLeftClickListener).
@@ -1565,7 +1565,7 @@ object CoverControlCenterManager {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
-            setIcon(R.drawable.ic_sec_volume)
+            setIcon(R.drawable.ic_qp_sound)
             // vc118 BASE-ICON ONLY: tip mute icon
             // removed; its music mute / restore
             // moves into the base icon's Mute step
@@ -1621,9 +1621,9 @@ object CoverControlCenterManager {
         // change is corrected without flicker).
         fun setVolModeIcon(mode: Int) {
             volSlider2?.setIcon(when (mode) {
-                1 -> R.drawable.ic_cflip_vibrate
-                2 -> R.drawable.ic_sec_mute
-                else -> R.drawable.ic_sec_volume
+                1 -> R.drawable.ic_qp_sound_vibrate
+                2 -> R.drawable.ic_qp_sound_mute
+                else -> R.drawable.ic_qp_sound
             })
         }
         fun refreshVolModeIcon() {
