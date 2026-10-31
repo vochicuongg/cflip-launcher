@@ -116,6 +116,9 @@ class NineFlipSlider @JvmOverloads constructor(
     private var dragging = false
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var animator: ValueAnimator? = null
+    // vc232: drag-fill glide animator (separate from setValue's
+    // programmatic animator, so the two never fight).
+    private var dragFillAnimator: ValueAnimator? = null
 
     init {
         // Outer pill, like 9Flip p6.b().
@@ -203,15 +206,80 @@ class NineFlipSlider @JvmOverloads constructor(
         anim.start()
     }
 
+    // vc232: fill visibility + icon tint follow the fill state, shared
+    // by updateFill() (immediate) and the drag path (animated size).
+    // At the bottom the fill hides, so the icon sits on the dark
+    // track and must be WHITE; above the bottom the icon sits on the
+    // white fill and stays dark grey (63,63,63).
+    private fun updateFillState() {
+        if (value <= minValue) {
+            if (fillView.visibility != View.GONE) fillView.visibility = View.GONE
+            leftIcon.setColorFilter(Color.WHITE)
+        } else {
+            if (fillView.visibility != View.VISIBLE) fillView.visibility = View.VISIBLE
+            leftIcon.setColorFilter(Color.rgb(63, 63, 63))
+        }
+    }
+
+    // vc232 DRAG ANIMATION: glide the fill edge toward the finger's
+    // target value (100ms, DecelerateInterpolator) instead of jumping
+    // to it. The VALUE itself still updates immediately (so brightness
+    // / volume respond in real time); only the fill's visual edge
+    // glides. Each drag move cancels the previous glide and starts a
+    // new one from the current edge, so the fill chases the finger
+    // without ever lagging more than 100ms behind it.
+    private fun animateFillSizeTo(targetValue: Float) {
+        if (targetValue <= minValue) return // hidden, nothing to glide
+        dragFillAnimator?.cancel()
+        if (vertical) {
+            val h = height
+            if (h <= 0) return
+            val trackH = (h - paddingTop - paddingBottom).coerceAtLeast(thumbSize)
+            if (trackH <= thumbSize) return
+            val target = (thumbSize + (trackH - thumbSize) * targetValue).toInt()
+            val params = fillView.layoutParams as LayoutParams
+            val start = params.height
+            if (start == target) return
+            val anim = ValueAnimator.ofInt(start, target).apply {
+                duration = 100L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    val p = fillView.layoutParams as LayoutParams
+                    p.height = it.animatedValue as Int
+                    fillView.layoutParams = p
+                }
+            }
+            dragFillAnimator = anim
+            anim.start()
+        } else {
+            val w = width
+            if (w <= 0) return
+            val trackW = (w - paddingLeft - paddingRight).coerceAtLeast(thumbSize)
+            if (trackW <= thumbSize) return
+            val target = (thumbSize + (trackW - thumbSize) * targetValue).toInt()
+            val params = fillView.layoutParams as LayoutParams
+            val start = params.width
+            if (start == target) return
+            val anim = ValueAnimator.ofInt(start, target).apply {
+                duration = 100L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    val p = fillView.layoutParams as LayoutParams
+                    p.width = it.animatedValue as Int
+                    fillView.layoutParams = p
+                }
+            }
+            dragFillAnimator = anim
+            anim.start()
+        }
+    }
+
     private fun updateFill() {
         // vc231: at the bottom (value == minValue) the level is not
         // shown at all — the fill hides, so the bar looks empty
         // (applies to both sliders: volume 0, brightness minimum).
-        if (value <= minValue) {
-            if (fillView.visibility != View.GONE) fillView.visibility = View.GONE
-            return
-        }
-        if (fillView.visibility != View.VISIBLE) fillView.visibility = View.VISIBLE
+        updateFillState()
+        if (value <= minValue) return
         if (vertical) {
             val h = height
             if (h <= 0) {
@@ -325,7 +393,10 @@ class NineFlipSlider @JvmOverloads constructor(
                             val v = (1f - (event.y - paddingTop - thumbSize / 2f) / (trackH - thumbSize)).coerceIn(minValue, 1.0f)
                             if (v != value) {
                                 value = v
-                                updateFill()
+                                // vc232: value updates now (real-time),
+                                // fill edge glides to it (animated).
+                                updateFillState()
+                                animateFillSizeTo(v)
                                 onValueChanged?.invoke(v)
                             }
                         }
@@ -337,7 +408,10 @@ class NineFlipSlider @JvmOverloads constructor(
                             val v = ((event.x - paddingLeft - thumbSize / 2f) / (trackW - thumbSize)).coerceIn(minValue, 1.0f)
                             if (v != value) {
                                 value = v
-                                updateFill()
+                                // vc232: value updates now (real-time),
+                                // fill edge glides to it (animated).
+                                updateFillState()
+                                animateFillSizeTo(v)
                                 onValueChanged?.invoke(v)
                             }
                         }
@@ -350,7 +424,15 @@ class NineFlipSlider @JvmOverloads constructor(
                 val wasDragging = dragging
                 dragging = false
                 parent?.requestDisallowInterceptTouchEvent(false)
-                if (wasDragging) onDragEnd?.invoke()
+                if (wasDragging) {
+                    // vc232: stop the glide and snap the fill to the
+                    // exact final value, so it never lags behind the
+                    // finger after release.
+                    dragFillAnimator?.cancel()
+                    dragFillAnimator = null
+                    updateFill()
+                    onDragEnd?.invoke()
+                }
                 return true
             }
         }
