@@ -1819,7 +1819,7 @@ object CoverControlCenterManager {
             }
             val rotateIcon = when (currentMode) {
                 1 -> R.drawable.ic_cflip_lock
-                else -> R.drawable.ic_sec_rotate
+                else -> R.drawable.ic_qp_rotate_auto
             }
             // vc33: 9Flip toggle tiles re-render in place and do NOT close
             // the panel. Previously CFlip closed the panel and hid+re-showed
@@ -1868,7 +1868,7 @@ object CoverControlCenterManager {
                 // vc33: panel stays open, bubble untouched. Update the
                 // tile itself in place so the new mode is visible immediately.
                 val newLabel = when (next) { 0 -> "Theo lật"; 1 -> "Khóa xoay"; else -> "Mặc định" }
-                val newIcon = if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_sec_rotate
+                val newIcon = if (next == 1) R.drawable.ic_cflip_lock else R.drawable.ic_qp_rotate_auto
                 val newActive = next != 2
                 rotateTileRef?.second?.text = newLabel
                 rotateTileRef?.second?.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())

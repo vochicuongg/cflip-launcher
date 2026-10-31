@@ -3,12 +3,15 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- NFC: AOSP ic_qs_nfc pathData verbatim (Apache 2.0, self-contained).
-         Only change: intrinsic size 48dp -> 24dp to match other tiles.
-         The two unfilled paths render nothing (transparent). -->
-    <path android:pathData="M4 20h16V4H4v16z" />
+    <!-- NFC v3: Samsung ic_sec_nfc (= ic_qs_nfc, N-in-frame) reads as a plain
+         rectangle at CFlip tile size, so this is a bold N with broadcast
+         waves on both sides (vc38 design, enlarged) that reads as NFC at
+         small size. Hand-drawn, stroke only, render-verified. -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M20 2H4c-1.1 0-2 .9-2 2v16c0 1.1 .9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 18H4V4h16v16zM18 6h-5c-1.1 0-2 .9-2 2v2.28c-.6 .35 -1 .98-1 1.72 0 1.1 .9 2 2 2s2-.9 2-2c0-.74-.4-1.38-1-1.72V8h3v8H8V8h2V6H6v12h12V6z" />
-    <path android:pathData="M0 0h24v24H0z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M7,18 V6 L17,18 V6 M5,9.5 A4.5,4.5 0 0,0 5,14.5 M2.5,7 A8.5,8.5 0 0,0 2.5,17 M19,9.5 A4.5,4.5 0 0,1 19,14.5 M21.5,7 A8.5,8.5 0 0,1 21.5,17" />
 </vector>

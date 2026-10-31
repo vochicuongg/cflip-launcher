@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Rotate AUTO (follow/system states): hand-drawn Samsung-style
+         auto-rotate icon — portrait phone with two curved arrows wrapping
+         it clockwise. Replaces ic_sec_rotate (square + 2 arrows, not an
+         auto-rotate icon). Render-verified: phone 8-16 x 4-20, arcs to
+         x=3.5 (left) and x=20.5 (right), arrowheads pointing clockwise. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M10,4 H14 Q16,4 16,6 V18 Q16,20 14,20 H10 Q8,20 8,18 V6 Q8,4 10,4 Z M18,6 A8.5,8.5 0 0,1 18,18 M6,18 A8.5,8.5 0 0,1 6,6" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16.7,19.3 L19.3,18.6 L17.4,16.7 Z M7.3,4.7 L6.6,7.3 L4.7,5.4 Z" />
+</vector>
