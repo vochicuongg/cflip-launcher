@@ -1473,6 +1473,9 @@ object CoverControlCenterManager {
         fun refreshBright2() {
             val st = store.load()
             brightSlider2?.setManual(st.panelBrightnessManual)
+            // vc231: brightness icon follows the mode (sun = manual,
+            // sun+A = auto), so the mode is visible, not just alpha.
+            brightSlider2?.setIcon(if (st.panelBrightnessManual) R.drawable.ic_qp_brightness else R.drawable.ic_qp_brightness_auto)
             brightSlider2?.minValue = 0.05f
             brightSlider2?.setValue(effectivePanelBrightness(), animate = false)
         }
@@ -1488,7 +1491,7 @@ object CoverControlCenterManager {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
-            setIcon(R.drawable.ic_qp_brightness)
+            setIcon(if (store.load().panelBrightnessManual) R.drawable.ic_qp_brightness else R.drawable.ic_qp_brightness_auto)
             // vc118 BASE-ICON ONLY: tip auto icon
             // removed; its toggle moves to the base
             // sun icon below (setLeftClickListener).
@@ -1502,6 +1505,10 @@ object CoverControlCenterManager {
                     cur = cur.copy(panelBrightnessManual = true)
                     store.save(cur)
                     setManual(true)
+                    // vc231: dragging forces manual mode, so the icon
+                    // switches to the plain sun right away (not just
+                    // on the next refreshBright2()).
+                    setIcon(R.drawable.ic_qp_brightness)
                 }
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
@@ -1537,9 +1544,10 @@ object CoverControlCenterManager {
             // manual / auto (was the tip auto
             // icon's job). Manual state still shows
             // as slider alpha (1.0 manual / 0.42
-            // auto); the toast names the new state
-            // because the icon itself no longer
-            // changes. Note: a drag starting exactly
+            // auto); vc231: the icon itself now
+            // changes too (sun = manual, sun+A =
+            // auto), plus the toast names the new
+            // state. Note: a drag starting exactly
             // on the sun icon now taps instead of
             // dragging, same as the speaker icon.
             setLeftClickListener {
@@ -1919,7 +1927,7 @@ object CoverControlCenterManager {
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
         tileRowNoTint("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
-        tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
+        tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         tileRow("Cài đặt nhanh", R.drawable.ic_sec_settings) { a11yAction("Cài đặt nhanh") { it.openQuickSettings() } }
         tileRow("Cài đặt", R.drawable.ic_sec_settings) { hide(); runCatching { QuickControls.openDeviceSettings(ctx) } }

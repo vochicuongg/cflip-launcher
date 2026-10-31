@@ -204,6 +204,14 @@ class NineFlipSlider @JvmOverloads constructor(
     }
 
     private fun updateFill() {
+        // vc231: at the bottom (value == minValue) the level is not
+        // shown at all — the fill hides, so the bar looks empty
+        // (applies to both sliders: volume 0, brightness minimum).
+        if (value <= minValue) {
+            if (fillView.visibility != View.GONE) fillView.visibility = View.GONE
+            return
+        }
+        if (fillView.visibility != View.VISIBLE) fillView.visibility = View.VISIBLE
         if (vertical) {
             val h = height
             if (h <= 0) {
