@@ -1561,12 +1561,15 @@ object CoverControlCenterManager {
                 // already blocks drags when auto): ignore drags while
                 // auto instead of forcing manual (old vc118 behavior,
                 // superseded by the user's 31/10 lock request).
-                if (!cur.panelBrightnessManual) return@onValueChanged
-                store.save(cur.copy(panelBrightness = v))
-                applyPanelBrightness(ctx.applicationContext)
-                CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
-                CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
-                CoverBrightnessHolder.apply(ctx.applicationContext)
+                // vc239 FIX: return@label is prohibited for a lambda
+                // assigned to a property, so the body is gated by an
+                // if instead of an early return.
+                if (cur.panelBrightnessManual) {
+                    store.save(cur.copy(panelBrightness = v))
+                    applyPanelBrightness(ctx.applicationContext)
+                    CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
+                    CoverSwipeIndicatorManager.applyBarBrightness(ctx.applicationContext)
+                    CoverBrightnessHolder.apply(ctx.applicationContext)
                 // vc140 SYNC (user, 29/10): CFlip brightness and system
                 // brightness follow each other - dragging the panel slider
                 // also writes the system value when the WRITE_SETTINGS
@@ -1577,7 +1580,8 @@ object CoverControlCenterManager {
                 // otherwise auto-brightness would override the value.
                 // vc141: a failed system write is remembered for the
                 // once-per-drag toast in onDragEnd below.
-                if (!QuickControls.setBrightness(ctx, (v * 255).toInt().coerceIn(0, 255))) brightnessSyncFailed = true
+                    if (!QuickControls.setBrightness(ctx, (v * 255).toInt().coerceIn(0, 255))) brightnessSyncFailed = true
+                }
             }
             onDragEnd = {
                 // vc141: the system half of the sync fails silently without
@@ -1639,10 +1643,16 @@ object CoverControlCenterManager {
                 // vc238 LOCK (defense in depth; the slider-level lock
                 // already blocks drags when muted): ignore drags while
                 // muted (tap the sound button to leave mute first).
-                if (soundMode() == 2) return@onValueChanged
-                val (_, volMax2) = QuickControls.volume(ctx)
-                QuickControls.setVolume(ctx, (v * volMax2).toInt())
-                refreshVol2()
+                // vc239 FIX: no early return (prohibited for a lambda
+                // assigned to a property), and soundMode() is declared
+                // below this block so it is not in scope here — read
+                // the ringer mode directly instead.
+                val am = ctx.getSystemService(android.media.AudioManager::class.java)
+                if (am?.ringerMode != android.media.AudioManager.RINGER_MODE_SILENT) {
+                    val (_, volMax2) = QuickControls.volume(ctx)
+                    QuickControls.setVolume(ctx, (v * volMax2).toInt())
+                    refreshVol2()
+                }
             }
             onDragEnd = { resetTimer() }
         }
