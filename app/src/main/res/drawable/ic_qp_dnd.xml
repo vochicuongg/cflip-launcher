@@ -3,14 +3,10 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- DND on: bell with diagonal slash, hand-drawn -->
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M6,14 C6,7 8.5,3.5 12,3.5 C15.5,3.5 18,7 18,14 L20,16.5 H4 L6,14 Z M4,4 L20,20" />
+    <!-- DND on, hand-drawn to match Samsung quick-panel glyph proportions:
+         circle with a horizontal slot cut out (circle-minus) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12,19.5 m-1.2,0 a1.2,1.2 0 1,1 2.4,0 a1.2,1.2 0 1,1 -2.4,0" />
+        android:fillType="evenOdd"
+        android:pathData="M12,5.5 m-6.5,0 a6.5,6.5 0 1,1 13,0 a6.5,6.5 0 1,1 -13,0 M8,11.2 H16 V12.8 H8 Z" />
 </vector>

@@ -3,11 +3,10 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Bluetooth rune, hand-drawn: vertical spine + two triangles each side -->
+    <!-- Bluetooth rune, hand-drawn to match Samsung quick-panel composition:
+         bold filled rune (spine + 4 points) with two triangular cutouts -->
     <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M14,3 V21 M14,3 L19,8 L14,12 M14,12 L19,16 L14,21 M14,3 L9,8 L14,12 M14,12 L9,16 L14,21" />
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M11,2 L13,2 L18,7 L13,12 L18,17 L13,22 L11,22 L6,17 L11,12 L6,7 Z M14,6 L14,10 L16,8 Z M14,14 L14,18 L16,16 Z" />
 </vector>

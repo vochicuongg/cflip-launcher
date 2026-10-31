@@ -1904,7 +1904,7 @@ object CoverControlCenterManager {
         tileRow("Wi-Fi", R.drawable.ic_qp_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_qp_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
         tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
-        tileRow("NFC", R.drawable.ic_cflip_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
+        tileRow("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_sec_recent) { a11yAction("Gần đây") { it.openRecents() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
@@ -1935,7 +1935,7 @@ object CoverControlCenterManager {
         // the panel to be fully gone, and REMOVES the silent main
         // fallback: a failed cover shot now reports its real error
         // code instead of saving a wrong-display photo.
-        tileRow("Chụp màn hình", R.drawable.ic_cflip_screenshot) {
+        tileRow("Chụp màn hình", R.drawable.ic_qp_screenshot) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
                 android.widget.Toast.makeText(ctx, "Chụp màn hình không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
