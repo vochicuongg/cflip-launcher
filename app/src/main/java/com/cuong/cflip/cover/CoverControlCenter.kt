@@ -1123,7 +1123,36 @@ object CoverControlCenterManager {
         // request 27/10 - the timeline wave below
         // (MediaProgressBar, 9Flip e4/i) is now the
         // only wave in the media card.
-        mediaContent.addView(title("Âm thanh"))
+        // vc236: sound bars next to the "Âm thanh" title (Samsung-style
+        // equalizer). Animates while playing, static when paused, hidden
+        // when no media. The progress wave below is untouched.
+        var mediaBarsView: ImageView? = null
+        var lastBarsPlaying: Boolean? = null
+        val mediaTitleRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(title("Âm thanh"))
+            val bars = ImageView(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(20), dp(16)).apply {
+                    leftMargin = dp(8)
+                }
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            mediaBarsView = bars
+            addView(bars)
+        }
+        mediaContent.addView(mediaTitleRow)
+        // vc236 initial bars state (session at build time).
+        if (mediaInfo == null) {
+            mediaBarsView?.visibility = View.GONE
+        } else if (mediaInfo.isPlaying) {
+            mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars_anim)
+            (mediaBarsView?.drawable as? android.graphics.drawable.AnimatedVectorDrawable)?.start()
+            lastBarsPlaying = true
+        } else {
+            mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars)
+            lastBarsPlaying = false
+        }
         val mediaTitleView = TextView(ctx).apply {
             text = mediaInfo?.title ?: "Chưa có media đang phát"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
             maxLines = 1; isSingleLine = true; isSelected = true
@@ -1301,6 +1330,9 @@ object CoverControlCenterManager {
                 // down to the timeline instead of
                 // freezing at full height.
                 mediaProgress.wavePlaying = false
+                // vc236: no session -> hide bars (re-init on next session).
+                mediaBarsView?.visibility = View.GONE
+                lastBarsPlaying = null
                 return
             }
             // vc112 TITLE MARQUEE FIX (user,
@@ -1335,6 +1367,19 @@ object CoverControlCenterManager {
             }
             mediaProgress.waveformSeed = cur.title.hashCode()
             mediaProgress.wavePlaying = cur.isPlaying
+            // vc236: bars follow playback, only on change (not every tick,
+            // or the animation would restart every second like the old
+            // marquee bug). Static bars when paused, animated when playing.
+            if (mediaBarsView?.visibility != View.VISIBLE) mediaBarsView?.visibility = View.VISIBLE
+            if (lastBarsPlaying != cur.isPlaying) {
+                lastBarsPlaying = cur.isPlaying
+                if (cur.isPlaying) {
+                    mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars_anim)
+                    (mediaBarsView?.drawable as? android.graphics.drawable.AnimatedVectorDrawable)?.start()
+                } else {
+                    mediaBarsView?.setImageResource(R.drawable.ic_qp_sound_bars)
+                }
+            }
             if (lastPlayIconState != cur.isPlaying) {
                 lastPlayIconState = cur.isPlaying
                 mediaPlayButtonRef?.setImageResource(if (cur.isPlaying) R.drawable.ic_cflip_pause else R.drawable.ic_cflip_play)

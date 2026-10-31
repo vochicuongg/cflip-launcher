@@ -1,0 +1,45 @@
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:drawable="@drawable/ic_qp_sound_bars">
+    <!-- vc236: equalizer bounce. Each bar scales Y around its bottom pivot
+         (see ic_qp_sound_bars.xml). Different durations + start offsets so
+         the bars bounce out of phase, not in sync. -->
+    <target android:name="bar0">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:valueFrom="0.4"
+                android:valueTo="1.25"
+                android:duration="520"
+                android:repeatCount="infinite"
+                android:repeatMode="reverse"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+    <target android:name="bar1">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:valueFrom="0.4"
+                android:valueTo="1.25"
+                android:duration="640"
+                android:startOffset="150"
+                android:repeatCount="infinite"
+                android:repeatMode="reverse"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+    <target android:name="bar2">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:valueFrom="0.4"
+                android:valueTo="1.25"
+                android:duration="580"
+                android:startOffset="300"
+                android:repeatCount="infinite"
+                android:repeatMode="reverse"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+</animated-vector>
