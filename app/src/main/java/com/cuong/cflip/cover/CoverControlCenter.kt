@@ -1524,6 +1524,9 @@ object CoverControlCenterManager {
         fun refreshBright2() {
             val st = store.load()
             brightSlider2?.setManual(st.panelBrightnessManual)
+            // vc238 LOCK: auto brightness cannot be dragged (tap the sun
+            // to go manual first). Slider dims via isLocked (0.42).
+            brightSlider2?.isLocked = !st.panelBrightnessManual
             // vc231: brightness icon follows the mode (sun = manual,
             // sun+A = auto), so the mode is visible, not just alpha.
             brightSlider2?.setIcon(if (st.panelBrightnessManual) R.drawable.ic_qp_brightness else R.drawable.ic_qp_brightness_auto)
@@ -1550,17 +1553,15 @@ object CoverControlCenterManager {
             minValue = 0.05f
             setValue(effectivePanelBrightness(), animate = false)
             setManual(store.load().panelBrightnessManual)
+            // vc238 LOCK: initial lock matches the mode (auto = locked).
+            isLocked = !store.load().panelBrightnessManual
             onValueChanged = { v ->
                 var cur = store.load()
-                if (!cur.panelBrightnessManual) {
-                    cur = cur.copy(panelBrightnessManual = true)
-                    store.save(cur)
-                    setManual(true)
-                    // vc231: dragging forces manual mode, so the icon
-                    // switches to the plain sun right away (not just
-                    // on the next refreshBright2()).
-                    setIcon(R.drawable.ic_qp_brightness)
-                }
+                // vc238 LOCK (defense in depth; the slider-level lock
+                // already blocks drags when auto): ignore drags while
+                // auto instead of forcing manual (old vc118 behavior,
+                // superseded by the user's 31/10 lock request).
+                if (!cur.panelBrightnessManual) return@onValueChanged
                 store.save(cur.copy(panelBrightness = v))
                 applyPanelBrightness(ctx.applicationContext)
                 CoverAssistiveTouchManager.applyCoverBrightness(ctx.applicationContext)
@@ -1635,6 +1636,10 @@ object CoverControlCenterManager {
             setValue(if (volMax > 0) vol.toFloat() / volMax else 0f, animate = false)
             setManual(true)
             onValueChanged = { v ->
+                // vc238 LOCK (defense in depth; the slider-level lock
+                // already blocks drags when muted): ignore drags while
+                // muted (tap the sound button to leave mute first).
+                if (soundMode() == 2) return@onValueChanged
                 val (_, volMax2) = QuickControls.volume(ctx)
                 QuickControls.setVolume(ctx, (v * volMax2).toInt())
                 refreshVol2()
@@ -1684,6 +1689,9 @@ object CoverControlCenterManager {
                 2 -> R.drawable.ic_qp_sound_mute
                 else -> R.drawable.ic_qp_sound
             })
+            // vc238 LOCK: muted volume cannot be dragged (tap the sound
+            // button to leave mute first). Slider dims via isLocked.
+            volSlider2?.isLocked = (mode == 2)
         }
         fun refreshVolModeIcon() {
             setVolModeIcon(soundMode())

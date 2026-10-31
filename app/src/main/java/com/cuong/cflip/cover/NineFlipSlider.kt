@@ -42,6 +42,14 @@ class NineFlipSlider @JvmOverloads constructor(
     var minValue: Float = 0.05f
     var value: Float = 0.5f
         private set
+    // vc238 LOCK: when true, drags are ignored (see onTouchEvent) and
+    // the slider dims to 0.42 (same dim as auto brightness). Programmatic
+    // setValue() still works (mute glide, refresh) — only user drags lock.
+    var isLocked: Boolean = false
+        set(locked) {
+            field = locked
+            alpha = if (locked) 0.42f else 1.0f
+        }
     var onValueChanged: ((Float) -> Unit)? = null
     var onDragEnd: (() -> Unit)? = null
     var onRightClick: (() -> Unit)? = null
@@ -325,6 +333,11 @@ class NineFlipSlider @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // vc238 LOCK: locked sliders consume touches but ignore drags
+        // (value unchanged, no onValueChanged/onDragEnd). The left-icon
+        // button (sun/sound mode) is a separate child view, so it still
+        // works — only dragging is locked.
+        if (isLocked) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
