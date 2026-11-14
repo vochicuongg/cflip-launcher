@@ -3,6 +3,9 @@ package com.cuong.cflip.service
 import android.app.Notification
 import android.app.RemoteInput
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -34,34 +37,8 @@ class MyNotificationListenerService : NotificationListenerService() {
     private fun refresh() {
         byKey.clear()
         val actives = runCatching { activeNotifications?.toList() }.getOrNull() ?: emptyList()
-        val models = mutableListOf<CoverNotification>()
-        for (sbn in actives) {
-            byKey[sbn.key] = sbn
-            val extras = sbn.notification.extras
-            // vc209: a notification with no title used to fall back
-            // to the raw package name (user saw "com.xxx.xxx").
-            // Empty is correct - the row already shows the app name.
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
-                ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString() ?: ""
-            val actions = sbn.notification.actions ?: emptyArray()
-            val canReply = actions.any { a -> (a.remoteInputs ?: emptyArray()).isNotEmpty() }
-            models.add(
-                CoverNotification(
-                    key = sbn.key,
-                    packageName = sbn.packageName,
-                    title = title,
-                    text = text,
-                    timeMs = sbn.postTime,
-                    notifId = sbn.id,
-                    actionTitles = actions.map { it.title?.toString() ?: "" },
-                    actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
-                    actionCreatorPackages = actions.map { it.actionIntent?.creatorPackage },
-                    canReply = canReply,
-                )
-            )
-        }
-        NotificationState.active.value = models.sortedByDescending { it.timeMs }
+        for (sbn in actives) byKey[sbn.key] = sbn
+        NotificationState.active.value = buildDisplayList(actives)
         // Keep the cover widget's notification count fresh.
         runCatching { com.cuong.cflip.widget.CoverWidgetProvider.requestUpdate(this) }
         // vc247: the clock + music widgets have no refresh of their own
@@ -76,6 +53,143 @@ class MyNotificationListenerService : NotificationListenerService() {
         // so action results (liked / seen / replied) show at once
         // instead of leaving a stale row until reopen.
         runCatching { com.cuong.cflip.cover.CoverControlCenterManager.refreshNotifTab() }
+    }
+
+    // vc252 DISPLAY LIST: the tab shows ONLY what is on the phone
+    // right now, in two groups — Now Bar first, then the rest. No
+    // history, no dismissed items, no deep dive (each row stays
+    // shallow: icon + app + title + time + the old chips).
+    // Runs on the listener (binder) thread, never the UI thread.
+    private fun buildDisplayList(actives: List<StatusBarNotification>): List<CoverNotification> {
+        // Step 1 - CFlip's own notifications never show.
+        val ownFiltered = actives.filter { it.packageName != packageName }
+        // Step 2 - group collapse (on the sbn level, before
+        // mirrors): one representative row per group key.
+        val grouped = collapseGroups(ownFiltered)
+        // Step 3 - raw models (no icon/name yet; those resolve
+        // only for survivors, so dropped mirrors/groups cost no
+        // PackageManager calls).
+        val raw = grouped.map { toRawModel(it) }
+        // Step 4 - mirrors: a mirror never gets its own row. When
+        // its source is active, the source row becomes Now Bar and
+        // the mirror is dropped. When the source is gone but its
+        // package is known, the mirror survives as ONE row shown as
+        // the source app (source icon + name, mirror key for
+        // open/dismiss). An orphan mirror with no identifiable
+        // source is dropped — it cannot be shown as any app.
+        val displayPkgByKey = mutableMapOf<String, String>()
+        val mirroredSourceKeys = mutableSetOf<String>()
+        for (m in raw.filter { LiveBridgeUnwrap.isMirrorPackage(it.packageName) }) {
+            val target = LiveBridgeUnwrap.unwrapLiveBridge(m, raw)
+            if (target != null) mirroredSourceKeys += target.key
+            else LiveBridgeUnwrap.mirrorSourcePackage(m)?.let { displayPkgByKey[m.key] = it }
+        }
+        val kept = raw.filter { row ->
+            if (!LiveBridgeUnwrap.isMirrorPackage(row.packageName)) true
+            else row.key in displayPkgByKey
+        }.map { row ->
+            // vc252: a source with a mirror is Now Bar, and so is
+            // an orphan mirror — it IS a LiveBridge Now Bar item,
+            // only shown as its source app because the source
+            // notification is gone.
+            if (row.key in mirroredSourceKeys || row.key in displayPkgByKey) row.copy(isNowBar = true) else row
+        }
+        // Step 5 - display identity (launcher label + icon bitmap),
+        // cached per distinct package WITHIN this refresh only (no
+        // cross-refresh cache: an app update would leave a stale
+        // icon behind). The icon is the app's LAUNCHER icon — the
+        // same icon LiveBridge itself puts on its mirrors
+        // (resolveAppIconAssets) and the same icon the panel's rows
+        // already showed. A notification's smallIcon is a
+        // status-bar glyph (often white-on-transparent), not a row
+        // icon, so it is deliberately not used here.
+        val labelByPkg = mutableMapOf<String, String>()
+        val iconByPkg = mutableMapOf<String, Bitmap?>()
+        val iconPx = (48 * resources.displayMetrics.density).toInt()
+        val filled = kept.map { row ->
+            val pkg = displayPkgByKey[row.key] ?: row.packageName
+            row.copy(
+                appName = labelByPkg.getOrPut(pkg) { appLabel(pkg) },
+                appIcon = iconByPkg.getOrPut(pkg) { appIconBitmap(pkg, iconPx) },
+            )
+        }
+        // Step 6 - Now Bar first (newest first), then the rest
+        // (newest first). The panel renders the two sections in
+        // this order.
+        return filled.sortedWith(
+            compareByDescending<CoverNotification> { it.isNowBar }.thenByDescending { it.timeMs }
+        )
+    }
+
+    // vc252 GROUP COLLAPSE: one representative row per group key —
+    // the summary when it carries title/text, else the newest
+    // child. The summary is the app's own aggregate for the group;
+    // an empty summary says nothing on the cover, so the newest
+    // child stands in. Ungrouped notifications pass through.
+    private fun collapseGroups(sbns: List<StatusBarNotification>): List<StatusBarNotification> {
+        val grouped = sbns.filter { it.notification.group != null }.groupBy { it.notification.group!! }
+        if (grouped.isEmpty()) return sbns
+        val keepKeys = mutableSetOf<String>()
+        for ((_, members) in grouped) {
+            val summary = members.firstOrNull { it.notification.isGroupSummary }
+            val rep = if (summary != null && hasContent(summary)) summary
+            else members.maxByOrNull { it.postTime }
+            if (rep != null) keepKeys += rep.key
+        }
+        return sbns.filter { it.notification.group == null || it.key in keepKeys }
+    }
+
+    private fun hasContent(sbn: StatusBarNotification): Boolean {
+        val e = sbn.notification.extras
+        return e.getCharSequence(Notification.EXTRA_TITLE) != null ||
+            e.getCharSequence(Notification.EXTRA_TEXT) != null ||
+            e.getCharSequence(Notification.EXTRA_BIG_TEXT) != null
+    }
+
+    private fun toRawModel(sbn: StatusBarNotification): CoverNotification {
+        val extras = sbn.notification.extras
+        // vc209: a notification with no title used to fall back
+        // to the raw package name (user saw "com.xxx.xxx").
+        // Empty is correct - the row already shows the app name.
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+            ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString() ?: ""
+        val actions = sbn.notification.actions ?: emptyArray()
+        val canReply = actions.any { a -> (a.remoteInputs ?: emptyArray()).isNotEmpty() }
+        return CoverNotification(
+            key = sbn.key,
+            packageName = sbn.packageName,
+            title = title,
+            text = text,
+            timeMs = sbn.postTime,
+            notifId = sbn.id,
+            actionTitles = actions.map { it.title?.toString() ?: "" },
+            actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
+            actionCreatorPackages = actions.map { it.actionIntent?.creatorPackage },
+            canReply = canReply,
+            // vc252: ongoing (music / call / navigation / timer)
+            // belongs in the Now Bar group.
+            isNowBar = sbn.isOngoing,
+        )
+    }
+
+    private fun appLabel(pkg: String): String = runCatching {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    }.getOrNull()?.takeIf { it != pkg } ?: pkg.substringAfterLast('.')
+
+    private fun appIconBitmap(pkg: String, sizePx: Int): Bitmap? {
+        val d = runCatching { packageManager.getApplicationIcon(pkg) }.getOrNull()
+            ?: runCatching { getDrawable(android.R.drawable.sym_def_app_icon) }.getOrNull()
+            ?: return null
+        return runCatching { drawableToBitmap(d, sizePx) }.getOrNull()
+    }
+
+    private fun drawableToBitmap(d: Drawable, sizePx: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        d.setBounds(0, 0, sizePx, sizePx)
+        d.draw(canvas)
+        return bmp
     }
 
     private fun coverDisplayIdForLog(): String = runCatching {

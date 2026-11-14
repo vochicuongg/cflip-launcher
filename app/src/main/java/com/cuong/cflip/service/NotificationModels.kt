@@ -21,6 +21,22 @@ data class CoverNotification(
     // intent, so its creator is the source app, not the mirror.
     val actionCreatorPackages: List<String?> = emptyList(),
     val canReply: Boolean = false,
+    // vc252 NOW BAR: true when this row belongs in the Now Bar
+    // group - it is an ongoing notification (music / call /
+    // navigation / timer, sbn.isOngoing) or it has a LiveBridge
+    // mirror (the Now Bar shows it through LiveBridge). The
+    // list is already ordered Now Bar first, then the rest.
+    val isNowBar: Boolean = false,
+    // vc252 DISPLAY IDENTITY: launcher label of the app this row
+    // is shown as. For a LiveBridge mirror this is the SOURCE
+    // app's label - a mirror is never shown as LiveBridge.
+    val appName: String = "",
+    // vc252 DISPLAY ICON: launcher icon bitmap of the app this
+    // row is shown as (source app for a mirror, never
+    // LiveBridge's icon). Resolved in refresh() on the binder
+    // thread, never on the UI thread; null = no icon available
+    // (row falls back to the system app icon).
+    val appIcon: android.graphics.Bitmap? = null,
 )
 
 /** Shared, observable snapshot of active notifications for the cover UI. */

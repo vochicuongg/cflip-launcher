@@ -2367,105 +2367,18 @@ object CoverControlCenterManager {
             return true
         }
 
-        // vc216: the source app a LiveBridge mirror is about,
-        // read from the mirror's own actions - a plain action is
-        // the source app's intent copied verbatim, so its creator
-        // IS the source app (a proxied reply action's creator is
-        // LiveBridge itself and is skipped). Null when this row is
-        // not a mirror or no usable action exists.
-        fun mirrorSourcePackage(n: com.cuong.cflip.service.CoverNotification): String? {
-            if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
-            return n.actionCreatorPackages.firstOrNull { it != null && it != n.packageName }
-        }
+        // vc252: unwrap lives in ONE place now —
+        // service.LiveBridgeUnwrap (moved there so the listener
+        // service's refresh() shares it). These locals stay so
+        // the call sites below do not change.
+        fun mirrorSourcePackage(n: com.cuong.cflip.service.CoverNotification): String? =
+            com.cuong.cflip.service.LiveBridgeUnwrap.mirrorSourcePackage(n)
 
-        // vc217: LiveBridge's mirror id, replicated exactly
-        // (its mirrorIdForKey): abs(sourceKey.hashCode()), with
-        // MIN_VALUE mapped to 0. String.hashCode is specified by
-        // the language, so the value computed here equals the one
-        // LiveBridge computed for the same source key.
-        fun mirrorIdForKey(key: String): Int {
-            val v = key.hashCode()
-            return if (v == Int.MIN_VALUE) 0 else kotlin.math.abs(v)
-        }
+        fun mirrorIdForKey(key: String): Int =
+            com.cuong.cflip.service.LiveBridgeUnwrap.mirrorIdForKey(key)
 
-        // vc217 LIVEBRIDGE MIRROR UNWRAP (per app, layered):
-        // Tier 0 - exact: hash every active key; the one whose
-        // hash equals the mirror's id IS the source, regardless
-        // of reformatted title/text or missing actions. This is
-        // what fixes mirrors like Muse that beat vc216.
-        // Tier 1 - source package from the mirror's own plain
-        // actions' creators (vc216).
-        // Tier 2 - title+text exact, any package (vc215).
-        // Tier 3 - timing: the mirror is posted right after its
-        // source, so a single candidate in the 60s before the
-        // mirror (or a unique title match in that window) is the
-        // source. Covers aggregate mirrors, whose id hashes an
-        // internal aggregate key instead of a source key.
-        // Tier 4 - title-only unique (vc215).
-        // Every tier logs, so a misfire is visible in logcat.
-        fun unwrapLiveBridge(n: com.cuong.cflip.service.CoverNotification): com.cuong.cflip.service.CoverNotification? {
-            if (n.packageName != "com.locnall.KimGiSa" && n.packageName != "com.appsfolder.livebridge") return null
-            val active = NotificationState.active.value
-            val title = n.title.trim()
-            val text = n.text.trim()
-            val byHash = active.filter {
-                it.packageName != n.packageName && mirrorIdForKey(it.key) == n.notifId
-            }
-            if (byHash.isNotEmpty()) {
-                val exact = if (title.isNotEmpty() && text.isNotEmpty()) {
-                    byHash.filter { it.title.trim() == title && it.text.trim() == text }
-                } else emptyList()
-                val target = exact.firstOrNull() ?: byHash.minByOrNull { it.timeMs }!!
-                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${target.packageName} via mirror id hash")
-                return target
-            }
-            val sourcePkg = mirrorSourcePackage(n)
-            if (sourcePkg != null) {
-                val fromPkg = active.filter { it.packageName == sourcePkg }
-                if (fromPkg.isNotEmpty()) {
-                    val exact = if (title.isNotEmpty() && text.isNotEmpty()) {
-                        fromPkg.filter { it.title.trim() == title && it.text.trim() == text }
-                    } else emptyList()
-                    val target = exact.minByOrNull { it.timeMs } ?: fromPkg.maxByOrNull { it.timeMs }!!
-                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> $sourcePkg via action creator (${if (exact.isNotEmpty()) "title+text" else "most recent"})")
-                    return target
-                }
-                // Known source app, no active notification from it:
-                // openMirrorOrNotif launches the app itself below.
-                return null
-            }
-            if (title.isNotEmpty() && text.isNotEmpty()) {
-                val candidates = active.filter {
-                    it.packageName != n.packageName && it.title.trim() == title && it.text.trim() == text
-                }
-                if (candidates.isNotEmpty()) {
-                    val earliest = candidates.minByOrNull { it.timeMs }!!
-                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${earliest.packageName} (title+text)")
-                    return earliest
-                }
-            }
-            val window = active.filter {
-                it.packageName != n.packageName && it.timeMs <= n.timeMs && n.timeMs - it.timeMs <= 60_000
-            }
-            if (window.size == 1) {
-                android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${window[0].packageName} (timing, single candidate)")
-                return window[0]
-            }
-            if (window.isNotEmpty() && title.isNotEmpty()) {
-                val byTitle = window.filter { it.title.trim() == title }
-                if (byTitle.size == 1) {
-                    android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${byTitle[0].packageName} (timing+title)")
-                    return byTitle[0]
-                }
-            }
-            if (title.isEmpty()) return null
-            val byTitle = active.filter {
-                it.packageName != n.packageName && it.title.trim() == title
-            }
-            if (byTitle.size != 1) return null
-            android.util.Log.i("CFlipNotifListener", "unwrap: ${n.packageName} -> ${byTitle[0].packageName} (title-only)")
-            return byTitle[0]
-        }
+        fun unwrapLiveBridge(n: com.cuong.cflip.service.CoverNotification): com.cuong.cflip.service.CoverNotification? =
+            com.cuong.cflip.service.LiveBridgeUnwrap.unwrapLiveBridge(n, NotificationState.active.value)
 
         // vc216: one tap path for mirrors and normal rows alike.
         // Mirror with a known source notification -> open it.
@@ -2543,17 +2456,28 @@ object CoverControlCenterManager {
                 textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
         }
-        // vc209 NOTIF ROWS: friendly app name (launcher label
-        // first - the PackageManager label falls back to the raw
-        // package name for labelless apps, which is what the user
-        // saw as "com.xxx.xxx"), tap row to open, and ALL the
-        // notification's own action buttons below the text.
+        // vc252 NOTIF ROWS: the list is already two groups
+        // (refresh() orders Now Bar first, then the rest) — the
+        // tab only renders the two sections. Each row stays
+        // shallow: icon + app + title + text + Xóa + actions.
+        // A mirror never appears as LiveBridge: refresh() unwraps
+        // it to the source app, so the icon/name here are the
+        // source's (n.appIcon / n.appName, resolved in refresh()).
         val notifPm = ctx.applicationContext.packageManager
         val notifLabelByPkg = runCatching {
             com.cuong.cflip.data.AppRepository(ctx.applicationContext)
                 .loadLaunchableApps(true).associate { it.packageName to it.label }
         }.getOrDefault(emptyMap())
-        for (n in notifs) {
+        // vc252 section label: small muted header above a group.
+        fun sectionLabel(text: String): TextView = TextView(ctx).apply {
+            this.text = text; textSize = 12f; setTextColor(muted)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, dp(8), 0, dp(4))
+            }
+        }
+        fun notifCard(n: com.cuong.cflip.service.CoverNotification): LinearLayout {
             val card = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 background = rounded(cardColor, 12)
@@ -2567,10 +2491,17 @@ object CoverControlCenterManager {
                 orientation = LinearLayout.HORIZONTAL
                 setOnClickListener { if (openMirrorOrNotif(n)) hide() }
             }
-            val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
-                ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
             row.addView(android.widget.ImageView(ctx).apply {
-                setImageDrawable(appIcon)
+                // vc252: the row icon comes from refresh() — the
+                // source app's launcher icon for a mirror, never
+                // LiveBridge's. The drawable path is only a
+                // fallback when refresh() had no icon.
+                if (n.appIcon != null) setImageBitmap(n.appIcon)
+                else {
+                    val appIcon = runCatching { notifPm.getApplicationIcon(n.packageName) }.getOrNull()
+                        ?: ctx.getDrawable(android.R.drawable.sym_def_app_icon)
+                    setImageDrawable(appIcon)
+                }
                 layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
                     setMargins(0, 0, dp(10), 0)
                 }
@@ -2578,8 +2509,13 @@ object CoverControlCenterManager {
             val pmLabel = runCatching {
                 notifPm.getApplicationLabel(notifPm.getApplicationInfo(n.packageName, 0)).toString()
             }.getOrNull()?.takeIf { it != n.packageName }
-            val appLabel = notifLabelByPkg[n.packageName]?.takeIf { it != n.packageName }
-                ?: pmLabel ?: n.packageName.substringAfterLast('.')
+            // vc252: the app name comes from refresh() (source
+            // app for a mirror). The PackageManager lookup below
+            // is only a fallback when refresh() had no name.
+            val appLabel = n.appName.ifEmpty {
+                notifLabelByPkg[n.packageName]?.takeIf { it != n.packageName }
+                    ?: pmLabel ?: n.packageName.substringAfterLast('.')
+            }
             val texts = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -2659,7 +2595,20 @@ object CoverControlCenterManager {
                 }
                 card.addView(scroll)
             }
-            notifContent.addView(card)
+            return card
+        }
+        // vc252: two sections, Now Bar first. The model list is
+        // already ordered that way; partition defensively so the
+        // sections stay right even if the order ever changes.
+        val nowBar = notifs.filter { it.isNowBar }
+        val rest = notifs.filter { !it.isNowBar }
+        if (nowBar.isNotEmpty()) {
+            notifContent.addView(sectionLabel("Now Bar"))
+            for (n in nowBar) notifContent.addView(notifCard(n))
+        }
+        if (rest.isNotEmpty()) {
+            notifContent.addView(sectionLabel("Đang có"))
+            for (n in rest) notifContent.addView(notifCard(n))
         }
 
             }

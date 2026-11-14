@@ -39,7 +39,8 @@ android {
         // vc249: fix white/failed widgets — Samsung's cover AppWidgetHost refuses to inflate plain android.view.View in RemoteViews (logcat InflateException); the 4 decorative bars in widget_clock/widget_music/widget_music_small/widget_appgrid become ImageView. No other change — vc247 depth design kept. — versionCode 248 -> 249.
         // vc250: fix vc248 build break — ColorDot took argb: Int but BackgroundStyles.colors is List<Long> (0xFF...L); the call site passed a Long, so compileReleaseKotlin failed at SettingsScreen.kt:154. Param type Int -> Long; Color(argb) accepts Long. No other change. — versionCode 249 -> 250.
         // vc251: brightness + volume sliders in the cover Quick Panel are VERTICAL whenever a media session exists (playing or paused), not only while playing — slidersVertical was mediaInfo?.isPlaying == true, now mediaInfo != null. NineFlipSlider vertical mode (fill from bottom, icon at bottom, drag up = increase) is unchanged. No media at all = horizontal as before. — versionCode 250 -> 251.
-        versionCode = 251
+        // vc252: cover Quick Panel notification tab shows ONLY active notifications in two groups — Now Bar first (LiveBridge mirrors unwrapped to the source app + ongoing), then the rest newest-first; CFlip own notifications excluded, one row per group, mirrors never shown as LiveBridge; rows show the source app launcher icon + name. — versionCode 251 -> 252.
+        versionCode = 252
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
