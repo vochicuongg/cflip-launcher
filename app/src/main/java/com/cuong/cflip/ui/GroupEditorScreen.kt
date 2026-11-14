@@ -831,12 +831,13 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                             fontSize = 12.sp,
                         )
                     } else {
-                        // vc157 DRAG GEOMETRY: fixed 96dp tiles (panel
-                        // button height) so a pointer position maps
-                        // to a slot: column from x, row from y.
+                        // vc157 DRAG GEOMETRY: fixed 112dp tiles (vc256:
+                        // raised from 96dp so the label has room for
+                        // two lines) so a pointer position maps to a
+                        // slot: column from x, row from y.
                         val density = LocalDensity.current
                         val dragSpacingPx = with(density) { 8.dp.toPx() }
-                        val dragRowHPx = with(density) { 96.dp.toPx() } + dragSpacingPx
+                        val dragRowHPx = with(density) { 112.dp.toPx() } + dragSpacingPx
                         // Tile UNDER the pointer (floor slot) — only
                         // used to identify which tile a long-press
                         // grabbed. The DROP position uses insertion
@@ -965,7 +966,16 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                         val isTarget = dragTarget == idx && !isDragged
                                         Box(
                                             modifier = Modifier.weight(1f)
-                                                .height(96.dp)
+                                                // vc256: tile 96dp -> 112dp — at 76dp wide
+                                                // a one-line 11sp label only showed ~11
+                                                // characters, so apps sharing a prefix
+                                                // ("Samsung …", "Google …") were
+                                                // indistinguishable. The extra height is
+                                                // for a two-line 12sp label (~20 chars),
+                                                // so most names read in full. 4 columns
+                                                // stay (cover mirror + drag geometry);
+                                                // dragRowHPx above moves in step.
+                                                .height(112.dp)
                                                 .zIndex(if (isDragged) 1f else 0f)
                                                 .graphicsLayer {
                                                     if (isDragged) {
@@ -1016,9 +1026,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                                 Text(
                                                     app?.label ?: pkg.substringAfterLast('.'),
                                                     color = CFlipColors.TextPrimary,
-                                                    fontSize = 11.sp,
-                                                    maxLines = 1,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis,
+                                                    textAlign = TextAlign.Center,
                                                 )
                                             }
                                             Text(
@@ -1030,7 +1041,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                             // vc248: the ✕ glyph stays 12sp,
                                             // but its hit area is 32dp now
                                             // (was 20dp — too small to tap
-                                            // reliably inside a 96dp tile).
+                                            // reliably inside a 112dp tile).
                                             Box(
                                                 modifier = Modifier.align(Alignment.TopEnd)
                                                     .clickable {
