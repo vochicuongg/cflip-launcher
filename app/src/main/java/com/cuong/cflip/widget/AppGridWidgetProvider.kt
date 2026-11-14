@@ -155,6 +155,21 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 "Ứng dụng"
             }
             views.setTextViewText(R.id.app_grid_title, title)
+            // vc255 GRID SETTINGS: the widget used to ignore them
+            // entirely — 4 columns hardcoded in the layout, 44dp
+            // icons, no sort. Now the column count comes from the
+            // settings (setNumColumns on the GridView) and the
+            // settings ride in the adapter data URI next to the
+            // group signature, so a settings change binds a fresh
+            // factory carrying the new values (same vc158 trick).
+            val st = com.cuong.cflip.data.SettingsStore(context).load()
+            val cols = when (st.columns) { 0 -> 4; in 3..6 -> st.columns; else -> 4 }
+            views.setInt(R.id.app_grid, "setNumColumns", cols)
+            val minWdp = manager.getAppWidgetOptions(id)
+                .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+                .let { if (it > 0) it else 320 }
+            val cellWdp = ((minWdp - 24 - 10 * (cols - 1)) / cols).coerceAtLeast(48)
+            val iconDp = st.iconSizeDp.coerceIn(24, minOf(cellWdp - 8, 64))
             val svc = Intent(context, AppGridRemoteViewsService::class.java)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             // vc158 IMMEDIATE WIDGET ICONS (user, 29/10): the adapter
@@ -177,7 +192,10 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 CustomGroupStore.loadDeletedSections(context))
             svc.data = Uri.Builder()
                 .scheme("cflip").authority("appgrid")
-                .appendPath(id.toString()).appendPath(sig).build()
+                .appendPath(id.toString()).appendPath(sig)
+                .appendPath(cols.toString()).appendPath(iconDp.toString())
+                .appendPath(st.sortMode.toString())
+                .appendPath(if (st.showLabels) "1" else "0").build()
             views.setRemoteAdapter(R.id.app_grid, svc)
             views.setEmptyView(R.id.app_grid, R.id.app_grid_empty)
             // 3.5.0 click fix, decompiled from 9Flip t5.h.i():
@@ -236,6 +254,24 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     android.widget.RemoteViewsService.RemoteViewsFactory {
 
     private var items: List<GridItem> = emptyList()
+    // vc255: grid settings, re-read from the store on every load()
+    // (the provider also puts them in the adapter URI so a settings
+    // change binds a fresh factory — belt and suspenders).
+    private var iconDp: Int = 44
+    private var sortMode: Int = 0
+    private var showLabels: Boolean = true
+
+    // vc255: RemoteViews sizes are pixels on the HOST display (the
+    // cover), not the app's main display — convert with the cover
+    // density when there is one, else the app density.
+    private val hostDensity: Float by lazy {
+        runCatching {
+            val disp = DisplayRepository(context).secondaryDisplay()
+            if (disp != null) context.createDisplayContext(disp).resources.displayMetrics.density
+            else context.resources.displayMetrics.density
+        }.getOrDefault(context.resources.displayMetrics.density)
+    }
+    private fun dpPx(dp: Int) = (dp * hostDensity).toInt()
 
     // The 9 mini-icon slots of a folder tile, row by row.
     private val groupIconIds = intArrayOf(
@@ -269,9 +305,21 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     private fun appViews(app: AppInfo): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
         app.icon?.let { icon ->
-            views.setImageViewBitmap(R.id.app_grid_item_icon, iconBitmap(icon, 96))
+            // vc255: bitmap at 2x the view size for sharpness.
+            views.setImageViewBitmap(R.id.app_grid_item_icon, iconBitmap(icon, dpPx(iconDp) * 2))
         }
-        views.setTextViewText(R.id.app_grid_item_label, app.label)
+        // vc255 ICON SIZE: the icon view was a fixed 44dp and the
+        // bitmap a fixed 96px, so the slider did nothing here.
+        // setViewLayoutWidth/Height (API 31+, minSdk 33) resize
+        // the view in the host; the label follows showLabels.
+        views.setViewLayoutWidth(R.id.app_grid_item_icon, dpPx(iconDp))
+        views.setViewLayoutHeight(R.id.app_grid_item_icon, dpPx(iconDp))
+        if (showLabels) {
+            views.setTextViewText(R.id.app_grid_item_label, app.label)
+            views.setViewVisibility(R.id.app_grid_item_label, View.VISIBLE)
+        } else {
+            views.setViewVisibility(R.id.app_grid_item_label, View.GONE)
+        }
         // Fill-in, 9Flip t5.a style: app_widget_id + appWidgetId +
         // click_action + package_name, plus CFlip's own "pkg" key.
         // With a MUTABLE template above, these extras now actually arrive.
@@ -288,6 +336,10 @@ private class AppGridFactory(private val context: Context, private val widgetId:
 
     private fun groupViews(id: String, title: String, members: List<AppInfo>): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_group)
+        // vc255: the folder preview box follows the icon size like
+        // an app cell (the 9 mini icons scale with it via weight).
+        views.setViewLayoutWidth(R.id.app_grid_group_icon_box, dpPx(iconDp))
+        views.setViewLayoutHeight(R.id.app_grid_group_icon_box, dpPx(iconDp))
         // SystemUI-style folder preview: first 9 members (A-Z) in a
         // 3x3 mini-grid; missing slots stay INVISIBLE so the 3x3
         // shape holds for small groups.
@@ -302,7 +354,12 @@ private class AppGridFactory(private val context: Context, private val widgetId:
                 views.setViewVisibility(id, View.INVISIBLE)
             }
         }
-        views.setTextViewText(R.id.app_grid_group_label, title)
+        if (showLabels) {
+            views.setTextViewText(R.id.app_grid_group_label, title)
+            views.setViewVisibility(R.id.app_grid_group_label, View.VISIBLE)
+        } else {
+            views.setViewVisibility(R.id.app_grid_group_label, View.GONE)
+        }
         val fill = Intent()
             .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             .putExtra("app_widget_id", widgetId)
@@ -325,6 +382,30 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     private fun load() {
         val apps = runCatching { AppRepository(context).loadLaunchableApps() }
             .getOrDefault(emptyList())
+        // vc255 SORT + ICON + LABELS: the factory used to ignore
+        // sortMode entirely (groups in section order, ungrouped
+        // apps always A-Z) and hardcode a 44dp icon with labels
+        // always on. Now it reads the store on every load: the
+        // sort applies to the app lists — ungrouped apps and the
+        // members inside each folder / open group — while the
+        // folder tiles themselves keep their section order.
+        // Recent order works without Usage Access too (the
+        // launch-history fallback in RecentAppsRepository); it is
+        // just shorter then, and the rest stay A-Z.
+        val st = com.cuong.cflip.data.SettingsStore(context).load()
+        // Icon clamp for the widget band: widget cells are ~50-100dp
+        // wide, so the slider's 84dp top would overflow them — 64dp
+        // is the most that still fits with the label underneath.
+        // (The provider applies the same band when it builds the
+        // adapter URI; the column count itself is set on the GridView
+        // in updateWidget, not here.)
+        iconDp = st.iconSizeDp.coerceIn(24, 64)
+        sortMode = st.sortMode
+        showLabels = st.showLabels
+        val recentOrder = com.cuong.cflip.data.RecentAppsRepository(context).recentPackages(100)
+        val installTimes = if (sortMode == 2) AppRepository(context).installTimes(apps.map { it.packageName }) else emptyMap()
+        fun sorted(list: List<AppInfo>) =
+            com.cuong.cflip.data.AppSort.sort(list, sortMode, recentOrder, installTimes)
         // vc152: custom groups first, then auto groups for the rest,
         // then ungrouped apps — the same merge as the panel card.
         // vc153: no Back cell anymore — back lives in the header.
@@ -339,13 +420,13 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         val openSection = sections.firstOrNull { it.id == openId }
         items = if (openSection != null) {
             // Inside a folder: just its members, in the user's order.
-            openSection.members.map { GridItem.App(it) }
+            sorted(openSection.members).map { GridItem.App(it) }
         } else {
             // Top view: folder tiles + ungrouped apps (A-Z).
             // A stale open id (group deleted/emptied) resets to top view.
             if (openId.isNotEmpty()) AppGridWidgetProvider.setOpenGroup(context, "")
-            sections.map { GridItem.Group(it.id, it.title, it.members) } +
-                ungrouped.map { GridItem.App(it) }
+            sections.map { GridItem.Group(it.id, it.title, sorted(it.members)) } +
+                sorted(ungrouped).map { GridItem.App(it) }
         }
     }
 }

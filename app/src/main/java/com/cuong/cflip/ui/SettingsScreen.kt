@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cuong.cflip.control.QuickControls
 import com.cuong.cflip.data.AppInfo
 import com.cuong.cflip.data.BackgroundStyles
 import com.cuong.cflip.data.CoverSettings
@@ -71,8 +70,20 @@ fun SettingsScreen(
             // Old bug: GetContent only grants a temporary URI grant, so the
             // wallpaper vanished after a restart/reboot. Copy the image into
             // CFlip's private storage once, and keep that file instead.
+            // vc255: the old code always overwrote the SAME file
+            // (cover_wallpaper.jpg), so the stored URI never changed —
+            // CoverApp's remember(wallpaperUri) never recomputed and a
+            // re-picked image kept showing the old one. Each pick now
+            // saves under a unique name (deleting the previous file
+            // first, so no orphans accumulate), so the URI changes
+            // and every surface that keys on it refreshes.
             val saved = runCatching {
-                val file = java.io.File(context.filesDir, "cover_wallpaper.jpg")
+                val old = settings.wallpaperUri
+                if (old != null && old.startsWith("file:")) {
+                    android.net.Uri.parse(old).path?.let { java.io.File(it).delete() }
+                }
+                val file = java.io.File(context.filesDir,
+                    "cover_wallpaper_${System.currentTimeMillis()}.jpg")
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     file.outputStream().use { out -> input.copyTo(out) }
                 }
@@ -86,6 +97,15 @@ fun SettingsScreen(
     }
 
     fun update(next: CoverSettings) { store.save(next); onSettingsChange(next) }
+
+    // vc255 WIDGET SYNC: the AppGrid widget reads the grid settings
+    // in its factory, so a settled change has to push a refresh —
+    // otherwise the widget keeps the old columns/icons/order until
+    // the host happens to update it. Called only at settled points
+    // (slider release, picker tap, switch tap), never per drag tick.
+    fun refreshWidget() {
+        runCatching { com.cuong.cflip.widget.AppGridWidgetProvider.refreshAll(context) }
+    }
 
     // vc248 ENTRANCE: each section fades in 30 ms after the previous one
     // (shared EnterItem); reduced motion renders the end state at once.
@@ -106,11 +126,12 @@ fun SettingsScreen(
                         Text("Số cột: ${if (columns == 0) "Tự động" else columns.toString()}",
                             fontSize = 13.sp, color = CFlipColors.TextPrimary)
                         Slider(value = columnsIdx, onValueChange = { columnsIdx = it }, valueRange = 0f..4f, steps = 3,
-                            onValueChangeFinished = { update(settings.copy(columns = columns)) },
+                            onValueChangeFinished = { update(settings.copy(columns = columns)); refreshWidget() },
                             colors = mintSlider(), modifier = Modifier.fillMaxWidth())
                         Text("Cỡ biểu tượng: ${settings.iconSizeDp} dp", fontSize = 13.sp, color = CFlipColors.TextPrimary)
                         Slider(value = settings.iconSizeDp.toFloat(),
                             onValueChange = { update(settings.copy(iconSizeDp = it.toInt())) },
+                            onValueChangeFinished = { refreshWidget() },
                             valueRange = 40f..84f, colors = mintSlider(), modifier = Modifier.fillMaxWidth())
                     }
                 }
@@ -125,7 +146,7 @@ fun SettingsScreen(
                     // and the drawer use — the old inline copy had its own
                     // 33dp pills and its own look, so the three pickers
                     // drifted apart. No behaviour change.
-                    SortModePicker(mode = settings.sortMode, onSelect = { update(settings.copy(sortMode = it)) })
+                    SortModePicker(mode = settings.sortMode, onSelect = { update(settings.copy(sortMode = it)); refreshWidget() })
                 }
             }
         }
@@ -135,7 +156,7 @@ fun SettingsScreen(
                 SectionHeader("HIỂN THỊ")
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SwitchRow("Hiện nhãn ứng dụng", settings.showLabels) { update(settings.copy(showLabels = it)) }
+                        SwitchRow("Hiện nhãn ứng dụng", settings.showLabels) { update(settings.copy(showLabels = it)); refreshWidget() }
                         SwitchRow("Yêu thích lên trước", settings.favoritesFirst) { update(settings.copy(favoritesFirst = it)) }
                         SwitchRow("Đồng hồ 24 giờ", settings.clock24h) { update(settings.copy(clock24h = it)) }
                     }
@@ -178,20 +199,11 @@ fun SettingsScreen(
             }
         }
 
-        EnterItem(index = 4, entered = entered, reduced = reduced) {
-            Column {
-                SectionHeader("QUYỀN")
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = { QuickControls.openUsageAccessSettings(context) },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text("Cấp Usage Access (cho mục Gần đây thật)")
-                    }
-                }
-            }
-        }
-
         // Hidden apps management (v1.3): unhide brings the app back everywhere.
-        EnterItem(index = 5, entered = entered, reduced = reduced) {
+        // vc255: the QUYỀN section used to live here (Usage Access button)
+        // — moved to the Quyền island on MainScreen so there is one place
+        // for it, not two. This section is now index 4.
+        EnterItem(index = 4, entered = entered, reduced = reduced) {
             Column {
                 SectionHeader("ỨNG DỤNG ĐÃ ẨN (${hiddenApps.size})")
                 GlassCard(modifier = Modifier.fillMaxWidth()) {

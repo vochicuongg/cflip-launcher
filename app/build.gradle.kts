@@ -42,7 +42,8 @@ android {
         // vc252: cover Quick Panel notification tab shows ONLY active notifications in two groups — Now Bar first (LiveBridge mirrors unwrapped to the source app + ongoing), then the rest newest-first; CFlip own notifications excluded, one row per group, mirrors never shown as LiveBridge; rows show the source app launcher icon + name. — versionCode 251 -> 252.
         // vc253: fix vc252 build break — Notification has no isGroupSummary() (only FLAG_GROUP_SUMMARY exists); group-summary check is now a flags test. No other change. — versionCode 252 -> 253.
         // vc254: MainScreen regrouped (TRẠNG THÁI / MÀN HÌNH NGOÀI + 3 new islands: Nhóm ứng dụng, Hình nền & Kiểu, Mở gần đây; App + Notification islands deleted with their screens); AppGrid widget header button gets a pressed state; "CFlip — " prefix dropped from widget labels + screenshot title; layered in-app background. — versionCode 253 -> 254.
-        versionCode = 254
+        // vc255: fix Style island — panel grid measured cells (cols 3/5/6 no longer clip apps) + icon size honoured on all 3 surfaces, shared AppSort for cover/panel/widget, panel applies wallpaper + style colour, wallpaper re-pick gets a unique file (old one showed forever), Usage Access row moves to MainScreen Quyền island. — versionCode 254 -> 255.
+        versionCode = 255
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

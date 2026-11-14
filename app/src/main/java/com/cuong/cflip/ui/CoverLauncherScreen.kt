@@ -74,15 +74,29 @@ fun CoverLauncherScreen(
     // vc241: platform View API (see CoverApp.kt) — Compose's
     // HapticFeedbackType has no VirtualKey in BOM 2024.09.
     val hapticView = LocalView.current
-    val columns = if (settings.columns in 3..6) GridCells.Fixed(settings.columns)
-        else GridCells.Adaptive(minSize = (settings.iconSizeDp + 28).dp)
-    LazyVerticalGrid(
-        columns = columns,
-        contentPadding = PaddingValues(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.fillMaxSize(),
+    // vc255 ICON CLAMP: in Fixed mode the column is
+    // (width − padding − spacing) / n — at 6 columns on a ~360dp
+    // cover that is ~50dp, so an 84dp icon used to paint over its
+    // neighbours and hide apps. Clamp the icon to the cell width
+    // (minus label breathing room). Adaptive mode needs no clamp:
+    // its minSize already grows with the icon.
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = modifier.fillMaxSize()
     ) {
+        val fixedCols = if (settings.columns in 3..6) settings.columns else null
+        val columns = if (fixedCols != null) GridCells.Fixed(fixedCols)
+            else GridCells.Adaptive(minSize = (settings.iconSizeDp + 28).dp)
+        val effIconDp = if (fixedCols != null) {
+            val cellW = (maxWidth - 12.dp - 6.dp * (fixedCols - 1)) / fixedCols
+            minOf(settings.iconSizeDp, (cellW - 8.dp).value.toInt().coerceAtLeast(24))
+        } else settings.iconSizeDp
+        LazyVerticalGrid(
+            columns = columns,
+            contentPadding = PaddingValues(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
         itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
             val isFav = app.packageName in favorites
             // vc240: unread badge (FEATURES-V2 #4). Top-start so it never
@@ -132,7 +146,7 @@ fun CoverLauncherScreen(
                     .padding(vertical = 2.dp)
             ) {
                 Box {
-                    AppIcon(app.icon, settings.iconSizeDp)
+                    AppIcon(app.icon, effIconDp)
                     // vc243 FIX: AnimatedVisibility cannot be called
                     // inside a Box (the compiler resolves it to the
                     // ColumnScope overload, whose receiver is shadowed
@@ -196,6 +210,7 @@ fun CoverLauncherScreen(
                     )
                 }
             }
+        }
         }
     }
 }

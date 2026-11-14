@@ -81,6 +81,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.cuong.cflip.control.QuickControls
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.data.BackgroundStyles
 import com.cuong.cflip.data.CustomGroupStore
@@ -251,6 +252,11 @@ fun MainScreen(
             notifications = NotificationController.isConnected(),
             accessibility = MyAccessibilityService.instance != null,
             overlay = Settings.canDrawOverlays(context),
+            // vc255 USAGE ACCESS: shown as a row in the Quyền island
+            // below (moved out of the STYLE tab). NOT part of the
+            // required /3 count — recents work without it through
+            // the launch-history fallback, it only makes them fuller.
+            usageAccess = recentRepo.hasUsageAccess(),
             serviceRunning = isServiceRunning(context, CoverForegroundService::class.java),
             secondarySeen = displayRepo.secondaryDisplay() != null,
         )
@@ -444,8 +450,9 @@ fun MainScreen(
                 // no Usage Stats and no Write Settings - its recents come from its
                 // own launch history (like CFlip's LaunchHistoryStore fallback) and
                 // it never writes system brightness. So CFlip's required set is now
-                // 3 (Thông báo, Accessibility, Overlay); Usage moved out (its
-                // on-demand button already lives in the STYLE tab QUYỀN section).
+                // 3 (Thông báo, Accessibility, Overlay); Usage Access is NOT in
+                // the required set but has its own row below (vc255, moved from
+                // the STYLE tab) so its state is visible on the hub.
                 // vc128 CORRECTION: Write Settings is NOT dead - the cover QUICK
                 // tab has its own system-brightness slider (QuickControlsScreen)
                 // that writes Settings.System and already grants on demand
@@ -487,6 +494,14 @@ fun MainScreen(
                         }
                         PermissionRow("Hiển thị trên app khác", statuses.overlay) {
                             openOverlaySettings()
+                        }
+                        // vc255 USAGE ACCESS: moved here from the STYLE
+                        // tab QUYỀN section, so all permissions live
+                        // in one island. Opens the same system Usage
+                        // Access page; the row refreshes on return via
+                        // the ON_RESUME statusVersion bump above.
+                        PermissionRow("Usage Access", statuses.usageAccess) {
+                            QuickControls.openUsageAccessSettings(context)
                         }
                     }
                 }
@@ -811,6 +826,7 @@ private data class MainStatuses(
     val notifications: Boolean,
     val accessibility: Boolean,
     val overlay: Boolean,
+    val usageAccess: Boolean,
     val serviceRunning: Boolean,
     val secondarySeen: Boolean,
 ) {

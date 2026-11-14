@@ -581,6 +581,26 @@ object CoverControlCenterManager {
     // - Ứng dụng: full app grid on the cover display.
     // - CFlip: opens CFlip itself on the MAIN display for settings/custom,
     //   plus permission shortcuts. It never opens an external cover app.
+    // vc255: panel background — wallpaper (centre-cropped to the
+    // display, darkened with a black scrim so cards stay readable)
+    // or the solid style colour, exactly like the cover in CoverApp.
+    // Null bitmap (no wallpaper, or decode failed) falls back to
+    // the colour. The rebuild key already contains backgroundStyle
+    // + wallpaperUri, so a change rebuilds the panel on next open.
+    private fun panelBackground(ctx: Context, st: com.cuong.cflip.data.CoverSettings, display: Display): android.graphics.drawable.Drawable {
+        val color = com.cuong.cflip.data.BackgroundStyles.colors[st.backgroundStyle.coerceIn(0, com.cuong.cflip.data.BackgroundStyles.colors.lastIndex)].toInt()
+        val bmp = st.wallpaperUri?.let {
+            runCatching {
+                val m = ctx.resources.displayMetrics
+                com.cuong.cflip.ui.WallpaperBitmap.loadCropped(ctx, it, m.widthPixels, m.heightPixels)
+            }.getOrNull()
+        }
+        if (bmp == null) return android.graphics.drawable.ColorDrawable(color)
+        return android.graphics.drawable.LayerDrawable(arrayOf(
+            android.graphics.drawable.BitmapDrawable(ctx.resources, bmp),
+            android.graphics.drawable.ColorDrawable(0xB3000000.toInt())))
+    }
+
     private fun buildPanel(ctx: Context, display: Display, initialTab: Int = 0): View {
         val density = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
@@ -685,7 +705,14 @@ object CoverControlCenterManager {
 
         val outer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xF0000000.toInt())
+            // vc255 WALLPAPER + COLOUR: the panel never applied them —
+            // backgroundStyle/wallpaperUri only appeared in the rebuild
+            // key, so picking a wallpaper or a colour changed nothing
+            // on the surface the user actually looks at. Now the panel
+            // root gets the same background as the cover: the wallpaper
+            // (centre-cropped to the cover display) darkened so cards
+            // stay readable, else the solid style colour.
+            background = panelBackground(ctx, store.load(), display)
         }
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -2664,28 +2691,45 @@ object CoverControlCenterManager {
             // every panel open, but only used when sortMode == 2.
             // Now it is queried only in that case.
             val installTimes = if (settings.sortMode == 2) appRepo.installTimes(allApps.map { it.packageName }) else emptyMap()
-            val ordered = when (settings.sortMode) {
-                1 -> allApps.sortedBy { recentOrder.indexOf(it.packageName).let { i -> if (i < 0) Int.MAX_VALUE else i } }
-                2 -> allApps.sortedByDescending { installTimes[it.packageName] ?: 0L }
-                else -> allApps
-            }
+            // vc255: one shared sort (AppSort) — the panel used to
+            // carry its own inline copy and drifted from the cover.
+            val ordered = com.cuong.cflip.data.AppSort.sort(allApps, settings.sortMode, recentOrder, installTimes)
             val cols = when (settings.columns) { 0 -> 4; in 3..6 -> settings.columns; else -> 4 }
+            // vc255 MEASURED CELLS: every cell used to be a fixed
+            // 76dp wide (+ 8dp margins = 84dp per column) no matter
+            // how many columns — at 5 columns (420dp) and 6 (504dp)
+            // the row ran past the panel and the right-hand apps
+            // were clipped away. Now the cell width is computed
+            // from the panel's own width, so every column count
+            // fits: width = (available − margins) / cols.
+            // The icon used to be a fixed 40dp too — now it follows
+            // the icon-size slider, clamped to the cell (and to 64dp
+            // so a tall icon does not stretch the row). Labels follow
+            // the showLabels switch like the cover grid does.
+            val availWdp = (ctx.resources.displayMetrics.widthPixels / density - 16).toInt()
+            val cellWdp = ((availWdp - cols * 8) / cols).coerceAtLeast(48)
+            val iconDp = settings.iconSizeDp.coerceIn(24, minOf(cellWdp - 8, 64))
+            val labelHdp = if (settings.showLabels) 30 else 0
             val appGrid = GridLayout(ctx).apply { columnCount = cols }
             for (app in ordered) {
                 appGrid.addView(Button(ctx).apply {
-                    text = app.label; textSize = 10f; isAllCaps = false
+                    text = if (settings.showLabels) app.label else ""
+                    textSize = 10f; isAllCaps = false
+                    maxLines = 2
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                     background = rounded(0xFF23262B.toInt(), 12)
                     setTextColor(0xFFFFFFFF.toInt())
+                    setPadding(dp(4), dp(8), dp(4), dp(8))
                     if (app.icon != null) {
                         val d = app.icon.constantState?.newDrawable()?.mutate() ?: app.icon
-                        d.setBounds(0, 0, dp(40), dp(40))
+                        d.setBounds(0, 0, dp(iconDp), dp(iconDp))
                         setCompoundDrawables(null, d, null, null)
                     }
                     setOnClickListener {
                         com.cuong.cflip.display.AppLauncher.launch(ctx, app.packageName, display.displayId)
                         hide()
                     }
-                }, GridLayout.LayoutParams().apply { width = dp(76); height = dp(96); setMargins(dp(4), dp(6), dp(4), dp(6)) })
+                }, GridLayout.LayoutParams().apply { width = dp(cellWdp); height = dp(iconDp + labelHdp + 16); setMargins(dp(4), dp(6), dp(4), dp(6)) })
             }
             appsContent.addView(appGrid)
             appsTabBuilt = true

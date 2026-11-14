@@ -173,19 +173,12 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     // (firstInstallTime descending). Favorites-first, when on, is a stable
     // primary key on top of whichever sort the user picked.
     val appsOrdered = remember(favorites, settings.favoritesFirst, settings.sortMode, allApps, recentApps) {
-        val bySort: List<AppInfo> = when (settings.sortMode) {
-            1 -> {
-                val recentIdx = recentApps.mapIndexed { i, a -> a.packageName to i }.toMap()
-                allApps.sortedWith(compareBy<AppInfo> { recentIdx[it.packageName] ?: Int.MAX_VALUE }
-                    .thenBy { it.label.lowercase() })
-            }
-            2 -> {
-                val installed = appRepo.installTimes(allApps.map { it.packageName })
-                allApps.sortedWith(compareByDescending<AppInfo> { installed[it.packageName] ?: 0L }
-                    .thenBy { it.label.lowercase() })
-            }
-            else -> allApps
-        }
+        // vc255: one shared sort (AppSort) — same ordering as the
+        // panel grid and the AppGrid widget. Favorites-first stays
+        // a stable primary key on top, as before.
+        val installed = if (settings.sortMode == 2) appRepo.installTimes(allApps.map { it.packageName }) else emptyMap()
+        val bySort = com.cuong.cflip.data.AppSort.sort(
+            allApps, settings.sortMode, recentApps.map { it.packageName }, installed)
         if (settings.favoritesFirst) bySort.sortedByDescending { it.packageName in favorites } else bySort
     }
 
