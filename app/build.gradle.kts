@@ -45,7 +45,8 @@ android {
         // vc255: fix Style island — panel grid measured cells (cols 3/5/6 no longer clip apps) + icon size honoured on all 3 surfaces, shared AppSort for cover/panel/widget, panel applies wallpaper + style colour, wallpaper re-pick gets a unique file (old one showed forever), Usage Access row moves to MainScreen Quyền island. — versionCode 254 -> 255.
         // vc256: GroupEditor member tiles 96dp -> 112dp so the label has room for two lines (11sp 1-line showed only ~11 chars, apps sharing a prefix were indistinguishable); label 12sp, maxLines 2, centred; dragRowHPx moves in step, 4 columns + drag geometry unchanged. — versionCode 255 -> 256.
         // vc257: notification-card buttons fixed (UI-opening actions get launch-first like taps, null actionIntents no longer report success, Xoa only hides the card when the dismiss really issued); Quick Panel tabs slide+fade (was alpha-only); in-app background is ONE FLAT colour per theme + liquid-glass cards (translucent fill + bright rim + specular + soft shadow, no blur on flat colour); new Giao diện setting Dark/Light/Follow system in the Style island (in-app Compose only, cover stays dark); warning card stays solid, never blurred. — versionCode 256 -> 257.
-        versionCode = 257
+        // vc258: fix vc255+vc257 build breaks (compileReleaseKotlin failed on the first combined build): setViewLayoutWidth/Height take THREE args (viewId, Float size, unit) — no (viewId, px) overload exists, so the 4 vc255 calls now pass the computed px with COMPLEX_UNIT_PX; TrashIcon read CFlipColors.Danger inside the Canvas draw scope, which is not a composable context since vc257 made CFlipColors a @Composable accessor — the colour is now read in the composable body. — versionCode 257 -> 258.
+        versionCode = 258
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import com.cuong.cflip.R
@@ -312,8 +313,13 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // bitmap a fixed 96px, so the slider did nothing here.
         // setViewLayoutWidth/Height (API 31+, minSdk 33) resize
         // the view in the host; the label follows showLabels.
-        views.setViewLayoutWidth(R.id.app_grid_item_icon, dpPx(iconDp))
-        views.setViewLayoutHeight(R.id.app_grid_item_icon, dpPx(iconDp))
+        // vc258 FIX (vc255 broke the build): setViewLayoutWidth /
+        // Height take THREE args (viewId, size, unit) — the size is
+        // a Float in the given unit, there is no (viewId, px)
+        // overload. The px value computed above is passed with
+        // COMPLEX_UNIT_PX so the size is exactly the computed px.
+        views.setViewLayoutWidth(R.id.app_grid_item_icon, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
+        views.setViewLayoutHeight(R.id.app_grid_item_icon, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
         if (showLabels) {
             views.setTextViewText(R.id.app_grid_item_label, app.label)
             views.setViewVisibility(R.id.app_grid_item_label, View.VISIBLE)
@@ -338,8 +344,8 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_group)
         // vc255: the folder preview box follows the icon size like
         // an app cell (the 9 mini icons scale with it via weight).
-        views.setViewLayoutWidth(R.id.app_grid_group_icon_box, dpPx(iconDp))
-        views.setViewLayoutHeight(R.id.app_grid_group_icon_box, dpPx(iconDp))
+        views.setViewLayoutWidth(R.id.app_grid_group_icon_box, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
+        views.setViewLayoutHeight(R.id.app_grid_group_icon_box, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
         // SystemUI-style folder preview: first 9 members (A-Z) in a
         // 3x3 mini-grid; missing slots stay INVISIBLE so the 3x3
         // shape holds for small groups.

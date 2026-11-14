@@ -1277,11 +1277,16 @@ private fun OrderArrow(text: String, enabled: Boolean, onClick: () -> Unit) {
 // nothing copyrighted is copied into the repo.
 @Composable
 private fun TrashIcon(modifier: Modifier = Modifier) {
+    // vc258 FIX (vc257 broke the build): CFlipColors is a
+    // @Composable accessor since vc257, so it cannot be read
+    // inside the Canvas draw scope (a DrawScope lambda, not a
+    // composable context) — read it in the composable body and
+    // use the plain val inside the draw scope.
+    val color = CFlipColors.Danger
     androidx.compose.foundation.Canvas(modifier = modifier.size(18.dp)) {
         val stroke = 1.6.dp.toPx()
         val w = size.width
         val h = size.height
-        val color = CFlipColors.Danger
         // Handle above the lid.
         drawLine(color, Offset(w * 0.42f, h * 0.10f), Offset(w * 0.58f, h * 0.10f), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
         // Lid.
