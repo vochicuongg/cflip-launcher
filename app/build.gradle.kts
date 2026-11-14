@@ -34,8 +34,8 @@ android {
         targetSdk = 35
         // vc245: widget + notification drawers, PANEL tile redo,
         // hub card unification + 48dp targets, cover density pass.
-        // vc246: widget cassette redesign (9Flip) — versionCode 245 -> 246.
-        versionCode = 246
+        // vc247: dead-widget fix (exported + in-app refresh) + widget depth redesign — versionCode 246 -> 247.
+        versionCode = 247
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

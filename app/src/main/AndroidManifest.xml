@@ -295,9 +295,12 @@
             android:exported="true"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <!-- vc247: exported=true, like the AppGrid receiver — the
+             music widget had no in-app refresh of its own, so it must
+             also be reachable for host-sent updates. -->
         <receiver
             android:name=".widget.MusicWidgetProvider"
-            android:exported="false"
+            android:exported="true"
             android:label="CFlip — Nhạc">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -317,9 +320,11 @@
         <!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music
              widget, subclass of MusicWidgetProvider (same code path, only
              the layout differs). Same Samsung sub_screen registration. -->
+        <!-- vc247: exported=true, like the AppGrid receiver (same
+             reason as the full music widget). -->
         <receiver
             android:name=".widget.MusicSmallWidgetProvider"
-            android:exported="false"
+            android:exported="true"
             android:label="CFlip — Nhạc (nhỏ)">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -332,9 +337,12 @@
                 android:resource="@xml/samsung_music_small_widget_info" />
         </receiver>
 
+        <!-- vc247: exported=true, like the AppGrid receiver — the
+             clock widget had no in-app refresh of its own, so it must
+             also be reachable for host-sent updates. -->
         <receiver
             android:name=".widget.ClockWidgetProvider"
-            android:exported="false"
+            android:exported="true"
             android:label="CFlip — Đồng hồ &amp; Pin">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

@@ -90,15 +90,17 @@ class CoverWidgetProvider : AppWidgetProvider() {
             if (MediaState.current.value?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play)
         // vc246: now-playing line (9Flip cassette lesson) — GONE when
         // nothing plays, so the widget never shows a stale title.
+        // vc247: the whole media row hides now (the title lives inside
+        // the lifted row), so no empty strip is left behind.
         val now = MediaState.current.value
         if (now != null && now.title.isNotBlank()) {
-            views.setViewVisibility(R.id.widget_media_title, View.VISIBLE)
+            views.setViewVisibility(R.id.widget_media_row, View.VISIBLE)
             views.setTextViewText(
                 R.id.widget_media_title,
                 if (now.artist.isNotBlank()) "${now.title} — ${now.artist}" else now.title,
             )
         } else {
-            views.setViewVisibility(R.id.widget_media_title, View.GONE)
+            views.setViewVisibility(R.id.widget_media_row, View.GONE)
         }
 
         fun broadcast(requestCode: Int, action: String, pkg: String? = null): PendingIntent {

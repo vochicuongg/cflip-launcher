@@ -3,6 +3,7 @@ package com.cuong.cflip.widget
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.view.View
@@ -130,6 +131,28 @@ open class MusicWidgetProvider : AppWidgetProvider() {
         const val ACTION_PLAYPAUSE = "com.cuong.cflip.widget.MUSIC_PLAYPAUSE"
         const val ACTION_NEXT = "com.cuong.cflip.widget.MUSIC_NEXT"
         const val ACTION_REFRESH = "com.cuong.cflip.widget.MUSIC_REFRESH"
+
+        /**
+         * vc247: the music widgets had no requestUpdate at all (the
+         * clock one existed but nothing ever called it) — that is
+         * why they went stale and looked dead. Refresh BOTH classes:
+         * each provider owns its own widget ids, so each is refreshed
+         * with an instance of its own class (layoutRes + the javaClass
+         * used for the control broadcasts follow the instance).
+         * Cheap and loop-free: onUpdate only writes RemoteViews, it
+         * never posts a notification or rebuilds the cover panel.
+         */
+        fun requestUpdate(context: Context) {
+            val mgr = AppWidgetManager.getInstance(context)
+            val providers = listOf(
+                MusicWidgetProvider() to MusicWidgetProvider::class.java,
+                MusicSmallWidgetProvider() to MusicSmallWidgetProvider::class.java,
+            )
+            for ((provider, cls) in providers) {
+                val ids = mgr.getAppWidgetIds(ComponentName(context, cls))
+                if (ids.isNotEmpty()) provider.onUpdate(context, mgr, ids)
+            }
+        }
 
         private fun fmtTime(ms: Long): String =
             "%d:%02d".format(ms / 60000, (ms / 1000) % 60)

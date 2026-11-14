@@ -64,6 +64,14 @@ class MyNotificationListenerService : NotificationListenerService() {
         NotificationState.active.value = models.sortedByDescending { it.timeMs }
         // Keep the cover widget's notification count fresh.
         runCatching { com.cuong.cflip.widget.CoverWidgetProvider.requestUpdate(this) }
+        // vc247: the clock + music widgets have no refresh of their own
+        // (nothing ever called Clock.requestUpdate, Music had no such
+        // function) — refresh them on the same notification tick, so
+        // battery / notification counts and now-playing stay fresh
+        // without a timer. Loop-free: requestUpdate only writes
+        // RemoteViews, it never posts a notification.
+        runCatching { com.cuong.cflip.widget.ClockWidgetProvider.requestUpdate(this) }
+        runCatching { com.cuong.cflip.widget.MusicWidgetProvider.requestUpdate(this) }
         // vc212: the open panel's notification tab rebuilds live,
         // so action results (liked / seen / replied) show at once
         // instead of leaving a stale row until reopen.

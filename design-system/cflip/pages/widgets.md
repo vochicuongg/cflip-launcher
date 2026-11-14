@@ -74,6 +74,59 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   the real cells — 12dp icon square + 2dp label bar per cell, 2x4,
   mint/grey pattern; Samsung info list now has 5 rows (the small
   cassette added) with matching descriptions.
+- vc247 DEAD-WIDGET FIX + DEPTH (verified against the real code, not
+  assumed): on vc246 only Cover + AppGrid worked. The split follows
+  the refresh path exactly: (1) manifest exported — Cover false,
+  AppGrid true, Music/MusicSmall/Clock false; (2) Cover survives
+  exported=false because MyNotificationListenerService.kt:66 calls
+  CoverWidgetProvider.requestUpdate() on every notification tick;
+  (3) ClockWidgetProvider.requestUpdate() existed but had ZERO
+  call-sites anywhere in the repo; (4) MusicWidgetProvider had NO
+  requestUpdate at all; (5) AppGridWidgetProvider.refreshAll() is
+  called from GroupEditorScreen + its own actions. 9Flip's evidence
+  CUTS AGAINST exported as the sole cause: all 6 of its cassette
+  providers are exported=false and they work — 9Flip refreshes its
+  widgets from inside the app (CoverFloatingMenuReceiver
+  SHOW/HIDE/REFRESH). CFlip's Samsung meta-data has NO deviation:
+  all 5 samsung_*_info.xml share display="sub_screen", 352dp sizes,
+  keyguard category (9Flip shares one samsung info XML across its
+  cassettes; CFlip keeps one per widget — equivalent). Fix, both
+  directions covered: (a) exported=false → true for exactly Music /
+  MusicSmall / Clock (AppGrid/Cover untouched); (b) new
+  MusicWidgetProvider.requestUpdate() refreshing BOTH music classes
+  with an instance of each class (layoutRes + javaClass broadcasts
+  follow the instance); (c) triggers — notification-listener tick
+  (Clock + Music, next to Cover's line), CoverControlCenter
+  buildPanel after the Tab-1 media refresh (Music), BootReceiver
+  after boot/app-update (Clock + Music, runs even when the Quick
+  Panel switch is off). All loop-free: requestUpdate only writes
+  RemoteViews, never posts a notification or rebuilds the panel.
+  Skill searches for this round: "android widget visual hierarchy
+  glanceable card depth" --domain ux returned only a VisionOS depth
+  layering row (glass/z-offset — applied as layered surfaces) plus
+  off-topic hover/breadcrumbs rows; "music widget cassette retro
+  design" --domain product returned arcade pixel-art (rejected —
+  would break the mint brand) and a wallpaper/glassmorphism row
+  (layered surfaces only). No direct cassette match was found, so
+  the redesign follows the skill's pro-rules (depth layering, 4/8dp
+  rhythm, state never by colour alone, vector-only icons) rather
+  than a database hit. Depth, all RemoteViews-legal (gradients,
+  layered shapes, chips — no animation): card bg is a 135° gradient
+  (#1E2126 → #101214) instead of flat #16181C; tape window a 90°
+  gradient (#14181C → #0A0C0D); music state is a solid mint chip
+  with black text; clock battery/notif are two dark chips (new
+  ic_w_battery vector; bell tinted mint); Cover now-playing is a
+  lifted strip with a note icon (new ic_w_note vector) and the
+  provider now hides the whole row (id widget_media_row); fav
+  slots + app-grid cells are lifted tiles (widget_cell_selector
+  default is bg_widget_cell now, pressed still brightens mint);
+  header/grid divider hairline in the app grid; cassette gains a
+  static "CFLIP · SIDE A" label. The small cassette is NOT given
+  the state chip or progress row: at 160dp the layout is already
+  full (title + artist + tape + 48/56dp controls) and adding rows
+  would clip on the cover — it gains depth from the gradients
+  only. The web palette was NOT re-run (rejected 4 times already);
+  mint on near-black is kept.
 - Motion: shared tokens only (`ui/Motion.kt`). Drawer rows stagger
   30ms (cap 12); toggle/tiles press 0.95 spring + haptic; reduced
   motion snaps to end state. No AnimatedVisibility inside a Box

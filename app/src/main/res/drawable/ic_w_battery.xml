@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc247: battery icon for the clock widget's battery chip — outline
+     + tip + a ~70% fill bar, mint stroke, same 1.8 stroke family as
+     the other widget icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:strokeColor="#7FE3C0" android:strokeWidth="1.8"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M3,8 H19 V16 H3 Z M21,11 V13" />
+    <path
+        android:fillColor="#7FE3C0"
+        android:pathData="M5.5,10.5 H14.5 V13.5 H5.5 Z" />
+</vector>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc247: eighth-note icon for the Cover widget's now-playing row —
+     mint fill, same vector-only icon family as the other widgets. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:fillColor="#7FE3C0"
+        android:pathData="M9,18.5 A3,3 0 1,1 6,15.5 C6,15.5 6,15.5 6,15.5 L6,4 L18,4 L18,15.5 A3,3 0 1,1 15,18.5 Z M6,6.5 L6,14 M18,6.5 L18,13" />
+</vector>

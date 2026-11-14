@@ -11,12 +11,19 @@
     android:orientation="vertical"
     android:background="@drawable/bg_widget_card"
     android:padding="12dp">
+    <!-- vc247: the state is a solid mint chip with black text now,
+         not mint text on a dark card — it reads at a glance. -->
     <TextView
         android:id="@+id/music_state"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:background="@drawable/bg_widget_chip"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
         android:text="CHƯA CÓ NHẠC"
-        android:textColor="#7FE3C0"
+        android:textColor="#08090A"
         android:textSize="11sp"
         android:textStyle="bold" />
     <TextView
@@ -68,6 +75,18 @@
             android:src="@drawable/ic_w_reel"
             android:contentDescription="Cuộn băng" />
     </LinearLayout>
+    <!-- vc247: cassette side label — the tape is a physical object
+         now, with a side to it. Static text, the provider never
+         touches it. -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:text="CFLIP · SIDE A"
+        android:textColor="#66766E"
+        android:textSize="9sp"
+        android:textStyle="bold" />
     <LinearLayout
         android:id="@+id/music_progress_row"
         android:layout_width="match_parent"

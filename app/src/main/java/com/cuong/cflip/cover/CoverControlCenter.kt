@@ -996,6 +996,10 @@ object CoverControlCenterManager {
         // ---- Tab 1: Điều khiển ----
         val mediaRepo = MediaControllerRepository(ctx)
         runCatching { mediaRepo.refresh() }
+        // vc247: the cover music widget follows the cover media tab —
+        // refresh it whenever the panel rebuilds its media state, so
+        // play/pause from the panel is reflected on the widget too.
+        runCatching { com.cuong.cflip.widget.MusicWidgetProvider.requestUpdate(ctx) }
         val mediaInfo = MediaState.current.value
         // vc36 9Flip media view (e4.g / a9.setMediaVisible): the bar
         // exists ONLY while media is active, and appears with

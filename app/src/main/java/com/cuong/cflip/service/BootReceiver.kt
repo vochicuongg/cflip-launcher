@@ -42,6 +42,13 @@ class BootReceiver : BroadcastReceiver() {
             "CFlipBoot",
             "boot restore: action=$action quickPanel=${settings.assistiveTouchEnabled} widgets=${settings.coverWidgets}"
         )
+        // vc247: after a reboot or an app update the widgets only get
+        // the system's first onUpdate — refresh clock + music here so
+        // they never sit stale until the next notification arrives.
+        // Runs even when the Quick Panel switch is off: widgets are
+        // independent of the opener.
+        runCatching { com.cuong.cflip.widget.ClockWidgetProvider.requestUpdate(appContext) }
+        runCatching { com.cuong.cflip.widget.MusicWidgetProvider.requestUpdate(appContext) }
         if (!settings.assistiveTouchEnabled) return
         runCatching {
             appContext.startForegroundService(Intent(appContext, CoverForegroundService::class.java))
