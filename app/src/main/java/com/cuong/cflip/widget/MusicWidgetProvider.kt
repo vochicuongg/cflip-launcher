@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.view.View
 import android.widget.RemoteViews
 import com.cuong.cflip.MainActivity
 import com.cuong.cflip.R
@@ -17,29 +18,65 @@ import com.cuong.cflip.media.MediaState
  * Controls go through MediaControllerRepository, so they need Notification
  * Access (the same permission as the cover Media tab). Tapping the title
  * opens CFlip at the Media tab.
+ * vc246 CASSETTE (9Flip: CoverCassette): the layout is a tape — state
+ * eyebrow, title/artist, a tape window (two reels + tape line), a
+ * progress bar with elapsed/total, and a big mint play-pause button.
+ * open layoutRes so MusicSmallWidgetProvider reuses this whole class
+ * with the compact layout; broadcasts target javaClass so control
+ * taps land back on the right subclass.
  */
-class MusicWidgetProvider : AppWidgetProvider() {
+open class MusicWidgetProvider : AppWidgetProvider() {
+
+    protected open val layoutRes: Int = R.layout.widget_music
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         val repo = MediaControllerRepository(context)
         runCatching { repo.refresh() }
         val info = MediaState.current.value
         for (id in ids) {
-            val views = RemoteViews(context.packageName, R.layout.widget_music)
+            val views = RemoteViews(context.packageName, layoutRes)
             views.setTextViewText(R.id.music_title, info?.title ?: "Chưa có nhạc")
             views.setTextViewText(
                 R.id.music_artist,
                 info?.artist?.takeIf { it.isNotBlank() } ?: "Mở nhạc rồi bấm làm mới",
             )
+            // vc246 CASSETTE: state eyebrow (text, not colour alone),
+            // progress bar + elapsed/total (MediaInfo carries both),
+            // big mint play-pause (white icon -> black on mint).
+            // Ids absent from the small layout are no-ops in RemoteViews.
+            views.setTextViewText(
+                R.id.music_state,
+                when {
+                    info == null -> "CHƯA CÓ NHẠC"
+                    info.isPlaying -> "ĐANG PHÁT"
+                    else -> "TẠM DỪNG"
+                },
+            )
+            val hasProgress = info != null && info.durationMs > 0
+            views.setViewVisibility(
+                R.id.music_progress_row,
+                if (hasProgress) View.VISIBLE else View.GONE,
+            )
+            if (hasProgress && info != null) {
+                val pos = info.positionMs.coerceIn(0L, info.durationMs)
+                views.setProgressBar(
+                    R.id.music_progress, 1000,
+                    (pos * 1000L / info.durationMs).toInt(), false,
+                )
+                views.setTextViewText(
+                    R.id.music_time, "${fmtTime(pos)} / ${fmtTime(info.durationMs)}",
+                )
+            }
             // vc210: round icon button now - play/pause is an icon, not text.
             views.setImageViewResource(
                 R.id.music_playpause,
                 if (info?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play,
             )
+            views.setInt(R.id.music_playpause, "setColorFilter", 0xFF000000.toInt())
             fun broadcast(requestCode: Int, action: String): PendingIntent {
                 return PendingIntent.getBroadcast(
                     context, requestCode,
-                    Intent(context, MusicWidgetProvider::class.java).setAction(action),
+                    Intent(context, javaClass).setAction(action),
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
             }
@@ -83,7 +120,7 @@ class MusicWidgetProvider : AppWidgetProvider() {
             // Refresh after the control settles, on the main thread path.
             val mgr = AppWidgetManager.getInstance(context)
             val ids = mgr.getAppWidgetIds(
-                android.content.ComponentName(context, MusicWidgetProvider::class.java))
+                android.content.ComponentName(context, javaClass))
             if (ids.isNotEmpty()) onUpdate(context, mgr, ids)
         }.start()
     }
@@ -93,5 +130,8 @@ class MusicWidgetProvider : AppWidgetProvider() {
         const val ACTION_PLAYPAUSE = "com.cuong.cflip.widget.MUSIC_PLAYPAUSE"
         const val ACTION_NEXT = "com.cuong.cflip.widget.MUSIC_NEXT"
         const val ACTION_REFRESH = "com.cuong.cflip.widget.MUSIC_REFRESH"
+
+        private fun fmtTime(ms: Long): String =
+            "%d:%02d".format(ms / 60000, (ms / 1000) % 60)
     }
 }

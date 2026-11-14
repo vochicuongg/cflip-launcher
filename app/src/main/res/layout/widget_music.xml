@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- vc246 CASSETTE (9Flip: CoverCassette) — the music widget as a tape:
+     state eyebrow + title/artist, a tape window (two reels + tape line),
+     a progress bar with elapsed/total, and prev / big-mint play-pause /
+     next / refresh. All ids kept (music_title/artist/prev/playpause/next/
+     refresh) + new ids music_state, music_progress_row, music_progress,
+     music_time. RemoteViews only — reels are static, no animation. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -6,14 +12,23 @@
     android:background="@drawable/bg_widget_card"
     android:padding="12dp">
     <TextView
+        android:id="@+id/music_state"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CHƯA CÓ NHẠC"
+        android:textColor="#7FE3C0"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+    <TextView
         android:id="@+id/music_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
         android:maxLines="1"
         android:ellipsize="end"
         android:text="Chưa có nhạc"
         android:textColor="#F5F7F6"
-        android:textSize="15sp"
+        android:textSize="16sp"
         android:textStyle="bold" />
     <TextView
         android:id="@+id/music_artist"
@@ -28,6 +43,59 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_widget_tape"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_w_reel"
+            android:contentDescription="Cuộn băng" />
+        <View
+            android:layout_width="0dp"
+            android:layout_height="2dp"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:background="#337FE3C0" />
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_w_reel"
+            android:contentDescription="Cuộn băng" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/music_progress_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="vertical">
+        <ProgressBar
+            android:id="@+id/music_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="1000"
+            android:progress="0"
+            android:progressTint="#7FE3C0"
+            android:progressBackgroundTint="#23262B" />
+        <TextView
+            android:id="@+id/music_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="0:00 / 0:00"
+            android:textColor="#9AA8A1"
+            android:textSize="11sp" />
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
         android:orientation="horizontal">
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
             <ImageButton android:id="@+id/music_prev" android:layout_width="48dp" android:layout_height="48dp"
@@ -35,8 +103,8 @@
                 android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Bài trước" />
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
-            <ImageButton android:id="@+id/music_playpause" android:layout_width="48dp" android:layout_height="48dp"
-                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_play"
+            <ImageButton android:id="@+id/music_playpause" android:layout_width="56dp" android:layout_height="56dp"
+                android:background="@drawable/bg_widget_circle_active" android:src="@drawable/ic_w_play"
                 android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Phát / tạm dừng" />
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">

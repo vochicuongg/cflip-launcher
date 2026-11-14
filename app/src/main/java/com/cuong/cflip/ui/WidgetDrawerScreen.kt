@@ -136,18 +136,30 @@ fun WidgetDrawerScreen(
                         toggleWidget("appgrid", it)
                     },
                 ) {
-                    // Mini grid preview: 2 rows x 4 cells, mint + grey.
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Mini grid preview: 2 rows x 4 cells, icon + label
+                    // bar, matching the real widget cells (44dp icon,
+                    // 11sp label) at preview scale.
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         repeat(2) { r ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 repeat(4) { c ->
-                                    Box(
-                                        modifier = Modifier.size(10.dp).clip(RoundedCornerShape(3.dp))
-                                            .background(
-                                                if ((r * 4 + c) % 3 == 0) CFlipColors.Accent.copy(alpha = 0.85f)
-                                                else CFlipColors.CardFill
-                                            )
-                                    )
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.size(12.dp).clip(RoundedCornerShape(3.dp))
+                                                .background(
+                                                    if ((r * 4 + c) % 3 == 0) CFlipColors.Accent.copy(alpha = 0.85f)
+                                                    else CFlipColors.CardFill
+                                                )
+                                        )
+                                        Box(
+                                            modifier = Modifier.size(width = 10.dp, height = 2.dp)
+                                                .clip(RoundedCornerShape(1.dp))
+                                                .background(CFlipColors.CardFill)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -175,13 +187,14 @@ fun WidgetDrawerScreen(
                 Text("Thêm từ màn hình ngoài: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
                     fontSize = 12.sp, color = CFlipColors.TextSecondary)
             }
-            // The 4 Samsung cover widgets — info rows, not toggles: only
+            // The 5 Samsung cover widgets — info rows, not toggles: only
             // Samsung's picker can add them, the app never forces them.
             val samsungWidgets = listOf(
                 Triple(Icons.Filled.GridView, "Lưới ứng dụng", "Lưới app 4 cột, mở app ngay từ màn hình ngoài"),
                 Triple(Icons.Filled.Schedule, "Đồng hồ", "Giờ lớn, ngày, số thông báo và pin"),
-                Triple(Icons.Filled.Widgets, "Widget Cover", "Đồng hồ + app yêu thích + đèn pin + nhạc"),
-                Triple(Icons.Filled.MusicNote, "Nhạc", "Tên bài, nghệ sĩ, phát/dừng, chuyển bài"),
+                Triple(Icons.Filled.Widgets, "Widget Cover", "Đồng hồ + app yêu thích + bài đang phát + đèn pin + nhạc"),
+                Triple(Icons.Filled.MusicNote, "Nhạc", "Băng cassette: tên bài, nghệ sĩ, tiến độ, phát/dừng"),
+                Triple(Icons.Filled.MusicNote, "Nhạc (nhỏ)", "Băng cassette gọn: tên bài + nút phát/dừng"),
             )
             samsungWidgets.forEach { (icon, name, desc) ->
                 StaggerRow(index = rowIndex++) {

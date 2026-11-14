@@ -74,6 +74,7 @@ object SamsungCoverWidgetHelper {
         val providers = listOf(
             "Lưới ứng dụng" to AppGridWidgetProvider::class.java,
             "Nhạc" to MusicWidgetProvider::class.java,
+            "Nhạc (nhỏ)" to MusicSmallWidgetProvider::class.java,
             "Đồng hồ & Pin" to ClockWidgetProvider::class.java,
             "Tổng hợp" to CoverWidgetProvider::class.java,
         )

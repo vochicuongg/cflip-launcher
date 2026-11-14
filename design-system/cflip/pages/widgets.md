@@ -41,6 +41,39 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   brighten mint (`#337FE3C0`); all text uses the token hexes above.
   Never rename/remove an `@+id` a provider references, never change
   a widget's declared size, never rename a provider.
+- vc246 CASSETTE (9Flip lesson, from REA static evidence only — no
+  copied assets/code): 9Flip's cover music is a Cassette family —
+  full + small + small-tape cover variants (+ 3 home variants), each
+  a separate provider sharing the Samsung `sub_screen` meta-data,
+  plus an AppGrid that is a full launcher surface via
+  RemoteViewsService + GridView with folder drill-down (CFlip already
+  had the folders). What CFlip learned: (1) music as a physical
+  object — the Music widget is now a tape: state eyebrow in words
+  (ĐANG PHÁT/TẠM DỪNG, never colour alone), title 16sp/artist 12sp,
+  a tape window (two mint reels + tape line, static), a progress bar
+  (MediaInfo position/duration, hidden when duration is 0) with
+  elapsed/total, and a big 56dp mint play-pause (black icon) flanked
+  by 48dp prev/next/refresh; (2) size choice — a compact Cassette
+  Small widget (352x160dp, `MusicSmallWidgetProvider`, a subclass
+  reusing MusicWidgetProvider's whole code path, only the layout
+  differs; broadcasts target `javaClass` so taps land on the right
+  subclass; ids absent from the small layout are RemoteViews no-ops);
+  (3) glanceability — Clock time 38→44sp + mint accent bar; Cover
+  widget gains a now-playing line (GONE when nothing plays) + a
+  "YÊU THÍCH" label; AppGrid shares the mint card bg, 44dp icons,
+  11sp labels with ellipsis, 10dp grid spacing, round mint refresh.
+  What CFlip did NOT learn: 9Flip has no dedicated clock widget to
+  copy; Cover Power's PRO banner / paywall and 9Flip's premium quotas
+  are not adopted (no paywall by principle); no animated/live
+  wallpaper, no floating-menu activity. The skill's 4th web palette
+  (purple/pink, Righteous/Poppins) was REJECTED again; the ux search
+  for "widget glanceable information density" returned off-topic
+  rows, only "don't convey info by colour alone" applied (already
+  the rule for unread + now the music state eyebrow).
+- Widget drawer preview (WidgetDrawerScreen): mini-grid mock matches
+  the real cells — 12dp icon square + 2dp label bar per cell, 2x4,
+  mint/grey pattern; Samsung info list now has 5 rows (the small
+  cassette added) with matching descriptions.
 - Motion: shared tokens only (`ui/Motion.kt`). Drawer rows stagger
   30ms (cap 12); toggle/tiles press 0.95 spring + haptic; reduced
   motion snaps to end state. No AnimatedVisibility inside a Box

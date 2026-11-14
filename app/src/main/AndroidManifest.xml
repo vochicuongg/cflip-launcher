@@ -314,6 +314,24 @@
                 android:resource="@xml/samsung_music_widget_info" />
         </receiver>
 
+        <!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music
+             widget, subclass of MusicWidgetProvider (same code path, only
+             the layout differs). Same Samsung sub_screen registration. -->
+        <receiver
+            android:name=".widget.MusicSmallWidgetProvider"
+            android:exported="false"
+            android:label="CFlip — Nhạc (nhỏ)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/music_small_widget_info" />
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_music_small_widget_info" />
+        </receiver>
+
         <receiver
             android:name=".widget.ClockWidgetProvider"
             android:exported="false"

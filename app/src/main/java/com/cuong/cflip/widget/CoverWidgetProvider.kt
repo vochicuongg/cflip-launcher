@@ -88,6 +88,18 @@ class CoverWidgetProvider : AppWidgetProvider() {
             if (QuickControls.torchOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
         views.setImageViewResource(R.id.btn_playpause,
             if (MediaState.current.value?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play)
+        // vc246: now-playing line (9Flip cassette lesson) — GONE when
+        // nothing plays, so the widget never shows a stale title.
+        val now = MediaState.current.value
+        if (now != null && now.title.isNotBlank()) {
+            views.setViewVisibility(R.id.widget_media_title, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widget_media_title,
+                if (now.artist.isNotBlank()) "${now.title} — ${now.artist}" else now.title,
+            )
+        } else {
+            views.setViewVisibility(R.id.widget_media_title, View.GONE)
+        }
 
         fun broadcast(requestCode: Int, action: String, pkg: String? = null): PendingIntent {
             val i = Intent(context, CoverWidgetProvider::class.java).setAction(action)

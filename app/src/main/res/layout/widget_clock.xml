@@ -6,14 +6,21 @@
     android:orientation="vertical"
     android:background="@drawable/bg_widget_card"
     android:padding="12dp">
+    <!-- vc246 GLANCEABLE: time 38 -> 44sp (the one thing this widget
+         is for) + a mint accent bar so the eye lands on it first. -->
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:format24Hour="HH:mm"
         android:format12Hour="hh:mm"
         android:textColor="#F5F7F6"
-        android:textSize="38sp"
+        android:textSize="44sp"
         android:textStyle="bold" />
+    <View
+        android:layout_width="24dp"
+        android:layout_height="3dp"
+        android:layout_marginTop="6dp"
+        android:background="#2FBF8F" />
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -24,7 +31,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
         <ImageView
