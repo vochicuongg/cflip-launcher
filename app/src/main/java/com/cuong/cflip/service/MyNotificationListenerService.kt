@@ -131,7 +131,13 @@ class MyNotificationListenerService : NotificationListenerService() {
         if (grouped.isEmpty()) return sbns
         val keepKeys = mutableSetOf<String>()
         for ((_, members) in grouped) {
-            val summary = members.firstOrNull { it.notification.isGroupSummary }
+            // vc253: Notification has NO isGroupSummary() method
+            // (verified against android-35 android.jar — only
+            // FLAG_GROUP_SUMMARY exists); a summary is a
+            // notification whose flags carry FLAG_GROUP_SUMMARY.
+            val summary = members.firstOrNull {
+                (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+            }
             val rep = if (summary != null && hasContent(summary)) summary
             else members.maxByOrNull { it.postTime }
             if (rep != null) keepKeys += rep.key
