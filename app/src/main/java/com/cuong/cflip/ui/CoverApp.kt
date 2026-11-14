@@ -2,6 +2,7 @@ package com.cuong.cflip.ui
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -31,13 +32,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.RecentActors
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -61,11 +70,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cuong.cflip.control.QuickControls
 import com.cuong.cflip.data.AppInfo
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.data.BackgroundStyles
@@ -76,6 +88,7 @@ import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.AppLauncher
 import com.cuong.cflip.media.MediaState
+import com.cuong.cflip.service.MyAccessibilityService
 import com.cuong.cflip.service.NotificationState
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
@@ -89,6 +102,15 @@ enum class CoverTab(val label: String, val icon: ImageVector) {
     QUICK("Tiện ích", Icons.Filled.Bolt),
     STYLE("Cá nhân", Icons.Filled.Palette)
 }
+
+// vc240: one row in unified search — a control the user can run straight
+// from the search results, without opening its tab first.
+private data class CoverSearchAction(
+    val label: String,
+    val keywords: String,
+    val icon: ImageVector,
+    val run: () -> Unit,
+)
 
 /**
  * The complete cover experience, redesigned in CFlip 2.0:
@@ -120,6 +142,11 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     var search by remember { mutableStateOf("") }
 
     val notifications by NotificationState.active.collectAsState()
+    // vc240 INTERACTION: per-app notification counts for badges on the
+    // app grid (FEATURES-V2 #4). Grouping here keeps the grid dumb.
+    val notifCounts = remember(notifications) {
+        notifications.groupingBy { it.packageName }.eachCount()
+    }
     val media by MediaState.current.collectAsState()
     val batteryPct = rememberBatteryPercent()
     val charging = remember(batteryPct) { readBatteryCharging(context) }
@@ -186,6 +213,46 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     var dragTotal by remember { mutableStateOf(0f) }
     val tabs = CoverTab.entries
 
+    // vc240 INTERACTION: unified search (9Flip "find apps and controls
+    // in one place"). One query matches apps AND these controls, so the
+    // user never has to remember which tab a control lives on. Keywords
+    // include unaccented spellings ("den pin", "khoa may") because the
+    // cover keyboard makes diacritics slow. No Shizuku, no new permission:
+    // every action reuses an existing QuickControls / Accessibility call.
+    // Tab-switch actions just set `tab`; panel actions run from the app
+    // context like QuickControlsScreen does.
+    val haptic = LocalHapticFeedback.current
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    val searchActions = listOf(
+        CoverSearchAction("Đèn pin", "den pin flash torch den", Icons.Filled.FlashOn) {
+            if (!QuickControls.setTorch(context, !QuickControls.torchOn)) toast("Không tìm thấy đèn flash")
+        },
+        CoverSearchAction("Wi-Fi", "wifi mang", Icons.Filled.Wifi) { QuickControls.openWifiPanel(context) },
+        CoverSearchAction("Internet", "internet mang data 4g 5g", Icons.Filled.Language) { QuickControls.openInternetPanel(context) },
+        CoverSearchAction("Bluetooth", "bluetooth tai nghe", Icons.Filled.Bluetooth) { QuickControls.openBluetoothSettings(context) },
+        CoverSearchAction("NFC", "nfc", Icons.Filled.Nfc) { QuickControls.openNfcPanel(context) },
+        CoverSearchAction("Cài đặt hệ thống", "cai dat settings he thong", Icons.Filled.Settings) { QuickControls.openDeviceSettings(context) },
+        CoverSearchAction("Khóa máy", "khoa may lock khoa man hinh", Icons.Filled.Lock) {
+            if (MyAccessibilityService.instance?.lockScreen() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Gần đây", "gan day recents ung dung vua mo", Icons.Filled.RecentActors) {
+            if (MyAccessibilityService.instance?.openRecents() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Mở khay thông báo", "thong bao notification khay", Icons.Filled.Notifications) {
+            if (MyAccessibilityService.instance?.openNotifications() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Nhạc", "nhac music media phat nhac", Icons.Filled.MusicNote) { tab = CoverTab.MEDIA },
+        CoverSearchAction("Tiện ích", "tien ich quick dieu khien nhanh", Icons.Filled.Bolt) { tab = CoverTab.QUICK },
+        CoverSearchAction("Cá nhân hóa", "ca nhan hoa style hinh nen", Icons.Filled.Palette) { tab = CoverTab.STYLE },
+    )
+    val matchedActions = remember(search) {
+        if (search.isBlank()) emptyList()
+        else {
+            val q = search.trim().lowercase()
+            searchActions.filter { it.label.lowercase().contains(q) || it.keywords.contains(q) }
+        }
+    }
+
     Box(
         modifier = modifier.fillMaxSize()
             .background(Color(BackgroundStyles.colors[settings.backgroundStyle.coerceIn(0, BackgroundStyles.colors.lastIndex)]))
@@ -241,11 +308,31 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                         CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
                             OutlinedTextField(
                                 value = search, onValueChange = { search = it },
-                                placeholder = { Text("Tìm ứng dụng") }, singleLine = true,
+                                placeholder = { Text("Tìm ứng dụng, điều khiển…") }, singleLine = true,
                                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                                 shape = RoundedCornerShape(20.dp),
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             )
+                            if (matchedActions.isNotEmpty()) {
+                                SectionHeader("ĐIỀU KHIỂN")
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                                    matchedActions.forEach { action ->
+                                        GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                            action.run()
+                                        }) {
+                                            Row(verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                Icon(action.icon, contentDescription = null,
+                                                    tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                                                Text(action.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                                    color = CFlipColors.TextPrimary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             if (recentApps.isNotEmpty() && search.isEmpty()) {
                                 SectionHeader("GẦN ĐÂY")
                             }
@@ -256,6 +343,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                                 apps = base,
                                 favorites = favorites,
                                 settings = settings,
+                                notifCounts = notifCounts,
                                 onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
                                 onToggleFavorite = { app ->
                                     favoritesStore.toggle(app.packageName)
@@ -404,6 +492,9 @@ private fun PillNav(
     notifCount: Int,
     onSelect: (CoverTab) -> Unit,
 ) {
+    // vc240: every tab tap answers with a short haptic tick, so the
+    // cover feels alive even though the pill is a flat Compose row.
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
             .clip(RoundedCornerShape(28.dp))
@@ -419,7 +510,10 @@ private fun PillNav(
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(if (selected) CFlipColors.AccentBrush else SolidColor(Color.Transparent))
-                    .clickable { onSelect(t) }
+                    .clickable {
+                        if (t != current) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        onSelect(t)
+                    }
                     .animateContentSize(animationSpec = tween(250))
                     .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
