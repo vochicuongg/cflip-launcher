@@ -250,7 +250,7 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
  * the whole target). The mint ring still marks the selected colour.
  */
 @Composable
-private fun ColorDot(argb: Int, selected: Boolean, onClick: () -> Unit) {
+private fun ColorDot(argb: Long, selected: Boolean, onClick: () -> Unit) {
     val pressSource = remember { MutableInteractionSource() }
     Box(modifier = Modifier.size(48.dp)
         .pressScale(pressSource)
