@@ -59,7 +59,8 @@ class NineFlipSlider @JvmOverloads constructor(
     // block drags starting on it. Only the volume slider opts in.
     private var onLeftClick: (() -> Unit)? = null
     // vc105 VERTICAL MODE: when the panel shows media
-    // (playing), brightness + volume become vertical
+    // (playing or paused, vc251 — before vc251 it was
+    // playing only), brightness + volume become vertical
     // bars side by side, instead of horizontal bars
     // stacked. Vertical geometry is the horizontal
     // geometry with axes swapped: fill grows from

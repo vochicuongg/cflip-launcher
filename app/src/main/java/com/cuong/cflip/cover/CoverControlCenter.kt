@@ -1501,11 +1501,15 @@ object CoverControlCenterManager {
         // the taller media island instead of hugging its top.
         // vc105: sliders are VERTICAL only when
         // media is PLAYING (mediaInfo at panel open).
-        // Not playing / no session = horizontal, as
-        // before. Vertical = two vertical NineFlip
-        // sliders side by side in a horizontal column,
-        // matching the media card's height.
-        val slidersVertical = mediaInfo?.isPlaying == true
+        // vc251: VERTICAL whenever a media session
+        // EXISTS (playing OR paused) — the user asked
+        // for vertical bars whenever media is there,
+        // not only while it plays. No session at all
+        // = horizontal, as before. Vertical = two
+        // vertical NineFlip sliders side by side in
+        // a horizontal column, matching the media
+        // card's height.
+        val slidersVertical = mediaInfo != null
         val sliderColumn = LinearLayout(ctx).apply {
             orientation = if (slidersVertical) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             background = rounded(cardColor, 16)
