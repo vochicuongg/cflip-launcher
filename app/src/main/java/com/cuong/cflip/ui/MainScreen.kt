@@ -18,9 +18,13 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +59,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +87,7 @@ import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.MyAccessibilityService
 import com.cuong.cflip.service.MyNotificationListenerService
 import com.cuong.cflip.service.NotificationController
+import com.cuong.cflip.service.NotificationState
 
 /**
  * CFlip 2.3 main screen, redesigned after Cường called the 2.2 hub ugly.
@@ -123,6 +130,23 @@ fun MainScreen(
     val settingsScroll = rememberScrollState()
     var coverTab by remember { mutableStateOf(initialTab) }
 
+    // vc244 ENTRANCE (UI/UX Pro Max): the hub fades/slides in once per
+    // app launch — hero first, then one section every 40ms. These live
+    // above the showCover/showGroupEditor/showAppDrawer early returns,
+    // so coming back from any of them never replays the entrance.
+    // Reduced motion skips it entirely (end state at once).
+    val reducedMotion = rememberReducedMotion()
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
+    // vc244 APP DRAWER: the full app list on the big screen.
+    var showAppDrawer by remember { mutableStateOf(false) }
+    // vc244 BADGES: the drawer reuses the cover's per-app unread counts
+    // (NotificationState, the same source CoverApp reads) — no new data.
+    val notifications by NotificationState.active.collectAsState()
+    val notifCounts = remember(notifications) {
+        notifications.groupingBy { it.packageName }.eachCount()
+    }
+
     if (showCover) {
         BackHandler { showCover = false }
         Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()) {
@@ -139,6 +163,19 @@ fun MainScreen(
     if (showGroupEditor) {
         BackHandler { showGroupEditor = false }
         GroupEditorScreen(onBack = { showGroupEditor = false })
+        return
+    }
+
+    // vc244 APP DRAWER: the full app list on the big screen, with
+    // search + the same sort modes the cover reads.
+    if (showAppDrawer) {
+        BackHandler { showAppDrawer = false }
+        AppDrawerScreen(
+            settings = settings,
+            onSettingsChange = { settings = it; settingsStore.save(it) },
+            notifCounts = notifCounts,
+            onBack = { showAppDrawer = false },
+        )
         return
     }
 
@@ -223,17 +260,26 @@ fun MainScreen(
     val morph2 by bgTransition.animateFloat(0f, 50f, infiniteRepeatable(tween(6500), RepeatMode.Reverse), label = "morph2")
     val driftX2 by bgTransition.animateFloat(0f, -20f, infiniteRepeatable(tween(8000), RepeatMode.Reverse), label = "driftX2")
     val driftY2 by bgTransition.animateFloat(0f, 12f, infiniteRepeatable(tween(11000), RepeatMode.Reverse), label = "driftY2")
+    // vc244 REDUCED MOTION: the ambient blobs hold a fixed mid-state
+    // instead of morphing/drifting when animations are off system-wide.
+    val morph1v = if (reducedMotion) 25f else morph1
+    val driftX1v = if (reducedMotion) 0f else driftX1
+    val driftY1v = if (reducedMotion) 0f else driftY1
+    val morph2v = if (reducedMotion) 25f else morph2
+    val driftX2v = if (reducedMotion) 0f else driftX2
+    val driftY2v = if (reducedMotion) 0f else driftY2
     Box(modifier = Modifier.fillMaxSize().background(
         Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0B1512))))) {
-        Box(modifier = Modifier.size(280.dp).offset(x = (180f + driftX1).dp, y = (-60f + driftY1).dp)
-            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.13f), RoundedCornerShape(morph1.toInt())))
-        Box(modifier = Modifier.size(220.dp).offset(x = (-80f + driftX2).dp, y = (420f + driftY2).dp)
-            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), RoundedCornerShape(morph2.toInt())))
+        Box(modifier = Modifier.size(280.dp).offset(x = (180f + driftX1v).dp, y = (-60f + driftY1v).dp)
+            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.13f), RoundedCornerShape(morph1v.toInt())))
+        Box(modifier = Modifier.size(220.dp).offset(x = (-80f + driftX2v).dp, y = (420f + driftY2v).dp)
+            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), RoundedCornerShape(morph2v.toInt())))
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
                 .verticalScroll(settingsScroll).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
+            EnterSection(index = 0, entered = entered, reduced = reducedMotion, hero = true) {
             // Top bar: wordmark left, version pill right. No tagline paragraph.
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically,
@@ -249,7 +295,9 @@ fun MainScreen(
                     Text(versionName, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = CFlipColors.TextSecondary)
                 }
             }
+            }
 
+            EnterSection(index = 1, entered = entered, reduced = reducedMotion) {
             // vc126 WARNING FIRST (user, 29/10):
             // the GoodLock warning moves to the very top
             // of the app (above Permissions) and gets a
@@ -273,7 +321,9 @@ fun MainScreen(
                         fontSize = 12.sp, color = CFlipColors.TextSecondary)
                 }
             }
+            }
 
+            EnterSection(index = 2, entered = entered, reduced = reducedMotion) {
             // vc126 PERMISSIONS (9Flip pattern, clean-room):
             // deep-link page first, generic page as fallback, toast if
             // none resolves; the "Cấp quyền còn thiếu" button jumps to
@@ -306,8 +356,10 @@ fun MainScreen(
                         exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
                     ) {
                         Column {
+                            val permPress = remember { MutableInteractionSource() }
                             Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
-                                .clickable {
+                                .pressScale(permPress)
+                                .clickable(interactionSource = permPress, indication = LocalIndication.current) {
                                     when {
                                         !statuses.notifications -> openNotificationSettings()
                                         !statuses.accessibility -> openAccessibilitySettings()
@@ -332,9 +384,11 @@ fun MainScreen(
                     }
                 }
             }
+            }
 
 
 
+            EnterSection(index = 3, entered = entered, reduced = reducedMotion) {
             // vc134 STATS (user, 29/10: the 3 separate cards had uneven heights
             // - "Màn hình ngoài" wrapped to 2 lines): one card, 3 columns with
             // dividers, fixed 2-line label slot so values always align.
@@ -350,7 +404,41 @@ fun MainScreen(
                     StatColumn("Màn hình ngoài", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy", statuses.secondarySeen, Modifier.weight(1f))
                 }
             }
+            }
 
+            // vc244 APP DRAWER (UI/UX Pro Max): the in-app app list —
+            // search + the same sort modes the cover reads. The island
+            // is the entry point; the drawer itself is AppDrawerScreen.
+            EnterSection(index = 4, entered = entered, reduced = reducedMotion) {
+            Island("Ứng dụng") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showAppDrawer = true }) {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                                .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.GridView, contentDescription = null,
+                                    tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Tất cả ứng dụng", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                    color = CFlipColors.TextPrimary)
+                                Text("Tìm kiếm, sắp xếp A-Z / mới mở / mới cài",
+                                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                            }
+                            Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
+                        }
+                    }
+                    SortModePicker(mode = settings.sortMode, onSelect = { m ->
+                        settings = settings.copy(sortMode = m); settingsStore.save(settings)
+                    })
+                }
+            }
+            }
+
+            EnterSection(index = 5, entered = entered, reduced = reducedMotion) {
             // Widgets, 3.1.0 — USER-ADDED ONLY, corrected after the user's
             // complaint. Decompile truth (9Flip v149, static only):
             // NineCoverAppGridWidgetProvider + RemoteViewsService and the
@@ -423,7 +511,9 @@ fun MainScreen(
                     }
                 }
             }
+            }
 
+            EnterSection(index = 6, entered = entered, reduced = reducedMotion) {
             // vc121 ISLANDS (user, 28/10: group the
             // main settings into separate feature
             // islands, neat like 9Flip). The old
@@ -591,6 +681,7 @@ fun MainScreen(
                     }
                 }
             }
+            }
 
             Spacer(Modifier.height(8.dp))
         }
@@ -635,6 +726,31 @@ private fun Island(title: String, content: @Composable () -> Unit) {
     }
 }
 
+// vc244 ENTRANCE (UI/UX Pro Max): one hub section fades in and rises
+// 24px, each 40ms after the previous one (the hero also scales from
+// 0.96). Runs once per app launch (the `entered` flag is remembered
+// above the early returns); reduced motion renders the end state with
+// no animation. Only alpha / offset / scale are animated — never
+// width or height.
+@Composable
+private fun EnterSection(
+    index: Int,
+    entered: Boolean,
+    reduced: Boolean,
+    hero: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    if (reduced) { content(); return }
+    val delay = minOf(index, 6) * 40
+    AnimatedVisibility(
+        visible = entered,
+        enter = fadeIn(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay)) +
+            if (hero) scaleIn(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay), initialScale = 0.96f)
+            else slideInVertically(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay), initialOffsetY = { 24 }),
+        exit = fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
+    ) { content() }
+}
+
 @Composable
 private fun SectionLabel(text: String) {
     Text(text.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
@@ -660,7 +776,11 @@ private fun StatColumn(label: String, value: String, ok: Boolean, modifier: Modi
 
 @Composable
 private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().clickable { onOpen() }.padding(vertical = 11.dp),
+    val pressSource = remember { MutableInteractionSource() }
+    Row(modifier = Modifier.fillMaxWidth()
+        .pressScale(pressSource)
+        .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onOpen() }
+        .padding(vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(22.dp).clip(CircleShape)
             .background(if (granted) CFlipColors.Accent.copy(alpha = 0.18f) else Color.Transparent)

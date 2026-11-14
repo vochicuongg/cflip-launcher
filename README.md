@@ -9,6 +9,7 @@ mở sẵn, **không paywall, không premium**: tính năng nào làm được l
 > **v2.1.1 (25/10/2026)** — rà lỗi 12 lỗi (mở app, đèn flash, độ sáng, seek nhạc, số cột, hình nền, đồng hồ cover, xoay khi phản chiếu, widget, bong bóng, nút Back). Chi tiết: `BUGFIX-2.1.1.md`.
 > **v2.2.0 (25/10/2026)** — giao diện app chính mới trên màn hình lớn: thẻ trạng thái quyền/dịch vụ, lưới tính năng mở đúng tab cover, chỉnh nhanh sắp xếp A-Z / Mới mở / Mới cài. Chi tiết: `UI-2.2.md`.
 > **vc242 (14/11/2026)** — làm lại giao diện theo skill UI/UX Pro Max: motion tokens + press scale dùng chung (`ui/Motion.kt`), lưới Apps vào staggered, badge số crossfade, pill nav đổi màu/icon/label có animation, kết quả tìm kiếm + hàng trả lời mở ra mềm, nút media crossfade play/pause; logo mới (điện thoại gập, nét mint) + design system ở `design-system/cflip/MASTER.md`.
+> **vc244 (14/11/2026)** — làm lại giao diện trong app theo skill UI/UX Pro Max: màn hình chính có hiệu ứng mở app (hero + từng mục hiện lần lượt, chỉ chạy 1 lần mỗi lần mở app, tắt animation hệ thống thì hiện ngay), đảo ứng dụng mới (`ui/AppDrawerScreen.kt`: tìm kiếm không dấu + sắp xếp A-Z / Mới mở / Mới cài, lưới 4 cột, badge số, giữ lâu mở menu ghim/ẩn), nút cấp quyền + hàng quyền có press scale; luật màn hình lớn ở `design-system/cflip/pages/main-app.md`.
 
 ## Đối chiếu tính năng với cover launcher mẫu
 

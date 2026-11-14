@@ -32,10 +32,9 @@ android {
         // Flip 5 ships Android 13 / One UI 5.1.1 -> minSdk 33 covers Flip 5/6/7.
         minSdk = 33
         targetSdk = 35
-        // vc243: fix vc242 compile errors (wrong animateFloatAsState
-        // import, clickable/combinedClickable missing indication,
-        // AnimatedVisibility inside a Box) — see commit message.
-        versionCode = 243
+        // vc244: main-app UI redo (hub entrance, app drawer with
+        // search + sort, press feedback) — see commit message.
+        versionCode = 244
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
