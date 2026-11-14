@@ -22,8 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,7 +54,9 @@ fun CoverLauncherScreen(
 ) {
     // vc240: tap = short tick, long-press = long buzz, so the grid
     // answers the finger before the app even opens.
-    val haptic = LocalHapticFeedback.current
+    // vc241: platform View API (see CoverApp.kt) — Compose's
+    // HapticFeedbackType has no VirtualKey in BOM 2024.09.
+    val hapticView = LocalView.current
     val columns = if (settings.columns in 3..6) GridCells.Fixed(settings.columns)
         else GridCells.Adaptive(minSize = (settings.iconSizeDp + 28).dp)
     LazyVerticalGrid(
@@ -76,11 +77,11 @@ fun CoverLauncherScreen(
                 modifier = Modifier
                     .combinedClickable(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                            hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                             onAppClick(app)
                         },
                         onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                             if (onAppMenu != null) onAppMenu(app) else onToggleFavorite(app)
                         }
                     )

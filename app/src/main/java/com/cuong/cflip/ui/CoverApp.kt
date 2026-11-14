@@ -70,9 +70,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -221,7 +220,10 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     // every action reuses an existing QuickControls / Accessibility call.
     // Tab-switch actions just set `tab`; panel actions run from the app
     // context like QuickControlsScreen does.
-    val haptic = LocalHapticFeedback.current
+    // vc241 FIX (vc240 broke the build): Compose BOM 2024.09's
+    // HapticFeedbackType has no VirtualKey, so the platform View API
+    // is used instead — HapticFeedbackConstants always has VIRTUAL_KEY.
+    val hapticView = LocalView.current
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     val searchActions = listOf(
         CoverSearchAction("Đèn pin", "den pin flash torch den", Icons.Filled.FlashOn) {
@@ -319,7 +321,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                                     matchedActions.forEach { action ->
                                         GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                            hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                                             action.run()
                                         }) {
                                             Row(verticalAlignment = Alignment.CenterVertically,
@@ -494,7 +496,7 @@ private fun PillNav(
 ) {
     // vc240: every tab tap answers with a short haptic tick, so the
     // cover feels alive even though the pill is a flat Compose row.
-    val haptic = LocalHapticFeedback.current
+    val hapticView = LocalView.current
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
             .clip(RoundedCornerShape(28.dp))
@@ -511,7 +513,7 @@ private fun PillNav(
                     .clip(CircleShape)
                     .background(if (selected) CFlipColors.AccentBrush else SolidColor(Color.Transparent))
                     .clickable {
-                        if (t != current) haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        if (t != current) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                         onSelect(t)
                     }
                     .animateContentSize(animationSpec = tween(250))
