@@ -237,3 +237,36 @@ That does NOT fit a dark AMOLED cover launcher, so it is adapted, not applied:
   traced from `icon-master.png` (kept at ~/workspace/cflip-vc242-logo/, outside the repo because the snapshot push rejects binaries). Stroke-only, no fill.
 - **Cover constraints (see pages/cover.md):** 720x748, 128dp swipe bar,
   one-hand use, touch targets >= 48dp, 4/8dp spacing rhythm.
+
+- **vc257 FLAT BACKGROUND + THEME + LIQUID GLASS (user, 15/11) —
+  overrides the layered background above:**
+  - In-app background is ONE FLAT COLOUR per theme, nothing else:
+    Dark `#08090A`, Light `#F1F4EF`. The 3-layer background (L0
+    gradient + L1 TopGlow + L2 blobs with morph/drift) is deleted
+    from MainScreen; the earlier "blobs always round" idea is void
+    (blobs are gone). Other in-app screens use the same flat
+    `CFlipColors.Bg`.
+  - Theme: `settings.themeMode` — Dark (default, today's look) /
+    Light / Follow system ("theo ứng dụng" read as Follow system;
+    confirm with the user) — picked in the Style island
+    ("GIAO DIỆN"). `CFlipScheme` (Dark/Light) in `ui/Design.kt`,
+    provided by MainScreen via `LocalCFlipScheme`; `CFlipColors`
+    reads it through @Composable getters. The cover always stays
+    dark (showCover re-provides Dark); the View panel is untouched.
+  - Light palette (measured, text pairs >= 4.5:1): bg `#F1F4EF`,
+    text `#132019` / `#54655C` / `#5A6C61`, accent `#0E7A5C`
+    (darkened mint — light `#7FE3C0` is 1.6:1 as text on light),
+    on-accent white, danger `#C93A26`, glass fill white 60%.
+  - Liquid glass (`GlassCard`, 28dp corners): translucent fill +
+    gradient hairline + specular wash over the top edge + soft
+    shadow. On the flat background there is nothing to blur, so
+    the rim + highlight + shadow carry the glass read — no blur
+    is faked. Skill search for glassmorphism in the
+    jetpack-compose stack returned 0 matches; tokens are CFlip's
+    own (repo GlassCard + contrast math).
+  - CẢNH BÁO warning card: NEVER blurred / glass — solid danger
+    tint + danger border, exactly as before (user constraint,
+    15/11).
+  - Quick Panel tabs (View, not Compose): slide + fade by
+    direction (28dp, 190ms, DecelerateInterpolator; was alpha-only
+    150ms), reduced motion shows the tab at once.

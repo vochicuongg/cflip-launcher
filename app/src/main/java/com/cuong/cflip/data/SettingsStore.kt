@@ -58,6 +58,25 @@ object PanelOpenMode {
     val all = listOf(ASSISTIVE_TOUCH, SWIPE_INDICATOR)
 }
 
+// vc257 UI THEME (user, 15/11: "Giao diện" setting in the
+// Style island): 0 = Dark (default, today's look, unchanged),
+// 1 = Light, 2 = Follow system. "Theo ứng dụng" in the request
+// is read as Follow system (the standard third choice) — confirm
+// with the user if it meant something else. The in-app Compose
+// UI follows it (CFlipColors reads LocalCFlipScheme); the cover
+// and the panel always stay dark (user wallpaper / style colour).
+object ThemeMode {
+    const val DARK = 0
+    const val LIGHT = 1
+    const val SYSTEM = 2
+    fun label(mode: Int): String = when (mode) {
+        LIGHT -> "Sáng"
+        SYSTEM -> "Theo hệ thống"
+        else -> "Tối"
+    }
+    val all = listOf(DARK, LIGHT, SYSTEM)
+}
+
 data class CoverSettings(
     val columns: Int = 0,               // 0 = adaptive, else 3..6 fixed columns
     val iconSizeDp: Int = 56,
@@ -103,6 +122,9 @@ data class CoverSettings(
     val bubbleDoubleTapAction: Int = BubbleActions.FULL_PANEL,
     val bubbleLongPressAction: Int = BubbleActions.RECENTS,
     val panelOpenMode: Int = PanelOpenMode.ASSISTIVE_TOUCH,
+    // vc257: in-app UI theme — 0 = Dark (default), 1 = Light,
+    // 2 = Follow system (ThemeMode). The cover stays dark.
+    val themeMode: Int = ThemeMode.DARK,
 )
 
 object BackgroundStyles {
@@ -146,6 +168,8 @@ class SettingsStore(context: Context) {
         bubbleLongPressAction = migrated(rawLong),
         panelOpenMode = prefs.getInt("panelOpenMode", PanelOpenMode.ASSISTIVE_TOUCH)
             .let { if (it == PanelOpenMode.SWIPE_INDICATOR) it else PanelOpenMode.ASSISTIVE_TOUCH },
+        themeMode = prefs.getInt("themeMode", ThemeMode.DARK)
+            .let { if (it in ThemeMode.all) it else ThemeMode.DARK },
     )
     }
 
@@ -172,6 +196,7 @@ class SettingsStore(context: Context) {
             .putInt("bubbleDoubleTapAction", s.bubbleDoubleTapAction)
             .putInt("bubbleLongPressAction", s.bubbleLongPressAction)
             .putInt("panelOpenMode", s.panelOpenMode)
+            .putInt("themeMode", s.themeMode)
             .apply()
     }
 }

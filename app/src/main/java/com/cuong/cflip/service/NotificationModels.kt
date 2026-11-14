@@ -20,6 +20,13 @@ data class CoverNotification(
     // creator) - a mirror's plain action is the SOURCE app's own
     // intent, so its creator is the source app, not the mirror.
     val actionCreatorPackages: List<String?> = emptyList(),
+    // vc257: per-action UI flag (PendingIntent.isActivity, API
+    // 31+) - an action that opens UI must be launched-first like
+    // taps (vc214 proved a bare send with cover options lands on
+    // the MAIN display, invisible while folded); a background
+    // action (service/broadcast) fires directly and never pops
+    // the app open.
+    val actionIsActivity: List<Boolean> = emptyList(),
     val canReply: Boolean = false,
     // vc252 NOW BAR: true when this row belongs in the Now Bar
     // group - it is an ongoing notification (music / call /
@@ -51,7 +58,11 @@ object NotificationController {
     // vc212: true when something actually launched, so the
     // panel only closes when the tap really went somewhere.
     fun open(key: String): Boolean = listener?.openByKey(key) ?: false
-    fun dismiss(key: String) { listener?.dismissByKey(key) }
+    // vc257: true when the cancel was actually issued — the panel
+    // only hides the card on true (a failed dismiss used to hide
+    // the card while the notification stayed and came back on the
+    // next rebuild).
+    fun dismiss(key: String): Boolean = listener?.dismissByKey(key) ?: false
     fun clickAction(key: String, index: Int): Boolean = listener?.clickActionByKey(key, index) ?: false
     fun reply(key: String, message: String) { listener?.replyByKey(key, message) }
     fun isConnected(): Boolean = listener != null

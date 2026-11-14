@@ -172,6 +172,7 @@ class MyNotificationListenerService : NotificationListenerService() {
             actionTitles = actions.map { it.title?.toString() ?: "" },
             actionIsReply = actions.map { (it.remoteInputs ?: emptyArray()).isNotEmpty() },
             actionCreatorPackages = actions.map { it.actionIntent?.creatorPackage },
+            actionIsActivity = actions.map { it.actionIntent?.isActivity == true },
             canReply = canReply,
             // vc252: ongoing (music / call / navigation / timer)
             // belongs in the Now Bar group.
@@ -246,7 +247,17 @@ class MyNotificationListenerService : NotificationListenerService() {
         }.onFailure { Log.w(TAG, "launch app failed", it) }.getOrDefault(false)
     }
 
-    fun dismissByKey(key: String) { runCatching { cancelNotification(key) } }
+    // vc257: returns whether the cancel was actually issued, so
+    // the panel only hides the card on true. cancelNotification
+    // on a stale key is a silent no-op (no throw), so true mostly
+    // means "listener alive and call accepted" — and the result is
+    // logged, so a failing dismiss is visible in logcat instead
+    // of silently leaving the notification in place.
+    fun dismissByKey(key: String): Boolean {
+        val ok = runCatching { cancelNotification(key); true }.getOrDefault(false)
+        Log.i(TAG, "dismiss: key=$key ok=$ok")
+        return ok
+    }
 
     fun clickActionByKey(key: String, index: Int): Boolean {
         // vc216: the tab's delayed send (500ms after launching the
@@ -268,9 +279,17 @@ class MyNotificationListenerService : NotificationListenerService() {
         // user replies with real text. (The panel routes reply
         // actions to open directly; this is the backstop.)
         if ((action.remoteInputs ?: emptyArray()).isNotEmpty()) return openByKey(key)
+        // vc257: a null actionIntent used to report success —
+        // `?.send` inside runCatching returns null without
+        // throwing, so isSuccess was true and the panel kept (or
+        // hid) a button for an action that never fired.
+        val pi = action.actionIntent ?: run {
+            Log.i(TAG, "action: null actionIntent pkg=${sbn.packageName} idx=$index")
+            return false
+        }
         // vc212: action intents that open UI get the same cover
         // routing as taps (background actions ignore the options).
-        val res = runCatching { action.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
+        val res = runCatching { pi.send(this, 0, null, null, null, null, coverOptions()) }
         Log.i(TAG, "action: send ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
         if (res.isSuccess) return true
         // vc214: a CanceledException usually means the stored copy
@@ -281,9 +300,14 @@ class MyNotificationListenerService : NotificationListenerService() {
             activeNotifications?.find { it.key == key }?.notification?.actions?.getOrNull(index)
         }.getOrNull()
         if (freshAction != null && freshAction !== action) {
-            val retry = runCatching { freshAction.actionIntent?.send(this, 0, null, null, null, null, coverOptions()) }
-            Log.i(TAG, "action: fresh retry ok=${retry.isSuccess} err=${retry.exceptionOrNull()?.message}")
-            if (retry.isSuccess) return true
+            val freshPi = freshAction.actionIntent
+            if (freshPi != null) {
+                val retry = runCatching { freshPi.send(this, 0, null, null, null, null, coverOptions()) }
+                Log.i(TAG, "action: fresh retry ok=${retry.isSuccess} err=${retry.exceptionOrNull()?.message}")
+                if (retry.isSuccess) return true
+            } else {
+                Log.i(TAG, "action: fresh action has null actionIntent pkg=${sbn.packageName} idx=$index")
+            }
         }
         res.exceptionOrNull()?.let { Log.w(TAG, "action send failed", it) }
         return false
@@ -296,11 +320,19 @@ class MyNotificationListenerService : NotificationListenerService() {
         for (action in actions) {
             val inputs = action.remoteInputs ?: continue
             if (inputs.isEmpty()) continue
+            // vc257: a null actionIntent used to log "reply ok=true"
+            // (same `?.send` vacuous-success as actions) and stop
+            // at the first reply action; skip it and try the next.
+            val pi = action.actionIntent
+            if (pi == null) {
+                Log.i(TAG, "reply: null actionIntent pkg=${sbn.packageName}, trying next action")
+                continue
+            }
             val intent = Intent()
             val bundle = Bundle()
             for (ri in inputs) bundle.putCharSequence(ri.resultKey, message)
             RemoteInput.addResultsToIntent(inputs, intent, bundle)
-            val res = runCatching { action.actionIntent?.send(this, 0, intent, null, null, null, coverOptions()) }
+            val res = runCatching { pi.send(this, 0, intent, null, null, null, coverOptions()) }
             Log.i(TAG, "reply: pkg=${sbn.packageName} ok=${res.isSuccess} err=${res.exceptionOrNull()?.message}")
             res.onFailure { Log.w(TAG, "reply send failed", it) }
             return

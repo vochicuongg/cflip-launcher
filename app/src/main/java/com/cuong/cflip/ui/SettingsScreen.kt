@@ -164,7 +164,22 @@ fun SettingsScreen(
             }
         }
 
+        // vc257 GIAO DIỆN: Dark / Light / Follow system. The whole
+        // in-app UI follows it at once (MainScreen provides the
+        // scheme from settings.themeMode); the cover and the panel
+        // always stay dark. No widget refresh needed — the widget
+        // is a cover surface.
         EnterItem(index = 3, entered = entered, reduced = reduced) {
+            Column {
+                SectionHeader("GIAO DIỆN")
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    ThemeModePicker(mode = settings.themeMode,
+                        onSelect = { update(settings.copy(themeMode = it)) })
+                }
+            }
+        }
+
+        EnterItem(index = 4, entered = entered, reduced = reduced) {
             Column {
                 SectionHeader("HÌNH NỀN")
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -202,8 +217,9 @@ fun SettingsScreen(
         // Hidden apps management (v1.3): unhide brings the app back everywhere.
         // vc255: the QUYỀN section used to live here (Usage Access button)
         // — moved to the Quyền island on MainScreen so there is one place
-        // for it, not two. This section is now index 4.
-        EnterItem(index = 4, entered = entered, reduced = reduced) {
+        // for it, not two. This section is now index 5 (vc257 added
+        // the GIAO DIỆN section above).
+        EnterItem(index = 5, entered = entered, reduced = reduced) {
             Column {
                 SectionHeader("ỨNG DỤNG ĐÃ ẨN (${hiddenApps.size})")
                 GlassCard(modifier = Modifier.fillMaxWidth()) {

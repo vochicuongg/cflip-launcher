@@ -12,10 +12,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +37,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -59,8 +55,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,9 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -84,10 +80,12 @@ import androidx.core.content.ContextCompat
 import com.cuong.cflip.control.QuickControls
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.data.BackgroundStyles
+import com.cuong.cflip.data.CoverSettings
 import com.cuong.cflip.data.CustomGroupStore
 import com.cuong.cflip.data.HiddenAppsStore
 import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
+import com.cuong.cflip.data.ThemeMode
 import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.MyAccessibilityService
@@ -116,6 +114,13 @@ import com.cuong.cflip.service.NotificationController
  * - Every card still does something real: feature cards open the cover
  *   at that tab, permission rows open the exact system page, and the
  *   sort/toggle rows write to the same SettingsStore the cover reads.
+ *
+ * vc257 THEME: the hub owns the settings state, and the wrapper
+ * below provides the colour scheme for it (Dark / Light / Follow
+ * system). The body lives in MainScreenContent; the settings state
+ * is hoisted as a MutableState so the body keeps its `settings = …`
+ * writes unchanged. The cover branch re-provides Dark (the cover
+ * always stays dark — user wallpaper / style colour).
  */
 @Composable
 fun MainScreen(
@@ -123,9 +128,31 @@ fun MainScreen(
     showCoverInitially: Boolean = false,
 ) {
     val context = LocalContext.current
-    val displayRepo = remember { DisplayRepository(context) }
     val settingsStore = remember { SettingsStore(context) }
-    var settings by remember { mutableStateOf(settingsStore.load()) }
+    val settingsState = remember { mutableStateOf(settingsStore.load()) }
+    val settings by settingsState
+    val isDark = when (settings.themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        else -> true
+    }
+    CompositionLocalProvider(
+        LocalCFlipScheme provides if (isDark) DarkCFlipScheme else LightCFlipScheme
+    ) {
+        MainScreenContent(initialTab, showCoverInitially, settingsStore, settingsState)
+    }
+}
+
+@Composable
+private fun MainScreenContent(
+    initialTab: CoverTab = CoverTab.HOME,
+    showCoverInitially: Boolean = false,
+    settingsStore: SettingsStore,
+    settingsState: MutableState<CoverSettings>,
+) {
+    val context = LocalContext.current
+    val displayRepo = remember { DisplayRepository(context) }
+    var settings by settingsState
     val appRepo = remember { AppRepository(context) }
     val hiddenStore = remember { HiddenAppsStore(context) }
     val recentRepo = remember { RecentAppsRepository(context) }
@@ -163,11 +190,16 @@ fun MainScreen(
 
     if (showCover) {
         BackHandler { showCover = false }
-        Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()) {
-            TextButton(onClick = { showCover = false }) { Text("← Quay lại", color = CFlipColors.Accent) }
-            CoverApp(modifier = Modifier.weight(1f),
-                targetDisplayId = displayRepo.secondaryDisplay()?.displayId,
-                initialTab = coverTab)
+        // vc257: the cover always stays dark, whatever the app
+        // theme is — its background is the user's wallpaper / style
+        // colour, and dark text on a dark wallpaper would be unreadable.
+        CompositionLocalProvider(LocalCFlipScheme provides DarkCFlipScheme) {
+            Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()) {
+                TextButton(onClick = { showCover = false }) { Text("← Quay lại", color = CFlipColors.Accent) }
+                CoverApp(modifier = Modifier.weight(1f),
+                    targetDisplayId = displayRepo.secondaryDisplay()?.displayId,
+                    initialTab = coverTab)
+            }
         }
         return
     }
@@ -324,47 +356,17 @@ fun MainScreen(
             toast("Không mở được trang Accessibility trên máy này.")
     }
 
-    // vc135 ANIMATED BACKGROUND (user, 29/10): the two ambient blobs
-    // gently morph square -> circle (corner percent 0 -> 50) and drift
-    // a few dp, each on its own slow cycle so they never move in sync.
-    // They stay outside the scroll, so the animation costs one small
-    // layer, not a per-frame blur while scrolling.
-    val bgTransition = rememberInfiniteTransition(label = "cflip-bg")
-    val morph1 by bgTransition.animateFloat(0f, 50f, infiniteRepeatable(tween(5000), RepeatMode.Reverse), label = "morph1")
-    val driftX1 by bgTransition.animateFloat(0f, 24f, infiniteRepeatable(tween(7000), RepeatMode.Reverse), label = "driftX1")
-    val driftY1 by bgTransition.animateFloat(0f, 16f, infiniteRepeatable(tween(9000), RepeatMode.Reverse), label = "driftY1")
-    val morph2 by bgTransition.animateFloat(0f, 50f, infiniteRepeatable(tween(6500), RepeatMode.Reverse), label = "morph2")
-    val driftX2 by bgTransition.animateFloat(0f, -20f, infiniteRepeatable(tween(8000), RepeatMode.Reverse), label = "driftX2")
-    val driftY2 by bgTransition.animateFloat(0f, 12f, infiniteRepeatable(tween(11000), RepeatMode.Reverse), label = "driftY2")
-    // vc244 REDUCED MOTION: the ambient blobs hold a fixed mid-state
-    // instead of morphing/drifting when animations are off system-wide.
-    val morph1v = if (reducedMotion) 25f else morph1
-    val driftX1v = if (reducedMotion) 0f else driftX1
-    val driftY1v = if (reducedMotion) 0f else driftY1
-    val morph2v = if (reducedMotion) 25f else morph2
-    val driftX2v = if (reducedMotion) 0f else driftX2
-    val driftY2v = if (reducedMotion) 0f else driftY2
-    // vc254 LAYERED BACKGROUND (UI/UX Pro Max depth layering; REA:
-    // both rivals use a flat dark in-app, so CFlip keeps its mint
-    // ambient light but now as explicit layers, not two stray blobs):
-    // L0 base — near-black vertical gradient, greener at the bottom;
-    // L1 brand light — a mint wash bleeding from the top edge
-    // (CFlipColors.TopGlow, static, full width);
-    // L2 ambient blobs — one mint glow top-right, one deep-teal glow
-    // lower-left, slow morph + drift (held mid-state when reduced
-    // motion is on). Nothing here scrolls, so the cost is one layer.
-    Box(modifier = Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0A120F))))) {
-        Box(modifier = Modifier.fillMaxSize().background(CFlipColors.TopGlow))
-        Box(modifier = Modifier.size(280.dp).offset(x = (180f + driftX1v).dp, y = (-60f + driftY1v).dp)
-            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.12f), RoundedCornerShape(morph1v.toInt())))
-        Box(modifier = Modifier.size(220.dp).offset(x = (-80f + driftX2v).dp, y = (420f + driftY2v).dp)
-            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.09f), RoundedCornerShape(morph2v.toInt())))
-        Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding()
-                .verticalScroll(settingsScroll).padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
+    // vc257 FLAT BACKGROUND (user, 15/11): the in-app background is
+    // ONE FLAT COLOUR per theme (CFlipColors.Bg) — the 3-layer
+    // background is gone entirely (L0 gradient, L1 TopGlow, L2 blobs
+    // with their morph/drift). No gradient, no glow, no blobs, square
+    // or round. The glass cards below carry the depth now (translucent
+    // fill + bright rim + specular + soft shadow).
+    Column(
+        modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()
+            .verticalScroll(settingsScroll).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
             EnterSection(index = 0, entered = entered, reduced = reducedMotion, hero = true) {
             // Top bar: wordmark left, version pill right. No tagline paragraph.
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -424,10 +426,9 @@ fun MainScreen(
                 // vc134 STATS (user, 29/10: the 3 separate cards had uneven heights
                 // - "Màn hình ngoài" wrapped to 2 lines): one card, 3 columns with
                 // dividers, fixed 2-line label slot so values always align.
-                Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                    .background(Brush.verticalGradient(listOf(Color(0xFF1A2220), CFlipColors.Surface)))
-                    .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-                    .padding(vertical = 14.dp, horizontal = 8.dp)) {
+                // vc257: the solid gradient card becomes a GlassCard so it
+                // reads as glass on the flat background, like the islands.
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         StatColumn("Quyền", "${statuses.requiredCount}/3", statuses.requiredCount == 3, Modifier.weight(1f))
                         Box(modifier = Modifier.width(1.dp).height(40.dp).background(CFlipColors.CardStroke))
@@ -819,7 +820,6 @@ fun MainScreen(
 
             Spacer(Modifier.height(8.dp))
         }
-    }
 }
 
 private data class MainStatuses(
@@ -845,17 +845,16 @@ private fun isServiceRunning(context: Context, cls: Class<*>): Boolean {
 // island - a small caps label 8dp above a
 // rounded card, same card style as the
 // existing Widget / Permissions / Service
-// islands (20dp corners, Surface, CardStroke,
-// 16dp padding). Callers pass their own inner
+// islands. Callers pass their own inner
 // Column so row spacing stays as before.
+// vc257: the island card is a GlassCard now
+// (was a solid gradient + 20dp corners) so
+// it reads as glass on the flat background.
 @Composable
 private fun Island(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(title)
-        Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF1A2220), CFlipColors.Surface)))
-            .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .padding(16.dp)) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
             content()
         }
     }

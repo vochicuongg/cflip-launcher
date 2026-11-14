@@ -22,8 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -57,9 +55,9 @@ fun RecentAppsScreen(onBack: () -> Unit) {
     val hasUsageAccess = remember { recentRepo.hasUsageAccess() }
     BackHandler { onBack() }
     Box(
-        modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0B1512)))
-        )
+        // vc257 FLAT BACKGROUND: one flat theme colour (was a
+        // two-stop vertical gradient) — same as the hub.
+        modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)
     ) {
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()

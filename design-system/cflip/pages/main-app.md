@@ -10,7 +10,7 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
   Long text never runs edge-to-edge; hint text max ~2 lines.
 - Identity: same as cover (MASTER.md "CFlip adaptation") — near-black
   `#08090A`, mint `#7FE3C0` / `#2FBF8F`, text `#F5F7F6` / `#9AA8A1` /
-  `#66766E`, glass cards, 20dp island corners. The generated web palette
+  `#66766E`, glass cards, 28dp island corners (vc257, was 20dp). The generated web palette
   (purple/pink, light background, Russo One) is REJECTED here too.
 - Hero: wordmark "CFlip" (19sp bold) + version pill; no tagline
   paragraph, no decorative hero image.
@@ -31,8 +31,7 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
   the cover stagger. Animate only alpha, offset, scale, colour —
   never width/height. Entrance runs ONCE per app launch (remembered
   flag, survives returning from cover/drawer/editor); reduced motion
-  (`rememberReducedMotion()`) snaps everything to its end state,
-  including the ambient background blobs.
+  (`rememberReducedMotion()`) snaps everything to its end state.
 - Press feedback: every tappable row/card answers within 150ms
   (ripple + press scale 0.95 where a shared interaction source
   exists). Touch targets >= 48dp.
@@ -52,8 +51,8 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
   48dp, unread = mint dot + bold title (session-local read marks —
   the service has no read field, so marks reset when the drawer
   closes). Hub entry card shows count + latest preview.
-- Hub card styles are unified (vc245): every island uses Island()
-  (gradient card) — Permissions no longer has its own flat Surface
+- Hub card styles are unified (vc245, glass in vc257): every island uses Island()
+  (GlassCard — translucent fill + bright rim + specular + soft shadow) — Permissions no longer has its own flat Surface
   box. Island order: Hero, CẢNH BÁO, Quyền, Trạng thái, Ứng dụng,
   Thông báo, Widget, Quick Panel.
 - Touch targets (vc245, pro-rules): every tappable row is >= 48dp —
@@ -103,3 +102,34 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
     24dp corners, styled title, 48dp action rows with press scale.
     BubbleControls is @Deprecated and unused — kept as-is.
     CoverPreviews is preview-only — kept as-is.
+
+- vc257 FLAT BACKGROUND + THEME + LIQUID GLASS (user, 15/11):
+  - Background: ONE FLAT COLOUR per theme, nothing else — no
+    gradient, no TopGlow, no blobs (the 3-layer background and its
+    morph/drift are deleted; the earlier "blobs always round" idea
+    is void). Dark = `#08090A`, Light = `#F1F4EF`. Every in-app
+    Compose screen uses the same flat `CFlipColors.Bg`
+    (MainScreen, SettingsScreen, GroupEditorScreen,
+    RecentAppsScreen, WidgetDrawerScreen).
+  - Theme: `settings.themeMode` (Dark / Light / Follow system) in
+    the Style island ("GIAO DIỆN", `ThemeModePicker` — same pills
+    as SortModePicker). MainScreen provides the scheme via
+    `LocalCFlipScheme`; `CFlipColors` reads it through @Composable
+    getters, so call sites are unchanged. The cover (showCover
+    branch) re-provides Dark — it always stays dark (user
+    wallpaper / style colour); the View panel is untouched.
+  - Light palette (measured, all text pairs >= 4.5:1): bg
+    `#F1F4EF`, text `#132019` / `#54655C` / `#5A6C61`, accent
+    `#0E7A5C` (darkened mint — light `#7FE3C0` is only 1.6:1 as
+    text on light), on-accent white, danger `#C93A26`.
+  - Liquid glass (`GlassCard`, 28dp corners): translucent fill
+    (Dark: warm white 9%; Light: white 60%) + gradient hairline
+    border + specular wash over the top edge + soft shadow (black
+    on dark, soft grey on light). On the flat background there is
+    nothing behind the card to blur, so the rim + highlight +
+    shadow carry the glass read — no blur is faked. Skill search
+    for glassmorphism in the jetpack-compose stack returned 0
+    matches, so the tokens are CFlip's own (repo GlassCard +
+    contrast math), not the skill's.
+  - CẢNH BÁO warning card: NEVER blurred / glass — solid danger
+    tint + danger border, exactly as before (user constraint).

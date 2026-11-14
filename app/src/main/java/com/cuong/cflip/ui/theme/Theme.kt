@@ -3,25 +3,13 @@ package com.cuong.cflip.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.cuong.cflip.ui.CFlipColors
-
-private val CFlipScheme = darkColorScheme(
-    primary = CFlipColors.Accent,
-    onPrimary = CFlipColors.AccentDark,
-    background = CFlipColors.Bg,
-    onBackground = CFlipColors.TextPrimary,
-    surface = Color(0xFF101514),
-    onSurface = CFlipColors.TextPrimary,
-    surfaceVariant = Color(0xFF1A211E),
-    onSurfaceVariant = CFlipColors.TextSecondary,
-    outline = CFlipColors.CardStroke,
-    error = CFlipColors.Danger,
-)
+import com.cuong.cflip.ui.LocalCFlipScheme
 
 private val CFlipTypography = Typography(
     headlineLarge = TextStyle(fontSize = 52.sp, fontWeight = FontWeight.Bold, letterSpacing = (-1).sp),
@@ -34,6 +22,38 @@ private val CFlipTypography = Typography(
 
 @Composable
 fun CFlipTheme(content: @Composable () -> Unit) {
-    // Cover screens are AMOLED: always the dark scheme above.
-    MaterialTheme(colorScheme = CFlipScheme, typography = CFlipTypography, content = content)
+    // vc257: the Material scheme follows the same theme scheme as
+    // CFlipColors (LocalCFlipScheme, provided by MainScreen from
+    // settings.themeMode; the cover re-provides Dark). The scheme
+    // is read here, inside the composable — it used to be a
+    // top-level val, which cannot read a CompositionLocal.
+    val scheme = LocalCFlipScheme.current
+    val colorScheme = if (scheme.isDark) {
+        darkColorScheme(
+            primary = CFlipColors.Accent,
+            onPrimary = CFlipColors.AccentDark,
+            background = CFlipColors.Bg,
+            onBackground = CFlipColors.TextPrimary,
+            surface = CFlipColors.Surface,
+            onSurface = CFlipColors.TextPrimary,
+            surfaceVariant = CFlipColors.Surface,
+            onSurfaceVariant = CFlipColors.TextSecondary,
+            outline = CFlipColors.CardStroke,
+            error = CFlipColors.Danger,
+        )
+    } else {
+        lightColorScheme(
+            primary = CFlipColors.Accent,
+            onPrimary = CFlipColors.AccentDark,
+            background = CFlipColors.Bg,
+            onBackground = CFlipColors.TextPrimary,
+            surface = CFlipColors.Surface,
+            onSurface = CFlipColors.TextPrimary,
+            surfaceVariant = CFlipColors.Surface,
+            onSurfaceVariant = CFlipColors.TextSecondary,
+            outline = CFlipColors.CardStroke,
+            error = CFlipColors.Danger,
+        )
+    }
+    MaterialTheme(colorScheme = colorScheme, typography = CFlipTypography, content = content)
 }

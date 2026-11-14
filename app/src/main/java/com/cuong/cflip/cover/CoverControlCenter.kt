@@ -779,6 +779,11 @@ object CoverControlCenterManager {
         // cost. Now the apps grid builds only on first switch to tab 2.
         var buildAppsTab: (() -> Unit)? = null
         var buildNotifTab: (() -> Unit)? = null
+        // vc257: the tab the panel is on — the slide direction
+        // comes from here (the new tab slides in from the side of
+        // the tab it replaces). Starts at the initial tab so the
+        // first build (view == null) never animates.
+        var currentTab = initialTab.coerceIn(0, 3)
         fun selectTab(i: Int) {
             if (i == 1) buildNotifTab?.invoke()
             if (i == 2) buildAppsTab?.invoke()
@@ -795,17 +800,31 @@ object CoverControlCenterManager {
                 }
                 if (idx == 1) bellTabIcon?.setColorFilter(if (idx == i) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
             }
-            // vc112: smooth tab switch - fade the
-            // newly visible tab in (150ms). At
-            // build time view is still null, so
-            // the initial tab does not animate.
+            // vc257 TAB TRANSITION: vc112 only faded (150ms alpha),
+            // so a switch read as a blink. Now the new tab also
+            // slides in from the side of the tab it replaces
+            // (28dp, 190ms, DecelerateInterpolator) — the direction
+            // tells the eye where it came from. Reduced motion
+            // (animator scale 0) skips the animation and shows the
+            // tab at once, like the rest of the app.
             if (view != null) {
                 val visible = tabContents[i.coerceIn(0, tabContents.size - 1)]
-                visible.alpha = 0f
-                visible.animate().alpha(1f).setDuration(150L)
-                    .setInterpolator(android.view.animation.DecelerateInterpolator())
-                    .start()
+                val reducedMotion = runCatching {
+                    Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+                }.getOrDefault(1f) == 0f
+                if (reducedMotion || i == currentTab) {
+                    visible.alpha = 1f
+                    visible.translationX = 0f
+                } else {
+                    val dir = if (i > currentTab) 1f else -1f
+                    visible.alpha = 0f
+                    visible.translationX = dir * dp(28)
+                    visible.animate().alpha(1f).translationX(0f).setDuration(190L)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator())
+                        .start()
+                }
             }
+            currentTab = i
             resetTimer()
         }
         // vc209: no emoji/text symbols - drawn SystemUI-style
@@ -2558,7 +2577,7 @@ object CoverControlCenterManager {
                 text = n.text; textSize = 12f; setTextColor(0xFFFFFFFF.toInt())
             })
             row.addView(texts)
-            row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { NotificationController.dismiss(n.key); card.visibility = View.GONE } })
+            row.addView(modernButton("Xóa").apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT); setOnClickListener { if (NotificationController.dismiss(n.key)) card.visibility = View.GONE } })
             card.addView(row)
             // vc209 ACTION BUTTONS: every action the notification
             // declares (Thich / Tra loi / Da xem...). A reply
@@ -2597,21 +2616,32 @@ object CoverControlCenterManager {
                                 if (openReply(n, appLabel)) hide()
                                 else if (openMirrorOrNotif(n)) hide()
                             }
-                            // vc215: a mirror's plain action is the SOURCE
-                            // app's own intent (LiveBridge copies it
-                            // verbatim), so its creator is the source
-                            // app, not the mirror - launch the source
-                            // app on the cover first, then send, exactly
-                            // like taps. Only for mirror actions
-                            // (creator != this package): a normal app's
-                            // own background action (e.g. Like) must NOT
-                            // pop the app open just for being tapped.
+                            // vc257 LAUNCH-FIRST FOR UI ACTIONS: vc215
+                            // only did this for mirrors (creator !=
+                            // this package) — launch the source app on
+                            // the cover, then send after 500ms, exactly
+                            // like taps. But vc214 proved a bare send
+                            // with cover options lands a UI-opening
+                            // intent on the MAIN display for ANY app,
+                            // not just mirrors — so an action whose
+                            // PendingIntent opens UI (isActivity) now
+                            // gets launch-first for its own app too.
+                            // A background action (service/broadcast)
+                            // still fires directly, so a Like never
+                            // pops the app open just for being tapped.
                             // A dead action still hides its button.
+                            // On a successful UI action the panel hides
+                            // so the opened UI is visible on the cover.
                             else {
                                 val creator = n.actionCreatorPackages.getOrNull(idx)
-                                if (creator != null && creator != n.packageName && launchAppOnCover(creator)) {
+                                val opensUi = n.actionIsActivity.getOrNull(idx) == true
+                                val launchPkg: String? = creator?.takeIf { it != n.packageName }
+                                    ?: if (opensUi) n.packageName else null
+                                if (launchPkg != null && launchAppOnCover(launchPkg)) {
                                     handler.postDelayed({
-                                        if (!NotificationController.clickAction(n.key, idx)) view.visibility = View.GONE
+                                        if (NotificationController.clickAction(n.key, idx)) {
+                                            if (opensUi) hide()
+                                        } else view.visibility = View.GONE
                                     }, 500)
                                 } else if (!NotificationController.clickAction(n.key, idx)) {
                                     view.visibility = View.GONE

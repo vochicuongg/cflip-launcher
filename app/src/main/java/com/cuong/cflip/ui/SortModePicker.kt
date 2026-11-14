@@ -41,6 +41,21 @@ fun SortModePicker(mode: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modi
     }
 }
 
+/**
+ * vc257 THEME PICKER: the same segmented pills as SortModePicker
+ * (48dp, press scale + haptic tick) — Dark / Light / Follow system.
+ * "Theo ứng dụng" in the request is read as Follow system.
+ */
+@Composable
+fun ThemeModePicker(mode: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+        for (m in com.cuong.cflip.data.ThemeMode.all) {
+            SortPill(label = com.cuong.cflip.data.ThemeMode.label(m), selected = mode == m,
+                modifier = Modifier.weight(1f)) { onSelect(m) }
+        }
+    }
+}
+
 @Composable
 private fun SortPill(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val pressSource = remember { MutableInteractionSource() }

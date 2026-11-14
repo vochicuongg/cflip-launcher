@@ -40,8 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -93,9 +91,9 @@ fun WidgetDrawerScreen(
 
     BackHandler { onBack() }
     Box(
-        modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0B1512)))
-        )
+        // vc257 FLAT BACKGROUND: one flat theme colour (was a
+        // two-stop vertical gradient) — same as the hub.
+        modifier = Modifier.fillMaxSize().background(CFlipColors.Bg)
     ) {
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
