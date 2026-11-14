@@ -7,6 +7,7 @@ import android.os.BatteryManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,19 +86,26 @@ object CFlipColors {
     )
 }
 
-/** Translucent card with a gradient hairline + soft shadow - base surface of CFlip 2.1. */
+/** Translucent card with a gradient hairline + soft shadow - base surface of CFlip 2.1.
+ * vc242 MOTION: a tappable card now answers the finger — it shrinks to 95%
+ * (spring, via the same interaction source as the ripple) while pressed.
+ * The scale is a graphicsLayer transform, so layout bounds never move. */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    val pressSource = remember { MutableInteractionSource() }
     var m = modifier
         .shadow(10.dp, RoundedCornerShape(24.dp), ambientColor = Color.Black, spotColor = Color.Black)
         .clip(RoundedCornerShape(24.dp))
         .background(CFlipColors.CardFill)
         .border(1.dp, CFlipColors.BorderBrush, RoundedCornerShape(24.dp))
-    if (onClick != null) m = m.clickable { onClick() }
+    if (onClick != null) {
+        m = m.pressScale(pressSource)
+            .clickable(interactionSource = pressSource) { onClick() }
+    }
     Box(modifier = m.padding(14.dp)) { content() }
 }
 

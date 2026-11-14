@@ -1,5 +1,11 @@
 package com.cuong.cflip.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -58,7 +64,13 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
             Text("Chưa cấp quyền truy cập thông báo — vào màn hình chính của CFlip để cấp quyền.",
                 fontSize = 12.sp, color = CFlipColors.Danger, modifier = Modifier.padding(top = 4.dp))
         }
-        if (replyTarget != null) {
+        // vc242 MOTION: the reply row unfolds (expand + fade) instead of
+        // popping in when a notification's "Trả lời" chip is tapped.
+        AnimatedVisibility(
+            visible = replyTarget != null,
+            enter = expandVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeIn(animationSpec = tween(CFlipMotion.FastMs)),
+            exit = shrinkVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
+        ) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {

@@ -1,8 +1,16 @@
 package com.cuong.cflip.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -136,7 +144,10 @@ fun MediaScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Circular media button: filled mint for the primary action, glass otherwise. */
+/** Circular media button: filled mint for the primary action, glass otherwise.
+ * vc242 MOTION: press scale (same source as the clickable) + the icon
+ * crossfades/scales between play and pause instead of swapping instantly.
+ * The equalizer/disc visuals are untouched (pending owner's observations). */
 @Composable
 private fun RoundControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -144,15 +155,26 @@ private fun RoundControl(
     primary: Boolean,
     onClick: () -> Unit,
 ) {
+    val pressSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier.size(size).clip(CircleShape)
             .background(if (primary) CFlipColors.Accent else CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, CircleShape)
-            .clickable { onClick() },
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null,
-            tint = if (primary) CFlipColors.AccentDark else CFlipColors.TextPrimary,
-            modifier = Modifier.size(size * 0.5f))
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = {
+                (fadeIn(tween(CFlipMotion.FastMs)) + scaleIn(tween(CFlipMotion.FastMs), initialScale = 0.7f)) togetherWith
+                    (fadeOut(tween(CFlipMotion.FastMs)) + scaleOut(tween(CFlipMotion.FastMs), targetScale = 0.7f))
+            },
+            label = "mediaControlIcon",
+        ) { targetIcon ->
+            Icon(targetIcon, contentDescription = null,
+                tint = if (primary) CFlipColors.AccentDark else CFlipColors.TextPrimary,
+                modifier = Modifier.size(size * 0.5f))
+        }
     }
 }

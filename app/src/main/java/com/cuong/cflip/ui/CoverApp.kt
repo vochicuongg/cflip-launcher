@@ -5,11 +5,16 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -19,6 +24,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -315,21 +322,30 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                                 shape = RoundedCornerShape(20.dp),
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             )
-                            if (matchedActions.isNotEmpty()) {
-                                SectionHeader("ĐIỀU KHIỂN")
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-                                    matchedActions.forEach { action ->
-                                        GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
-                                            hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
-                                            action.run()
-                                        }) {
-                                            Row(verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                Icon(action.icon, contentDescription = null,
-                                                    tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
-                                                Text(action.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                                                    color = CFlipColors.TextPrimary)
+                            // vc242 MOTION: the control results unfold
+                            // (expand + fade) instead of popping in, and
+                            // fold away the same way when the query clears.
+                            AnimatedVisibility(
+                                visible = matchedActions.isNotEmpty(),
+                                enter = expandVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeIn(animationSpec = tween(CFlipMotion.FastMs)),
+                                exit = shrinkVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
+                            ) {
+                                Column {
+                                    SectionHeader("ĐIỀU KHIỂN")
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                                        matchedActions.forEach { action ->
+                                            GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
+                                                hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                                                action.run()
+                                            }) {
+                                                Row(verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Icon(action.icon, contentDescription = null,
+                                                        tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                                                    Text(action.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                                        color = CFlipColors.TextPrimary)
+                                                }
                                             }
                                         }
                                     }
@@ -448,7 +464,12 @@ private fun HomeTab(
             if (batteryPct >= 0) {
                 StatusPill(icon = if (charging) Icons.Filled.Bolt else null, text = "Pin $batteryPct%")
             }
-            Box(modifier = Modifier.clickable { onOpenNotifs() }) {
+            // vc242 MOTION: press scale on the notification pill, same
+            // interaction source as its clickable (GlassCard pattern).
+            val notifPress = remember { MutableInteractionSource() }
+            Box(modifier = Modifier
+                .pressScale(notifPress)
+                .clickable(interactionSource = notifPress) { onOpenNotifs() }) {
                 StatusPill(icon = Icons.Filled.Notifications,
                     text = if (notifCount > 0) "$notifCount thông báo mới" else "Không có thông báo",
                     tint = if (notifCount > 0) CFlipColors.Accent else CFlipColors.TextSecondary)
@@ -486,7 +507,13 @@ private fun HomeTab(
     }
 }
 
-/** Floating pill navigation: selected tab gets a filled mint pill + label. */
+/** Floating pill navigation: selected tab gets a filled mint pill + label.
+ * vc242 MOTION: the selected pill no longer pops — its background colour
+ * animates (250ms), the icon grows ~12% on a spring, and the label fades
+ * + expands in. The pill also answers presses with the shared press scale.
+ * The gradient fill became a solid animated mint so the colour CAN animate
+ * (a Brush cannot); the solid is the gradient's mid-tone, so the look is
+ * unchanged at rest. */
 @Composable
 private fun PillNav(
     tabs: List<CoverTab>,
@@ -508,15 +535,27 @@ private fun PillNav(
     ) {
         tabs.forEach { t ->
             val selected = t == current
+            val pillColor by animateColorAsState(
+                targetValue = if (selected) CFlipColors.Accent else Color.Transparent,
+                animationSpec = tween(CFlipMotion.MediumMs),
+                label = "pillColor",
+            )
+            val iconScale by animateFloatAsState(
+                targetValue = if (selected) 1.12f else 1f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+                label = "pillIconScale",
+            )
+            val pressSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(if (selected) CFlipColors.AccentBrush else SolidColor(Color.Transparent))
-                    .clickable {
+                    .background(pillColor)
+                    .pressScale(pressSource)
+                    .clickable(interactionSource = pressSource) {
                         if (t != current) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                         onSelect(t)
                     }
-                    .animateContentSize(animationSpec = tween(250))
+                    .animateContentSize(animationSpec = tween(CFlipMotion.MediumMs))
                     .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -529,9 +568,15 @@ private fun PillNav(
                     }) {
                         Icon(t.icon, contentDescription = t.label,
                             tint = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary,
-                            modifier = Modifier.size(20.dp))
+                            modifier = Modifier.size(20.dp).graphicsLayer {
+                                scaleX = iconScale; scaleY = iconScale
+                            })
                     }
-                    if (selected) {
+                    AnimatedVisibility(
+                        visible = selected,
+                        enter = fadeIn(animationSpec = tween(CFlipMotion.FastMs)) + expandHorizontally(animationSpec = tween(CFlipMotion.MediumMs)),
+                        exit = fadeOut(animationSpec = tween(CFlipMotion.FastMs)) + shrinkHorizontally(animationSpec = tween(CFlipMotion.MediumMs)),
+                    ) {
                         Text(t.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                             color = CFlipColors.AccentDark)
                     }
