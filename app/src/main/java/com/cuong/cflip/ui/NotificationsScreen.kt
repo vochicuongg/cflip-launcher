@@ -9,6 +9,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,14 +66,22 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
     fun markRead(key: String) {
         if (key !in readKeys) readKeys = readKeys + key
     }
+    // vc248 ENTRANCE: the header fades in once per tab visit (shared
+    // EnterItem). Rows are not staggered — LazyColumn recycles rows
+    // while scrolling, so a per-row entrance would replay mid-scroll.
+    val reduced = rememberReducedMotion()
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Thông báo", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                color = CFlipColors.TextPrimary)
-            if (notifications.isNotEmpty()) {
-                StatusPill(icon = null, text = notifications.size.toString())
+        EnterItem(index = 0, entered = entered, reduced = reduced) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Thông báo", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                    color = CFlipColors.TextPrimary)
+                if (notifications.isNotEmpty()) {
+                    StatusPill(icon = null, text = notifications.size.toString())
+                }
             }
         }
         if (!NotificationController.isConnected()) {
@@ -143,15 +154,19 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Small pill button used for notification actions. */
+/** Small pill button used for notification actions.
+ * vc248: press scale (same source as the ripple) — before, the chip
+ * only had a ripple and no scale feedback. Still 48dp min. */
 @Composable
 private fun ActionChip(label: String, onClick: () -> Unit) {
+    val pressSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier.heightIn(min = 48.dp)
             .clip(CircleShape)
             .background(CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, CircleShape)
-            .clickable { onClick() }
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() }
             .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = CFlipColors.Accent)

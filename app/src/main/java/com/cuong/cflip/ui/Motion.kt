@@ -1,9 +1,14 @@
 package com.cuong.cflip.ui
 
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
@@ -84,4 +89,32 @@ fun Modifier.pressScale(
         label = "pressScale",
     )
     return this.graphicsLayer { scaleX = scale; scaleY = scale }
+}
+
+/**
+ * vc248 ENTER — one section/block fades in and rises 24px, each [index]
+ * 30 ms after the previous one (cap 12, same stagger as the cover grid).
+ * Call sites flip [entered] to true once (LaunchedEffect) when the screen
+ * first shows; with reduced motion the block renders in its end state
+ * with no animation. Only alpha / offset are animated — never width
+ * or height. Never put this inside a Box (the same AnimatedVisibility
+ * receiver rule as vc243); wrap a Column child or a whole section.
+ */
+@Composable
+fun EnterItem(
+    index: Int,
+    entered: Boolean,
+    reduced: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (reduced) { content(); return }
+    val delay = minOf(index, CFlipMotion.StaggerMaxItems) * CFlipMotion.StaggerStepMs
+    AnimatedVisibility(
+        visible = entered,
+        enter = fadeIn(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay)) +
+            slideInVertically(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay), initialOffsetY = { 24 }),
+        exit = fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
+        modifier = modifier,
+    ) { content() }
 }

@@ -61,3 +61,45 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
   padding), size segments + BubbleActionRow + OpenModeRow (12dp
   padding + heightIn 48dp), notification/action chips (heightIn
   48dp), panel tiles (64dp min).
+
+- Sub-screens + micro-interactions (vc248): the big islands were done
+  in vc244/vc245; this round syncs the smaller screens to the same
+  system — spacing 4/8dp, Island/GlassCard surfaces, title/subtitle
+  tiers, 48dp targets, press scale 0.95 + haptic tick on tappable
+  controls, shared `EnterItem` entrance (fade + 24px rise, 30ms
+  stagger cap 12, reduced-motion snaps to end state) for screen
+  sections. Per screen:
+  - SettingsScreen (cover STYLE tab): 6 sections enter staggered;
+    sort uses the shared SortModePicker (the old inline copy had
+    its own 33dp pills); SwitchRow toggles on the whole row, 48dp;
+    wallpaper dots keep a 38dp visual on a 48dp hit area; all
+    buttons 48dp.
+  - GroupEditorScreen: headers enter once per screen open; list
+    rows are NOT staggered (LazyColumn recycling would replay the
+    entrance mid-scroll) — rows get 48dp buttons + 48dp-tall
+    OrderArrows (32dp wide on purpose: 2 arrows + up to 3 buttons
+    per row would squeeze the name to nothing at 48dp square);
+    empty list / empty trash are centred GlassCards, not bare text;
+    member-tile ✕ hit area 32dp (glyph stays 12sp); picker rows
+    48dp; footer Hủy/Xong 48dp.
+  - MediaScreen: disc enters once per tab visit; title/artist
+    crossfade (150ms) on track change. Disc/equalizer visuals
+    untouched.
+  - NotificationsScreen (cover tab): header enters once; ActionChip
+    gains press scale (still 48dp). Rows not staggered (same
+    LazyColumn recycling reason).
+  - QuickControlsScreen: 5 sections enter staggered; permission
+    button 48dp. ControlTile already had press scale + haptic.
+  - MirrorControls: now in a GlassCard (was bare text + M3
+    buttons); rotation is a segmented pill row (48dp, press scale +
+    haptic, mint when selected); mirror buttons 48dp; dual-display
+    row toggles on the whole row, 48dp. Strings unchanged
+    (including the unaccented ones — pre-existing).
+  - MainScreen rows: HubSwitch toggles on the whole row, 48dp;
+    BubbleActionRow/OpenModeRow gain press scale; StatColumn value
+    crossfades on change.
+  - Dialogs: both long-press menus (cover + drawer) now use the
+    shared MenuDialog/MenuActionRow (Design.kt) — dark Surface,
+    24dp corners, styled title, 48dp action rows with press scale.
+    BubbleControls is @Deprecated and unused — kept as-is.
+    CoverPreviews is preview-only — kept as-is.

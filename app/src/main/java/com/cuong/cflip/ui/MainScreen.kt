@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
@@ -21,6 +22,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
@@ -791,8 +793,19 @@ private fun StatColumn(label: String, value: String, ok: Boolean, modifier: Modi
                     maxLines = 2, textAlign = TextAlign.Center)
             }
         }
-        Text(value, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            color = CFlipColors.TextPrimary, textAlign = TextAlign.Center)
+        // vc248: the value crossfades when it changes (permission
+        // granted, service started) instead of swapping instantly.
+        AnimatedContent(
+            targetState = value,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(CFlipMotion.FastMs)) togetherWith
+                    fadeOut(animationSpec = tween(CFlipMotion.FastMs))
+            },
+            label = "statValue",
+        ) { v ->
+            Text(v, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                color = CFlipColors.TextPrimary, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -820,12 +833,16 @@ private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
 
 // vc117: one bubble-action row with a dropdown
 // menu (top-level @Composable, like HubSwitch).
+// vc248: press scale on the row (same source as the ripple) —
+// before, the row only had a ripple and no scale feedback.
 @Composable
 private fun BubbleActionRow(label: String, cur: Int, expanded: Boolean, onExpand: () -> Unit, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    val pressSource = remember { MutableInteractionSource() }
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(CFlipColors.Bg)
-            .clickable { onExpand() }
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onExpand() }
             .padding(horizontal = 12.dp, vertical = 12.dp).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
@@ -856,12 +873,15 @@ private fun BubbleActionRow(label: String, cur: Int, expanded: Boolean, onExpand
 
 // vc120: open-mode row, same dropdown pattern
 // as BubbleActionRow, for PanelOpenMode.
+// vc248: press scale on the row, like BubbleActionRow above.
 @Composable
 private fun OpenModeRow(label: String, cur: Int, expanded: Boolean, onExpand: () -> Unit, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    val pressSource = remember { MutableInteractionSource() }
     Box(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(CFlipColors.Bg)
-            .clickable { onExpand() }
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onExpand() }
             .padding(horizontal = 12.dp, vertical = 12.dp).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
@@ -892,7 +912,15 @@ private fun OpenModeRow(label: String, cur: Int, expanded: Boolean, onExpand: ()
 
 @Composable
 private fun HubSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // vc248: the whole row toggles (not just the switch) and the row
+    // is 48dp — same pattern as SettingsScreen's SwitchRow. Before,
+    // tapping the label did nothing.
+    val pressSource = remember { MutableInteractionSource() }
+    Row(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        .pressScale(pressSource)
+        .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onChange(!checked) }
+        .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 14.sp, color = CFlipColors.TextPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange,
             colors = SwitchDefaults.colors(

@@ -54,13 +54,11 @@ import androidx.compose.material.icons.filled.RecentActors
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -393,33 +391,24 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
         }
 
         // Long-press app menu: favourite toggle + hide (v1.3)
+        // vc248: shared MenuDialog (one dark surface + 48dp rows),
+        // replacing the bare M3 AlertDialog with stacked TextButtons.
         menuApp?.let { app ->
-            AlertDialog(
-                onDismissRequest = { menuApp = null },
-                title = { Text(app.label) },
-                text = {
-                    Column {
-                        TextButton(onClick = {
-                            favoritesStore.toggle(app.packageName)
-                            favorites = favoritesStore.getFavorites()
-                            menuApp = null
-                        }) {
-                            Text(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích")
-                        }
-                        if (app.packageName != context.packageName) {
-                            TextButton(onClick = {
-                                hiddenStore.hide(app.packageName)
-                                hidden = hiddenStore.getHidden()
-                                appsVersion++
-                                menuApp = null
-                            }) { Text("Ẩn ứng dụng này") }
-                        }
+            MenuDialog(title = app.label, onDismiss = { menuApp = null }) {
+                MenuActionRow(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích") {
+                    favoritesStore.toggle(app.packageName)
+                    favorites = favoritesStore.getFavorites()
+                    menuApp = null
+                }
+                if (app.packageName != context.packageName) {
+                    MenuActionRow("Ẩn ứng dụng này", color = CFlipColors.Danger) {
+                        hiddenStore.hide(app.packageName)
+                        hidden = hiddenStore.getHidden()
+                        appsVersion++
+                        menuApp = null
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = { menuApp = null }) { Text("Đóng") }
-                },
-            )
+                }
+            }
         }
     }
 }

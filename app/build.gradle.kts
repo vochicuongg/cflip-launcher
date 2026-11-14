@@ -35,7 +35,8 @@ android {
         // vc245: widget + notification drawers, PANEL tile redo,
         // hub card unification + 48dp targets, cover density pass.
         // vc247: dead-widget fix (exported + in-app refresh) + widget depth redesign — versionCode 246 -> 247.
-        versionCode = 247
+        // vc248: sub-screen + micro-interaction polish (settings/group-editor/media/notifications/quick/mirror, shared menu dialog, 48dp targets) — versionCode 247 -> 248.
+        versionCode = 248
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -37,7 +38,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -153,7 +153,10 @@ fun AppDrawerScreen(
         ) {
             // Top bar: back + count. Title below, like the hub's sections.
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("← Quay lại", color = CFlipColors.Accent) }
+                // vc248: back is 48dp like every other tappable row.
+                TextButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("← Quay lại", color = CFlipColors.Accent)
+                }
                 Spacer(Modifier.weight(1f))
                 Text("${shown.size} ứng dụng", fontSize = 13.sp, color = CFlipColors.TextSecondary)
             }
@@ -299,33 +302,24 @@ fun AppDrawerScreen(
 
         // Long-press menu — same actions as the cover's menu
         // (CoverApp.kt): pin/unpin favourite, hide the app.
+        // vc248: shared MenuDialog (one dark surface + 48dp rows),
+        // replacing the bare M3 AlertDialog with stacked TextButtons.
         menuApp?.let { app ->
-            AlertDialog(
-                onDismissRequest = { menuApp = null },
-                title = { Text(app.label) },
-                text = {
-                    Column {
-                        TextButton(onClick = {
-                            favoritesStore.toggle(app.packageName)
-                            favorites = favoritesStore.getFavorites()
-                            menuApp = null
-                        }) {
-                            Text(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích")
-                        }
-                        if (app.packageName != context.packageName) {
-                            TextButton(onClick = {
-                                hiddenStore.hide(app.packageName)
-                                appsVersion++
-                                menuApp = null
-                                toast("Đã ẩn ${app.label}")
-                            }) { Text("Ẩn ứng dụng này") }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { menuApp = null }) { Text("Đóng") }
+            MenuDialog(title = app.label, onDismiss = { menuApp = null }) {
+                MenuActionRow(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích") {
+                    favoritesStore.toggle(app.packageName)
+                    favorites = favoritesStore.getFavorites()
+                    menuApp = null
                 }
-            )
+                if (app.packageName != context.packageName) {
+                    MenuActionRow("Ẩn ứng dụng này", color = CFlipColors.Danger) {
+                        hiddenStore.hide(app.packageName)
+                        appsVersion++
+                        menuApp = null
+                        toast("Đã ẩn ${app.label}")
+                    }
+                }
+            }
         }
     }
 }
@@ -334,25 +328,37 @@ fun AppDrawerScreen(
  * Shared sort control (hub island + drawer): the same three modes the
  * cover reads. Segmented-row style, copied from the Quick Panel size
  * picker in MainScreen.kt so the two pickers look like one component.
+ * vc248: each pill is 48dp with press scale + haptic tick (before, the
+ * pills were ~33dp with no press feedback at all).
  */
 @Composable
 fun SortModePicker(mode: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     Row(modifier = modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
         for ((m, label) in listOf(0 to "A-Z", 1 to "Mới mở", 2 to "Mới cài")) {
-            val selected = mode == m
-            Box(
-                modifier = Modifier.weight(1f).clip(CircleShape)
-                    .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                    .clickable { onSelect(m) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                    color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary,
-                )
-            }
+            SortPill(label = label, selected = mode == m, modifier = Modifier.weight(1f)) { onSelect(m) }
         }
+    }
+}
+
+@Composable
+private fun SortPill(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val pressSource = remember { MutableInteractionSource() }
+    val hapticView = LocalView.current
+    Box(
+        modifier = modifier.heightIn(min = 48.dp).clip(CircleShape)
+            .background(if (selected) CFlipColors.Accent else Color.Transparent)
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) {
+                hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                onClick()
+            }
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary,
+        )
     }
 }
 

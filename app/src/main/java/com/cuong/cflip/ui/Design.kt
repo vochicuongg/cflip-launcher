@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -157,6 +160,60 @@ fun EmptyState(icon: ImageVector, title: String, hint: String, modifier: Modifie
         ) { Icon(icon, contentDescription = null, tint = CFlipColors.TextSecondary, modifier = Modifier.size(30.dp)) }
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
         Text(hint, fontSize = 12.sp, color = CFlipColors.TextSecondary)
+    }
+}
+
+/**
+ * vc248 MENU DIALOG — one shared long-press menu style for CoverApp and
+ * the app drawer (they were two bare M3 AlertDialogs with stacked
+ * TextButtons). Same dark surface + 24dp corners as the cards, styled
+ * title, and a "Đóng" button at 48dp. Actions go in [content] as
+ * [MenuActionRow]s, so every menu row has the same 48dp hit area,
+ * ripple and press scale. Strings stay the callers'.
+ */
+@Composable
+fun MenuDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                color = CFlipColors.TextPrimary)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("Đóng", color = CFlipColors.TextSecondary) }
+        },
+        containerColor = CFlipColors.Surface,
+        shape = RoundedCornerShape(24.dp),
+    )
+}
+
+/** One menu action row: full-width, 48dp min, ripple + press scale. */
+@Composable
+fun MenuActionRow(
+    label: String,
+    color: Color = CFlipColors.TextPrimary,
+    onClick: () -> Unit,
+) {
+    val pressSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = color)
     }
 }
 

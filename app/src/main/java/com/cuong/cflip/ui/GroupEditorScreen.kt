@@ -10,6 +10,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -50,6 +53,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -169,6 +173,13 @@ fun GroupEditorScreen(onBack: () -> Unit) {
     // position instead of the top (same bug class as MainScreen's
     // settings scroll, fixed the same way).
     val listState = rememberLazyListState()
+    // vc248 ENTRANCE: headers fade in once per screen open (shared
+    // EnterItem). List rows are NOT staggered — LazyColumn recycles
+    // rows while scrolling, so a per-row entrance would replay
+    // mid-scroll; rows get press feedback instead (see below).
+    val reduced = rememberReducedMotion()
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
     // vc166 TRASH PAGE: tapping Thùng rác opens a full page like
     // the member editor (back returns to the list), instead of
     // the vc165 expandable zone below the footer. vc167: deleting
@@ -361,17 +372,19 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 else if (inEditor) closeEditor(false)
                 else onBack()
             },
-            modifier = Modifier.align(Alignment.Start),
+            modifier = Modifier.align(Alignment.Start).heightIn(min = 48.dp),
         ) {
             Text("← Quay lại", color = CFlipColors.Accent)
         }
         if (showTrashPage) {
-            Text(
-                "Thùng rác",
-                color = CFlipColors.TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            EnterItem(index = 0, entered = entered, reduced = reduced) {
+                Text(
+                    "Thùng rác",
+                    color = CFlipColors.TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             // Preview members ignoring the deleted filter, so a
             // trashed default shows what restoring would bring
@@ -380,11 +393,17 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 apps, groups, emptySet(), overrides, autoOrder, unified,
             ).first.associateBy { it.id }
             if (trashEntries.isEmpty()) {
-                Text(
-                    "Chưa có nhóm nào trong thùng rác.",
-                    color = CFlipColors.TextSecondary,
-                    fontSize = 12.sp,
-                )
+                // vc248: empty trash is a centred card, not a bare line.
+                GlassCard(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "Chưa có nhóm nào trong thùng rác.",
+                            color = CFlipColors.TextSecondary,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -424,12 +443,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                             fontSize = 12.sp,
                                         )
                                     }
-                                    TextButton(onClick = {
+                                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                         persistDeleted(deletedSections - ("custom:" + g.id))
                                     }) {
                                         Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
                                     }
-                                    TextButton(onClick = {
+                                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                         persist(groups.filter { it.id != g.id })
                                         persistUnified(unified.filter { it != entry })
                                         persistDeleted(deletedSections - ("custom:" + g.id))
@@ -464,12 +483,12 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                             fontSize = 12.sp,
                                         )
                                     }
-                                    TextButton(onClick = {
+                                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                         persistDeleted(deletedSections - ("auto:" + ag.name))
                                     }) {
                                         Text("Khôi phục", color = CFlipColors.Accent, fontSize = 13.sp)
                                     }
-                                    TextButton(onClick = {
+                                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                         // vc168 COMPLETE DELETE, now
                                         // from trash: purge order,
                                         // override and hidden flag,
@@ -501,18 +520,22 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
             }
         } else if (editing == null && editingAuto == null) {
-            Text(
-                "Nhóm tùy chỉnh",
-                color = CFlipColors.TextPrimary,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Thứ tự này hiện ở cả panel lẫn widget Samsung. Bấm ↑ ↓ để đổi vị trí; xóa nhóm không xóa app.",
-                color = CFlipColors.TextSecondary,
-                fontSize = 12.sp,
-            )
+            EnterItem(index = 0, entered = entered, reduced = reduced) {
+                Column {
+                    Text(
+                        "Nhóm tùy chỉnh",
+                        color = CFlipColors.TextPrimary,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Thứ tự này hiện ở cả panel lẫn widget Samsung. Bấm ↑ ↓ để đổi vị trí; xóa nhóm không xóa app.",
+                        color = CFlipColors.TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
             Spacer(Modifier.height(12.dp))
             // Effective members ignoring the hidden filter, so a
             // deleted default group still previews the icons it
@@ -526,6 +549,21 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                if (displayEntries.isEmpty()) {
+                    // vc248: an empty group list shows a hint card, not
+                    // a blank list (the footer below still offers Thêm nhóm).
+                    item {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "Chưa có nhóm nào. Bấm “＋ Thêm nhóm” ở dưới để tạo nhóm đầu tiên.",
+                                color = CFlipColors.TextSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
                 itemsIndexed(displayEntries, key = { _, e -> e }) { idx, entry ->
                     val customGroup = if (entry.startsWith("c:")) {
                         groups.firstOrNull { it.id == entry.removePrefix("c:") }
@@ -562,10 +600,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 }
                                 OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
                                 OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
-                                TextButton(onClick = { openEditor(g) }) {
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { openEditor(g) }) {
                                     Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
                                 }
-                                TextButton(onClick = {
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                     // Soft-delete: the row leaves the
                                     // main list for the trash page.
                                     // vc167: no auto-open — the user
@@ -608,10 +646,10 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 }
                                 OrderArrow("↑", idx > 0) { moveUnified(entry, -1) }
                                 OrderArrow("↓", idx < displayEntries.size - 1) { moveUnified(entry, 1) }
-                                TextButton(onClick = { openAutoEditor(ag) }) {
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { openAutoEditor(ag) }) {
                                     Text("Sửa", color = CFlipColors.Accent, fontSize = 13.sp)
                                 }
-                                TextButton(onClick = {
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                     persistHidden(
                                         if (hidden) hiddenAuto - ag.name
                                         else hiddenAuto + ag.name
@@ -623,7 +661,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                         fontSize = 13.sp,
                                     )
                                 }
-                                TextButton(onClick = {
+                                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                                     // vc166: ANY deleted group goes to
                                     // trash (this supersedes vc164's
                                     // complete-delete here — the purge
@@ -646,6 +684,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp),
                     onClick = {
                         val n = (1..Int.MAX_VALUE).first { k ->
                             groups.none { it.title == "Nhóm $k" }
@@ -669,7 +708,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                     Text("＋ Thêm nhóm", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { showTrashPage = true }) {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { showTrashPage = true }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TrashIcon()
                         Spacer(Modifier.width(4.dp))
@@ -680,19 +719,23 @@ fun GroupEditorScreen(onBack: () -> Unit) {
         } else {
             val auto = editingAuto
             if (auto != null) {
-                Text(
-                    auto.title,
-                    color = CFlipColors.TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "Nhóm mặc định — chỉ sửa ứng dụng trong nhóm, tên không đổi được.",
-                    color = CFlipColors.TextSecondary,
-                    fontSize = 12.sp,
-                )
+                EnterItem(index = 0, entered = entered, reduced = reduced) {
+                    Column {
+                        Text(
+                            auto.title,
+                            color = CFlipColors.TextPrimary,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Nhóm mặc định — chỉ sửa ứng dụng trong nhóm, tên không đổi được.",
+                            color = CFlipColors.TextSecondary,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
                 if (auto.name in overrides) {
-                    TextButton(onClick = {
+                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
                         persistOverrides(overrides - auto.name)
                         // Compute directly: overrides state is stale
                         // in this same click, so effectiveAutoMembers
@@ -710,25 +753,27 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             } else {
             // vc157 SYSTEM INPUT: a rounded filled box with hint text
             // (One UI style) — no Material label, no underline.
-            TextField(
-                value = draftTitle,
-                onValueChange = { draftTitle = it },
-                placeholder = { Text("Tên nhóm", color = CFlipColors.TextFaint) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = CFlipColors.TextPrimary,
-                    unfocusedTextColor = CFlipColors.TextPrimary,
-                    focusedContainerColor = CFlipColors.Surface,
-                    unfocusedContainerColor = CFlipColors.Surface,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedPlaceholderColor = CFlipColors.TextFaint,
-                    unfocusedPlaceholderColor = CFlipColors.TextFaint,
-                    cursorColor = CFlipColors.Accent,
-                ),
-            )
+            EnterItem(index = 0, entered = entered, reduced = reduced) {
+                TextField(
+                    value = draftTitle,
+                    onValueChange = { draftTitle = it },
+                    placeholder = { Text("Tên nhóm", color = CFlipColors.TextFaint) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedTextColor = CFlipColors.TextPrimary,
+                        unfocusedTextColor = CFlipColors.TextPrimary,
+                        focusedContainerColor = CFlipColors.Surface,
+                        unfocusedContainerColor = CFlipColors.Surface,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedPlaceholderColor = CFlipColors.TextFaint,
+                        unfocusedPlaceholderColor = CFlipColors.TextFaint,
+                        cursorColor = CFlipColors.Accent,
+                    ),
+                )
+            }
             }
             Spacer(Modifier.height(8.dp))
             TextField(
@@ -982,13 +1027,17 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                                 fontSize = 10.sp,
                                                 modifier = Modifier.align(Alignment.TopStart),
                                             )
+                                            // vc248: the ✕ glyph stays 12sp,
+                                            // but its hit area is 32dp now
+                                            // (was 20dp — too small to tap
+                                            // reliably inside a 96dp tile).
                                             Box(
                                                 modifier = Modifier.align(Alignment.TopEnd)
                                                     .clickable {
                                                         draftOrder = draftOrder - pkg
                                                         if (selectedPkg == pkg) selectedPkg = null
                                                     }
-                                                    .size(20.dp),
+                                                    .size(32.dp),
                                                 contentAlignment = Alignment.Center,
                                             ) {
                                                 Text("✕", color = CFlipColors.Danger, fontSize = 12.sp)
@@ -1029,12 +1078,14 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                                 }
                             }
                             TextButton(
+                                modifier = Modifier.heightIn(min = 48.dp),
                                 onClick = { move(sel, -1) },
                                 enabled = idx > 0,
                             ) {
                                 Text("←", color = CFlipColors.Accent, fontSize = 15.sp)
                             }
                             TextButton(
+                                modifier = Modifier.heightIn(min = 48.dp),
                                 onClick = { move(sel, 1) },
                                 enabled = idx < draftOrder.size - 1,
                             ) {
@@ -1075,7 +1126,7 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                         }
                     } else null
                     Row(
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .clickable { draftOrder = draftOrder + app.packageName }
                             .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1122,11 +1173,11 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 }
             }
             Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = { closeEditor(false) }) {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { closeEditor(false) }) {
                     Text("Hủy", color = CFlipColors.TextSecondary, fontSize = 13.sp)
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { closeEditor(true) }) {
+                TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = { closeEditor(true) }) {
                     Text("Xong", color = CFlipColors.Accent, fontSize = 13.sp)
                 }
             }
@@ -1184,17 +1235,29 @@ private fun GroupIconPreview(members: List<AppInfo>) {
  * list. A TextButton would force a wide min width and crowd the
  * row; a plain Text with a tap area stays slim. Disabled arrows
  * render faint and ignore taps.
+ * vc248: 48dp tall with press scale when enabled (was ~40dp with no
+ * feedback). Kept 32dp wide on purpose: the row already holds 2
+ * arrows + up to 3 text buttons, so a full 48dp square per arrow
+ * would squeeze the group name to nothing.
  */
 @Composable
 private fun OrderArrow(text: String, enabled: Boolean, onClick: () -> Unit) {
-    Text(
-        text,
-        color = if (enabled) CFlipColors.Accent else CFlipColors.TextFaint,
-        fontSize = 16.sp,
-        modifier = Modifier
-            .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
-            .padding(horizontal = 6.dp, vertical = 12.dp),
-    )
+    val pressSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier.size(width = 32.dp, height = 48.dp)
+            .then(
+                if (enabled) Modifier.pressScale(pressSource)
+                    .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() }
+                else Modifier
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (enabled) CFlipColors.Accent else CFlipColors.TextFaint,
+            fontSize = 16.sp,
+        )
+    }
 }
 
 // vc167 TRASH ICON: self-drawn in code, in the thin-outline style

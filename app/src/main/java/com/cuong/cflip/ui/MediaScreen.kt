@@ -74,6 +74,13 @@ fun MediaScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         while (true) { repo.refresh(); delay(1000) }
     }
+    // vc248 ENTRANCE: the disc fades in once per tab visit (shared
+    // EnterItem); the title/artist crossfade on every track change
+    // instead of swapping instantly. The disc/equalizer visuals are
+    // untouched (pending owner's observations).
+    val reduced = rememberReducedMotion()
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -86,30 +93,43 @@ fun MediaScreen(modifier: Modifier = Modifier) {
         } else {
             Spacer(Modifier.height(12.dp))
             // Disc: mint gradient ring while playing, quiet glass when paused.
-            Box(
-                modifier = Modifier.size(148.dp).clip(CircleShape)
-                    .background(
-                        if (m.isPlaying) Brush.sweepGradient(
-                            listOf(CFlipColors.Accent, Color(0xFF2E8C6B),
-                                Color(0xFF7FE3C0), CFlipColors.Accent))
-                        else Brush.linearGradient(
-                            listOf(Color(0xFF2A3330), Color(0xFF171D1B)))
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(modifier = Modifier.size(52.dp).clip(CircleShape)
-                    .background(CFlipColors.Bg), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.MusicNote, contentDescription = null,
-                        tint = if (m.isPlaying) CFlipColors.Accent else CFlipColors.TextSecondary,
-                        modifier = Modifier.size(26.dp))
+            EnterItem(index = 0, entered = entered, reduced = reduced) {
+                Box(
+                    modifier = Modifier.size(148.dp).clip(CircleShape)
+                        .background(
+                            if (m.isPlaying) Brush.sweepGradient(
+                                listOf(CFlipColors.Accent, Color(0xFF2E8C6B),
+                                    Color(0xFF7FE3C0), CFlipColors.Accent))
+                            else Brush.linearGradient(
+                                listOf(Color(0xFF2A3330), Color(0xFF171D1B)))
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(modifier = Modifier.size(52.dp).clip(CircleShape)
+                        .background(CFlipColors.Bg), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.MusicNote, contentDescription = null,
+                            tint = if (m.isPlaying) CFlipColors.Accent else CFlipColors.TextSecondary,
+                            modifier = Modifier.size(26.dp))
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text(m.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                color = CFlipColors.TextPrimary, maxLines = 2, textAlign = TextAlign.Center)
-            if (m.artist.isNotEmpty()) {
-                Text(m.artist, fontSize = 13.sp, color = CFlipColors.TextSecondary,
-                    maxLines = 1, textAlign = TextAlign.Center)
+            AnimatedContent(
+                targetState = m.title to m.artist,
+                transitionSpec = {
+                    (fadeIn(tween(CFlipMotion.FastMs)) + scaleIn(tween(CFlipMotion.FastMs), initialScale = 0.95f)) togetherWith
+                        (fadeOut(tween(CFlipMotion.FastMs)) + scaleOut(tween(CFlipMotion.FastMs), targetScale = 0.95f))
+                },
+                label = "mediaTitle",
+            ) { (title, artist) ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                        color = CFlipColors.TextPrimary, maxLines = 2, textAlign = TextAlign.Center)
+                    if (artist.isNotEmpty()) {
+                        Text(artist, fontSize = 13.sp, color = CFlipColors.TextSecondary,
+                            maxLines = 1, textAlign = TextAlign.Center)
+                    }
+                }
             }
             if (m.durationMs > 0) {
                 Spacer(Modifier.height(8.dp))
