@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -161,7 +162,7 @@ private fun RoundControl(
             .background(if (primary) CFlipColors.Accent else CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, CircleShape)
             .pressScale(pressSource)
-            .clickable(interactionSource = pressSource) { onClick() },
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(

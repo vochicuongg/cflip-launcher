@@ -7,7 +7,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -22,6 +22,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -469,7 +470,7 @@ private fun HomeTab(
             val notifPress = remember { MutableInteractionSource() }
             Box(modifier = Modifier
                 .pressScale(notifPress)
-                .clickable(interactionSource = notifPress) { onOpenNotifs() }) {
+                .clickable(interactionSource = notifPress, indication = LocalIndication.current) { onOpenNotifs() }) {
                 StatusPill(icon = Icons.Filled.Notifications,
                     text = if (notifCount > 0) "$notifCount thông báo mới" else "Không có thông báo",
                     tint = if (notifCount > 0) CFlipColors.Accent else CFlipColors.TextSecondary)
@@ -551,7 +552,7 @@ private fun PillNav(
                     .clip(CircleShape)
                     .background(pillColor)
                     .pressScale(pressSource)
-                    .clickable(interactionSource = pressSource) {
+                    .clickable(interactionSource = pressSource, indication = LocalIndication.current) {
                         if (t != current) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                         onSelect(t)
                     }

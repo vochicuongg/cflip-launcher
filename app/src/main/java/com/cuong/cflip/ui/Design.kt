@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -104,7 +105,7 @@ fun GlassCard(
         .border(1.dp, CFlipColors.BorderBrush, RoundedCornerShape(24.dp))
     if (onClick != null) {
         m = m.pressScale(pressSource)
-            .clickable(interactionSource = pressSource) { onClick() }
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() }
     }
     Box(modifier = m.padding(14.dp)) { content() }
 }

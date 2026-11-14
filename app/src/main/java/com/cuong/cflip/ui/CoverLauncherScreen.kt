@@ -1,8 +1,8 @@
 package com.cuong.cflip.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,6 +10,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.sizeIn
@@ -117,6 +119,7 @@ fun CoverLauncherScreen(
                     .pressScale(pressSource)
                     .combinedClickable(
                         interactionSource = pressSource,
+                        indication = LocalIndication.current,
                         onClick = {
                             hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
                             onAppClick(app)
@@ -130,21 +133,33 @@ fun CoverLauncherScreen(
             ) {
                 Box {
                     AppIcon(app.icon, settings.iconSizeDp)
-                    // vc242 MOTION: the badge pops in/out (scale + fade)
-                    // and the count itself crossfades instead of swapping.
-                    AnimatedVisibility(
-                        visible = unread > 0,
-                        modifier = Modifier.align(Alignment.TopStart),
-                        enter = scaleIn(tween(CFlipMotion.FastMs), initialScale = 0.5f) + fadeIn(tween(CFlipMotion.FastMs)),
-                        exit = scaleOut(tween(CFlipMotion.FastMs), targetScale = 0.5f) + fadeOut(tween(CFlipMotion.FastMs)),
+                    // vc243 FIX: AnimatedVisibility cannot be called
+                    // inside a Box (the compiler resolves it to the
+                    // ColumnScope overload, whose receiver is shadowed
+                    // here). Same pop in/out via animateFloatAsState +
+                    // graphicsLayer; the count still crossfades below.
+                    val badgeScale by animateFloatAsState(
+                        targetValue = if (unread > 0) 1f else 0.5f,
+                        animationSpec = tween(CFlipMotion.FastMs),
+                        label = "badgeScale",
+                    )
+                    val badgeAlpha by animateFloatAsState(
+                        targetValue = if (unread > 0) 1f else 0f,
+                        animationSpec = tween(CFlipMotion.FastMs),
+                        label = "badgeAlpha",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .graphicsLayer {
+                                scaleX = badgeScale; scaleY = badgeScale
+                                alpha = badgeAlpha
+                            }
+                            .sizeIn(minWidth = 16.dp, minHeight = 16.dp)
+                            .background(CFlipColors.Danger, CircleShape)
+                            .padding(horizontal = 4.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .sizeIn(minWidth = 16.dp, minHeight = 16.dp)
-                                .background(CFlipColors.Danger, CircleShape)
-                                .padding(horizontal = 4.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
                             AnimatedContent(
                                 targetState = unread,
                                 transitionSpec = {
@@ -160,7 +175,6 @@ fun CoverLauncherScreen(
                                     color = androidx.compose.ui.graphics.Color.Black)
                             }
                         }
-                    }
                     if (isFav) {
                         Box(
                             modifier = Modifier.align(Alignment.TopEnd)
