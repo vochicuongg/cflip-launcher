@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc254 PRESS: the AppGrid header button (refresh ↻ / back ←) had a
+     static circle, so the finger got no answer — the cells already
+     brighten via widget_cell_selector, but this button did not.
+     RemoteViews cannot run view animations (the host renders the
+     widget in another process), so a state-list background is the tap
+     response: pressed floods mint, released returns to the dark
+     circle. The glyph stays readable because the text colour flips
+     to dark at the same time (see res/color/widget_circle_text.xml). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:drawable="@drawable/bg_widget_circle_active" />
+    <item android:drawable="@drawable/bg_widget_circle" />
+</selector>

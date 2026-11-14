@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
 
 /**
  * vc245 WIDGET DRAWER (UI/UX Pro Max) — widget activation on the big
- * screen, same pattern as AppDrawerScreen (vc244): top bar + title +
+ * screen, same pattern as the other drawers (vc244): top bar + title +
  * staggered rows, no new data sources.
  *
  * Terminology (audited 2026-11-14):

@@ -93,7 +93,7 @@ object SamsungCoverWidgetHelper {
     fun statusText(context: Context): String {
         val parts = status(context).filter { it.total > 0 }
         return if (parts.isEmpty()) {
-            "Chưa thêm Widget Samsung nào. Gập máy, vuốt Widget màn hình ngoài tới cuối, bấm +, chọn Widget CFlip — hoặc mở Cài đặt Widget Samsung để chọn."
+            "Chưa thêm Widget Samsung nào. Gập máy, vuốt Widget màn hình ngoài tới cuối, bấm +, chọn một widget của CFlip, hoặc mở Cài đặt Widget Samsung để chọn."
         } else {
             parts.joinToString("; ") { "${it.label}: ${it.cover}/${it.total} trên màn hình ngoài" }
         }

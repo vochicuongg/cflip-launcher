@@ -270,7 +270,7 @@
         <receiver
             android:name=".widget.AppGridWidgetProvider"
             android:exported="true"
-            android:label="CFlip — Lưới ứng dụng">
+            android:label="Lưới ứng dụng">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -301,7 +301,7 @@
         <receiver
             android:name=".widget.MusicWidgetProvider"
             android:exported="true"
-            android:label="CFlip — Nhạc">
+            android:label="Nhạc">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -325,7 +325,7 @@
         <receiver
             android:name=".widget.MusicSmallWidgetProvider"
             android:exported="true"
-            android:label="CFlip — Nhạc (nhỏ)">
+            android:label="Nhạc (nhỏ)">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -343,7 +343,7 @@
         <receiver
             android:name=".widget.ClockWidgetProvider"
             android:exported="true"
-            android:label="CFlip — Đồng hồ &amp; Pin">
+            android:label="Đồng hồ &amp; Pin">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

@@ -150,9 +150,9 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 null
             }
             val title = if (openSection != null) {
-                "CFlip — ${openSection.title}"
+                openSection.title
             } else {
-                "CFlip — Ứng dụng"
+                "Ứng dụng"
             }
             views.setTextViewText(R.id.app_grid_title, title)
             val svc = Intent(context, AppGridRemoteViewsService::class.java)

@@ -110,7 +110,7 @@ class MyAccessibilityService : AccessibilityService() {
                         } ?: throw IllegalStateException("Cannot open output stream")
                         runCatching {
                             val notif = NotificationCompat.Builder(this@MyAccessibilityService, CFlipApp.CHANNEL_ID)
-                                .setContentTitle("CFlip - Đã chụp màn hình ngoài")
+                                .setContentTitle("Đã chụp màn hình ngoài")
                                 .setContentText(name)
                                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                                 .setAutoCancel(true)

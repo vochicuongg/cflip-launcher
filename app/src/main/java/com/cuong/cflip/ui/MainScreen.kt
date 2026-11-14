@@ -47,12 +47,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -63,7 +61,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,13 +81,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.cuong.cflip.data.AppRepository
+import com.cuong.cflip.data.BackgroundStyles
+import com.cuong.cflip.data.CustomGroupStore
+import com.cuong.cflip.data.HiddenAppsStore
+import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.service.CoverForegroundService
 import com.cuong.cflip.service.MyAccessibilityService
 import com.cuong.cflip.service.MyNotificationListenerService
 import com.cuong.cflip.service.NotificationController
-import com.cuong.cflip.service.NotificationState
 
 /**
  * CFlip 2.3 main screen, redesigned after Cường called the 2.2 hub ugly.
@@ -124,6 +125,16 @@ fun MainScreen(
     val displayRepo = remember { DisplayRepository(context) }
     val settingsStore = remember { SettingsStore(context) }
     var settings by remember { mutableStateOf(settingsStore.load()) }
+    val appRepo = remember { AppRepository(context) }
+    val hiddenStore = remember { HiddenAppsStore(context) }
+    val recentRepo = remember { RecentAppsRepository(context) }
+    // vc254 STYLE HOST: the STYLE tab needs the hidden-apps list +
+    // unhide handler (same wiring as CoverApp's STYLE tab).
+    var appsVersion by remember { mutableStateOf(0) }
+    var hidden by remember { mutableStateOf(hiddenStore.getHidden()) }
+    val hiddenApps = remember(appsVersion) {
+        appRepo.loadLaunchableApps(includeHidden = true).filter { it.packageName in hidden }
+    }
     var showCover by remember { mutableStateOf(showCoverInitially) }
     var showGroupEditor by remember { mutableStateOf(false) }
     // vc163 SCROLL: hoisted above the showCover/showGroupEditor
@@ -135,23 +146,19 @@ fun MainScreen(
 
     // vc244 ENTRANCE (UI/UX Pro Max): the hub fades/slides in once per
     // app launch — hero first, then one section every 40ms. These live
-    // above the showCover/showGroupEditor/showAppDrawer early returns,
+    // above the showCover/showGroupEditor/showWidgetDrawer/showStyle/showRecents early returns,
     // so coming back from any of them never replays the entrance.
     // Reduced motion skips it entirely (end state at once).
     val reducedMotion = rememberReducedMotion()
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
-    // vc244 APP DRAWER: the full app list on the big screen.
-    var showAppDrawer by remember { mutableStateOf(false) }
-    // vc245 WIDGET + NOTIFICATION DRAWERS: same early-return pattern.
+    // vc254: the App + Notification drawers are gone (their islands
+    // are deleted — Cường didn't know what they were for). The Widget
+    // drawer stays, and two new screens join the same early-return
+    // pattern: Style (the STYLE tab) and Recents.
     var showWidgetDrawer by remember { mutableStateOf(false) }
-    var showNotifDrawer by remember { mutableStateOf(false) }
-    // vc244 BADGES: the drawer reuses the cover's per-app unread counts
-    // (NotificationState, the same source CoverApp reads) — no new data.
-    val notifications by NotificationState.active.collectAsState()
-    val notifCounts = remember(notifications) {
-        notifications.groupingBy { it.packageName }.eachCount()
-    }
+    var showStyle by remember { mutableStateOf(false) }
+    var showRecents by remember { mutableStateOf(false) }
 
     if (showCover) {
         BackHandler { showCover = false }
@@ -172,19 +179,6 @@ fun MainScreen(
         return
     }
 
-    // vc244 APP DRAWER: the full app list on the big screen, with
-    // search + the same sort modes the cover reads.
-    if (showAppDrawer) {
-        BackHandler { showAppDrawer = false }
-        AppDrawerScreen(
-            settings = settings,
-            onSettingsChange = { settings = it; settingsStore.save(it) },
-            notifCounts = notifCounts,
-            onBack = { showAppDrawer = false },
-        )
-        return
-    }
-
     // vc245 WIDGET DRAWER: widget activation lives here now (was the
     // Widget island below); the toggle, Samsung actions and the
     // group-editor link moved with it.
@@ -199,11 +193,34 @@ fun MainScreen(
         return
     }
 
-    // vc245 NOTIFICATION DRAWER: the in-app notification list
-    // (NotificationState, the same source the cover reads).
-    if (showNotifDrawer) {
-        BackHandler { showNotifDrawer = false }
-        NotificationDrawerScreen(onBack = { showNotifDrawer = false })
+    // vc254 STYLE: the cover STYLE tab (SettingsScreen) on the big
+    // screen — opened by the "Hình nền & Kiểu" island. Back row on
+    // top like the cover preview (SettingsScreen itself has no back
+    // button — it was built as a tab).
+    if (showStyle) {
+        BackHandler { showStyle = false }
+        Column(modifier = Modifier.fillMaxSize().background(CFlipColors.Bg).statusBarsPadding()) {
+            TextButton(onClick = { showStyle = false }) { Text("← Quay lại", color = CFlipColors.Accent) }
+            SettingsScreen(
+                settings = settings,
+                onSettingsChange = { settings = it; settingsStore.save(it) },
+                modifier = Modifier.weight(1f),
+                hiddenApps = hiddenApps,
+                onUnhideApp = { app ->
+                    hiddenStore.unhide(app.packageName)
+                    hidden = hiddenStore.getHidden()
+                    appsVersion++
+                },
+            )
+        }
+        return
+    }
+
+    // vc254 RECENTS: the "Mở gần đây" island. The screen loads its
+    // own list once per open (see RecentAppsScreen).
+    if (showRecents) {
+        BackHandler { showRecents = false }
+        RecentAppsScreen(onBack = { showRecents = false })
         return
     }
 
@@ -240,6 +257,31 @@ fun MainScreen(
     }
     val versionName = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "2.3"
+    }
+
+    // vc254 SUMMARIES (recomputed on every resume — statusVersion
+    // bumps on ON_RESUME — so edits made in the Group Editor /
+    // Style screens are reflected when coming back). One
+    // PackageManager query per resume, shared by both summaries.
+    val allApps = remember(statusVersion) { appRepo.loadLaunchableApps() }
+    val groupSummary = remember(allApps) {
+        val (sections, _) = CustomGroupStore.sections(
+            allApps, CustomGroupStore.load(context),
+            CustomGroupStore.loadHiddenAuto(context),
+            CustomGroupStore.loadOverrides(context),
+            CustomGroupStore.loadAutoOrder(context),
+            CustomGroupStore.loadUnifiedOrder(context),
+            CustomGroupStore.loadDeletedSections(context))
+        if (sections.isEmpty()) "Chưa có nhóm"
+        else "${sections.size} nhóm · ${sections.sumOf { it.members.size }} ứng dụng"
+    }
+    val recentApps = remember(allApps) {
+        val byPackage = allApps.associateBy { it.packageName }
+        recentRepo.recentPackages(8).mapNotNull { byPackage[it] }
+    }
+    val styleDetail = remember(settings) {
+        val cols = if (settings.columns == 0) "Tự động" else "${settings.columns} cột"
+        "$cols · icon ${settings.iconSizeDp} dp"
     }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -296,12 +338,22 @@ fun MainScreen(
     val morph2v = if (reducedMotion) 25f else morph2
     val driftX2v = if (reducedMotion) 0f else driftX2
     val driftY2v = if (reducedMotion) 0f else driftY2
+    // vc254 LAYERED BACKGROUND (UI/UX Pro Max depth layering; REA:
+    // both rivals use a flat dark in-app, so CFlip keeps its mint
+    // ambient light but now as explicit layers, not two stray blobs):
+    // L0 base — near-black vertical gradient, greener at the bottom;
+    // L1 brand light — a mint wash bleeding from the top edge
+    // (CFlipColors.TopGlow, static, full width);
+    // L2 ambient blobs — one mint glow top-right, one deep-teal glow
+    // lower-left, slow morph + drift (held mid-state when reduced
+    // motion is on). Nothing here scrolls, so the cost is one layer.
     Box(modifier = Modifier.fillMaxSize().background(
-        Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0B1512))))) {
+        Brush.verticalGradient(listOf(CFlipColors.Bg, Color(0xFF0A120F))))) {
+        Box(modifier = Modifier.fillMaxSize().background(CFlipColors.TopGlow))
         Box(modifier = Modifier.size(280.dp).offset(x = (180f + driftX1v).dp, y = (-60f + driftY1v).dp)
-            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.13f), RoundedCornerShape(morph1v.toInt())))
+            .blur(80.dp).background(CFlipColors.Accent.copy(alpha = 0.12f), RoundedCornerShape(morph1v.toInt())))
         Box(modifier = Modifier.size(220.dp).offset(x = (-80f + driftX2v).dp, y = (420f + driftY2v).dp)
-            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.10f), RoundedCornerShape(morph2v.toInt())))
+            .blur(90.dp).background(CFlipColors.AccentDeep.copy(alpha = 0.09f), RoundedCornerShape(morph2v.toInt())))
         Column(
             modifier = Modifier.fillMaxSize().statusBarsPadding()
                 .verticalScroll(settingsScroll).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -351,93 +403,150 @@ fun MainScreen(
             }
             }
 
-            EnterSection(index = 2, entered = entered, reduced = reducedMotion) {
-            // vc126 PERMISSIONS (9Flip pattern, clean-room):
-            // deep-link page first, generic page as fallback, toast if
-            // none resolves; the "Cấp quyền còn thiếu" button jumps to
-            // the first missing permission in row order, and the vc115
-            // ON_RESUME refresh makes each return land on the next one.
-            // (Warning now sits above this island, vc126.)
-            // Permissions: compact rows, chevron only, plus that button.
-            // vc127 REQUIRED SET (9Flip evidence, user, 29/10): 9Flip declares
-            // no Usage Stats and no Write Settings - its recents come from its
-            // own launch history (like CFlip's LaunchHistoryStore fallback) and
-            // it never writes system brightness. So CFlip's required set is now
-            // 3 (Thông báo, Accessibility, Overlay); Usage moved out (its
-            // on-demand button already lives in the STYLE tab QUYỀN section).
-            // vc128 CORRECTION: Write Settings is NOT dead - the cover QUICK
-            // tab has its own system-brightness slider (QuickControlsScreen)
-            // that writes Settings.System and already grants on demand
-            // (slider toast + grant button). Panel brightness is window-local
-            // since 3.2.0, but the QUICK-tab slider still needs the write
-            // helpers, so they are restored; Write stays OUT of the required
-            // set (3) and is granted on demand only.
-            Island("Quyền") {
-                Column {
-                    // perm-btn-anim
-                    AnimatedVisibility(
-                        visible = statuses.requiredCount < 3,
-                        enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
-                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
-                    ) {
-                        Column {
-                            val permPress = remember { MutableInteractionSource() }
-                            Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
-                                .pressScale(permPress)
-                                .clickable(interactionSource = permPress, indication = LocalIndication.current) {
-                                    when {
-                                        !statuses.notifications -> openNotificationSettings()
-                                        !statuses.accessibility -> openAccessibilitySettings()
-                                        !statuses.overlay -> openOverlaySettings()
+            // vc254 GROUPS (Cover Power fragment_settings pattern):
+            // the hub reads as two groups now — TRẠNG THÁI (is the
+            // phone OK? fix what is not) and MÀN HÌNH NGOÀI (cover
+            // features), with "Mở gần đây" between them as a quick
+            // launcher. Inside a group the islands sit 12dp apart;
+            // groups sit 24dp apart (the outer Column spacing).
+            // Order inside TRẠNG THÁI is status first, then the fix:
+            // the Stats card diagnoses (Quyền x/3, dịch vụ, màn hình
+            // ngoài), the Quyền island right below remedies it.
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                GroupLabel("TRẠNG THÁI")
+                EnterSection(index = 2, entered = entered, reduced = reducedMotion) {
+                // vc134 STATS (user, 29/10: the 3 separate cards had uneven heights
+                // - "Màn hình ngoài" wrapped to 2 lines): one card, 3 columns with
+                // dividers, fixed 2-line label slot so values always align.
+                Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF1A2220), CFlipColors.Surface)))
+                    .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
+                    .padding(vertical = 14.dp, horizontal = 8.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        StatColumn("Quyền", "${statuses.requiredCount}/3", statuses.requiredCount == 3, Modifier.weight(1f))
+                        Box(modifier = Modifier.width(1.dp).height(40.dp).background(CFlipColors.CardStroke))
+                        StatColumn("Dịch vụ", if (statuses.serviceRunning) "Đang chạy" else "Tắt", statuses.serviceRunning, Modifier.weight(1f))
+                        Box(modifier = Modifier.width(1.dp).height(40.dp).background(CFlipColors.CardStroke))
+                        StatColumn("Màn hình ngoài", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy", statuses.secondarySeen, Modifier.weight(1f))
+                    }
+                }
+                }
+
+                EnterSection(index = 3, entered = entered, reduced = reducedMotion) {
+                // vc126 PERMISSIONS (9Flip pattern, clean-room):
+                // deep-link page first, generic page as fallback, toast if
+                // none resolves; the "Cấp quyền còn thiếu" button jumps to
+                // the first missing permission in row order, and the vc115
+                // ON_RESUME refresh makes each return land on the next one.
+                // (Warning now sits above this island, vc126.)
+                // Permissions: compact rows, chevron only, plus that button.
+                // vc127 REQUIRED SET (9Flip evidence, user, 29/10): 9Flip declares
+                // no Usage Stats and no Write Settings - its recents come from its
+                // own launch history (like CFlip's LaunchHistoryStore fallback) and
+                // it never writes system brightness. So CFlip's required set is now
+                // 3 (Thông báo, Accessibility, Overlay); Usage moved out (its
+                // on-demand button already lives in the STYLE tab QUYỀN section).
+                // vc128 CORRECTION: Write Settings is NOT dead - the cover QUICK
+                // tab has its own system-brightness slider (QuickControlsScreen)
+                // that writes Settings.System and already grants on demand
+                // (slider toast + grant button). Panel brightness is window-local
+                // since 3.2.0, but the QUICK-tab slider still needs the write
+                // helpers, so they are restored; Write stays OUT of the required
+                // set (3) and is granted on demand only.
+                Island("Quyền") {
+                    Column {
+                        // perm-btn-anim
+                        AnimatedVisibility(
+                            visible = statuses.requiredCount < 3,
+                            enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                        ) {
+                            Column {
+                                val permPress = remember { MutableInteractionSource() }
+                                Box(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Accent)
+                                    .pressScale(permPress)
+                                    .clickable(interactionSource = permPress, indication = LocalIndication.current) {
+                                        when {
+                                            !statuses.notifications -> openNotificationSettings()
+                                            !statuses.accessibility -> openAccessibilitySettings()
+                                            !statuses.overlay -> openOverlaySettings()
+                                        }
                                     }
+                                    .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                    Text("Cấp quyền còn thiếu (${statuses.requiredCount}/3) →",
+                                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
                                 }
-                                .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                                Text("Cấp quyền còn thiếu (${statuses.requiredCount}/3) →",
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.AccentDark)
+                                Spacer(Modifier.height(8.dp))
                             }
-                            Spacer(Modifier.height(8.dp))
+                        }
+                        PermissionRow("Thông báo", statuses.notifications) {
+                            openNotificationSettings()
+                        }
+                        PermissionRow("Accessibility", statuses.accessibility) {
+                            openAccessibilitySettings()
+                        }
+                        PermissionRow("Hiển thị trên app khác", statuses.overlay) {
+                            openOverlaySettings()
                         }
                     }
-                    PermissionRow("Thông báo", statuses.notifications) {
-                        openNotificationSettings()
-                    }
-                    PermissionRow("Accessibility", statuses.accessibility) {
-                        openAccessibilitySettings()
-                    }
-                    PermissionRow("Hiển thị trên app khác", statuses.overlay) {
-                        openOverlaySettings()
-                    }
+                }
                 }
             }
-            }
 
-
-
-            EnterSection(index = 3, entered = entered, reduced = reducedMotion) {
-            // vc134 STATS (user, 29/10: the 3 separate cards had uneven heights
-            // - "Màn hình ngoài" wrapped to 2 lines): one card, 3 columns with
-            // dividers, fixed 2-line label slot so values always align.
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF1A2220), CFlipColors.Surface)))
-                .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-                .padding(vertical = 14.dp, horizontal = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    StatColumn("Quyền", "${statuses.requiredCount}/3", statuses.requiredCount == 3, Modifier.weight(1f))
-                    Box(modifier = Modifier.width(1.dp).height(40.dp).background(CFlipColors.CardStroke))
-                    StatColumn("Dịch vụ", if (statuses.serviceRunning) "Đang chạy" else "Tắt", statuses.serviceRunning, Modifier.weight(1f))
-                    Box(modifier = Modifier.width(1.dp).height(40.dp).background(CFlipColors.CardStroke))
-                    StatColumn("Màn hình ngoài", if (statuses.secondarySeen) "Đã thấy" else "Chưa thấy", statuses.secondarySeen, Modifier.weight(1f))
-                }
-            }
-            }
-
-            // vc244 APP DRAWER (UI/UX Pro Max): the in-app app list —
-            // search + the same sort modes the cover reads. The island
-            // is the entry point; the drawer itself is AppDrawerScreen.
+            // vc254 RECENTS (9Flip "recently opened", clean-room): the
+            // apps actually opened lately, as a quick launcher from
+            // the big screen. The screen itself is RecentAppsScreen.
             EnterSection(index = 4, entered = entered, reduced = reducedMotion) {
-            Island("Ứng dụng") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showAppDrawer = true }) {
+            Island("Mở gần đây") {
+                GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showRecents = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                            .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.History, contentDescription = null,
+                                tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                if (recentApps.isEmpty()) "Chưa có ứng dụng gần đây"
+                                else "${recentApps.size} ứng dụng gần đây",
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                color = CFlipColors.TextPrimary)
+                            Text(
+                                if (recentApps.isEmpty()) "Mở vài ứng dụng rồi quay lại đây"
+                                else recentApps.first().label,
+                                fontSize = 12.sp, color = CFlipColors.TextSecondary,
+                                maxLines = 1)
+                        }
+                        Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
+                    }
+                }
+            }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                GroupLabel("MÀN HÌNH NGOÀI")
+                // vc245 WIDGET DRAWER: activation moved into WidgetDrawerScreen
+                // (same pattern as the other islands + drawers). The toggle,
+                // Samsung actions and group-editor link live there now.
+                // vc135 strip kept: a "clock" key saved from the cover panel
+                // is still dropped here so it cannot stay on with no switch
+                // to turn it off.
+                run {
+                    val chosenNow = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                    if ("clock" in chosenNow) {
+                        val nextWidgets = (chosenNow - "clock").sorted().joinToString(",")
+                        settings = settings.copy(coverWidgets = nextWidgets); settingsStore.save(settings)
+                    }
+                }
+                val widgetChosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                val widgetSummary = if (widgetChosen.isEmpty()) "Chưa bật widget nào · Mở đảo Widget"
+                    else "Đã bật ${widgetChosen.size} widget · Mở đảo Widget"
+                EnterSection(index = 5, entered = entered, reduced = reducedMotion) {
+                Island("Widget") {
+                    GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showWidgetDrawer = true }) {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(modifier = Modifier.size(40.dp).clip(CircleShape)
@@ -448,263 +557,249 @@ fun MainScreen(
                             }
                             Column(modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Tất cả ứng dụng", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                Text("Widget màn hình ngoài", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                                     color = CFlipColors.TextPrimary)
-                                Text("Tìm kiếm, sắp xếp A-Z / mới mở / mới cài",
-                                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                                Text(widgetSummary, fontSize = 12.sp, color = CFlipColors.TextSecondary)
                             }
                             Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                         }
                     }
-                    SortModePicker(mode = settings.sortMode, onSelect = { m ->
-                        settings = settings.copy(sortMode = m); settingsStore.save(settings)
-                    })
                 }
-            }
-            }
+                }
 
-            // vc245 NOTIFICATION DRAWER: entry card like the Apps island —
-            // count + latest notification preview, opens the drawer.
-            val latestNotif = notifications.firstOrNull()
-            val notifPreview = when {
-                latestNotif == null -> "Thông báo mới sẽ hiện ở đây"
-                latestNotif.text.isEmpty() -> latestNotif.title
-                else -> "${latestNotif.title} · ${latestNotif.text}"
-            }
-            EnterSection(index = 5, entered = entered, reduced = reducedMotion) {
-            Island("Thông báo") {
-                GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showNotifDrawer = true }) {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
-                            .background(CFlipColors.Accent.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.Notifications, contentDescription = null,
-                                tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                // vc254 GROUPS ISLAND (9Flip "Group manager" + Cover
+                // Power "APP FOLDERS"): groups decide the cover grid's
+                // folders, but their editor was buried 2 taps deep
+                // inside the Widget drawer — this island puts it on
+                // the hub. Opens the existing GroupEditorScreen.
+                EnterSection(index = 6, entered = entered, reduced = reducedMotion) {
+                Island("Nhóm ứng dụng") {
+                    GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showGroupEditor = true }) {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                                .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.Folder, contentDescription = null,
+                                    tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(groupSummary,
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                    color = CFlipColors.TextPrimary)
+                                Text("Tạo và sắp xếp các thư mục trên lưới cover",
+                                    fontSize = 12.sp, color = CFlipColors.TextSecondary,
+                                    maxLines = 1)
+                            }
+                            Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                         }
-                        Column(modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                if (notifications.isEmpty()) "Không có thông báo"
-                                else "${notifications.size} thông báo",
-                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                                color = CFlipColors.TextPrimary)
-                            Text(notifPreview, fontSize = 12.sp, color = CFlipColors.TextSecondary,
-                                maxLines = 1)
-                        }
-                        Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                     }
                 }
-            }
-            }
-
-            // vc245 WIDGET DRAWER: activation moved into WidgetDrawerScreen
-            // (same pattern as the Apps island + drawer). The toggle,
-            // Samsung actions and group-editor link live there now.
-            // vc135 strip kept: a "clock" key saved from the cover panel
-            // is still dropped here so it cannot stay on with no switch
-            // to turn it off.
-            run {
-                val chosenNow = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                if ("clock" in chosenNow) {
-                    val nextWidgets = (chosenNow - "clock").sorted().joinToString(",")
-                    settings = settings.copy(coverWidgets = nextWidgets); settingsStore.save(settings)
                 }
-            }
-            val widgetChosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            val widgetSummary = if (widgetChosen.isEmpty()) "Chưa bật widget nào · Mở đảo Widget"
-                else "Đã bật ${widgetChosen.size} widget · Mở đảo Widget"
-            EnterSection(index = 6, entered = entered, reduced = reducedMotion) {
-            Island("Widget") {
-                GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showWidgetDrawer = true }) {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
-                            .background(CFlipColors.Accent.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.GridView, contentDescription = null,
-                                tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+
+                // vc254 STYLE ISLAND (Cover Power "Wallpaper & Style"
+                // + 9Flip "Cover Wallpaper"): personalisation is the
+                // most-touched setting after install, but it lived
+                // inside the STYLE tab. Opens the existing
+                // SettingsScreen on the big screen.
+                EnterSection(index = 7, entered = entered, reduced = reducedMotion) {
+                Island("Hình nền & Kiểu") {
+                    GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showStyle = true }) {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                                .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.Wallpaper, contentDescription = null,
+                                    tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                            }
+                            Column(modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    if (settings.wallpaperUri != null) "Hình nền riêng"
+                                    else BackgroundStyles.names[settings.backgroundStyle.coerceIn(0, BackgroundStyles.names.lastIndex)],
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                    color = CFlipColors.TextPrimary)
+                                Text(styleDetail,
+                                    fontSize = 12.sp, color = CFlipColors.TextSecondary,
+                                    maxLines = 1)
+                            }
+                            Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                         }
-                        Column(modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Widget màn hình ngoài", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                                color = CFlipColors.TextPrimary)
-                            Text(widgetSummary, fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                        }
-                        Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                     }
                 }
-            }
-            }
+                }
 
-            EnterSection(index = 7, entered = entered, reduced = reducedMotion) {
-            // vc121 ISLANDS (user, 28/10: group the
-            // main settings into separate feature
-            // islands, neat like 9Flip). The old
-            // "Cai dat cover" box crammed unrelated
-            // features - display, AssistiveTouch,
-            // Quick Panel, touch actions - into one
-            // card. Each group is now its own island
-            // (9Flip pattern: grouped sections, one
-            // feature per rounded card, same card
-            // style as the existing Widget /
-            // Permissions / Service islands). Nothing
-            // is added or removed - same rows, same
-            // order, same save logic, only grouped.
-            // One move: the AssistiveTouch position
-            // reset button moves from the touch-action
-            // rows into the AssistiveTouch island,
-            // where it belongs. Island labels sit
-            // 8dp above their card (before, a label
-            // sat 24dp above its card, the outer
-            // section spacing, which read as detached).
-            // vc127: AssistiveTouch + Quick Panel + Touch actions merged into one Quick Panel island below.
-            // vc127 QUICK PANEL MERGE (user, 29/10):
-            // the old AssistiveTouch + Quick Panel +
-            // Touch actions islands are one island now:
-            // Quick Panel is the feature (bubble or bar);
-            // its open mode and touch actions appear
-            // inside it once it is enabled. Bubble-only
-            // rows (size, auto-dim, position reset)
-            // appear only in AssistiveTouch mode.
-            Island("Quick Panel") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // 25/10/2026: this toggle is cover-only. The main display
-                    // itself never shows a bubble — it is custom/settings only.
-                    // (Label renamed vc127: this switch is the common on/off
-                    // for both openers, not just the bubble.)
-                    HubSwitch("Quick Panel trên màn hình ngoài", settings.assistiveTouchEnabled) {
-                        settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
-                        if (it) {
-                            // vc132 POKE (user, 29/10: enable showed neither opener):
-                            // the vc126 guard only started the service when it was
-                            // NOT running, so re-enabling while the (sticky)
-                            // service was already alive never re-ran tryShow -
-                            // and on a static emulator cover there is no later
-                            // display/screen event to bring the opener back.
-                            // startForegroundService on an already-running service
-                            // is harmless: it just delivers onStartCommand, which
-                            // re-runs tryShow with fresh settings. So always poke
-                            // on enable, never guard.
-                            ContextCompat.startForegroundService(context,
-                                Intent(context, CoverForegroundService::class.java))
-                            statusVersion++
-                        } else {
-                            // vc132: OFF hides BOTH openers, not just the bubble -
-                            // the old code left the swipe bar visible in bar mode.
-                            com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                            com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
-                            // vc133: stats recompute at once on toggle-off too
-                            // (the manual refresh button is gone).
-                            statusVersion++
+                EnterSection(index = 8, entered = entered, reduced = reducedMotion) {
+                // vc121 ISLANDS (user, 28/10: group the
+                // main settings into separate feature
+                // islands, neat like 9Flip). The old
+                // "Cai dat cover" box crammed unrelated
+                // features - display, AssistiveTouch,
+                // Quick Panel, touch actions - into one
+                // card. Each group is now its own island
+                // (9Flip pattern: grouped sections, one
+                // feature per rounded card, same card
+                // style as the existing Widget /
+                // Permissions / Service islands). Nothing
+                // is added or removed - same rows, same
+                // order, same save logic, only grouped.
+                // One move: the AssistiveTouch position
+                // reset button moves from the touch-action
+                // rows into the AssistiveTouch island,
+                // where it belongs. Island labels sit
+                // 8dp above their card (before, a label
+                // sat 24dp above its card, the outer
+                // section spacing, which read as detached).
+                // vc127: AssistiveTouch + Quick Panel + Touch actions merged into one Quick Panel island below.
+                // vc127 QUICK PANEL MERGE (user, 29/10):
+                // the old AssistiveTouch + Quick Panel +
+                // Touch actions islands are one island now:
+                // Quick Panel is the feature (bubble or bar);
+                // its open mode and touch actions appear
+                // inside it once it is enabled. Bubble-only
+                // rows (size, auto-dim, position reset)
+                // appear only in AssistiveTouch mode.
+                Island("Quick Panel") {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // 25/10/2026: this toggle is cover-only. The main display
+                        // itself never shows a bubble — it is custom/settings only.
+                        // (Label renamed vc127: this switch is the common on/off
+                        // for both openers, not just the bubble.)
+                        HubSwitch("Quick Panel trên màn hình ngoài", settings.assistiveTouchEnabled) {
+                            settings = settings.copy(assistiveTouchEnabled = it); settingsStore.save(settings)
+                            if (it) {
+                                // vc132 POKE (user, 29/10: enable showed neither opener):
+                                // the vc126 guard only started the service when it was
+                                // NOT running, so re-enabling while the (sticky)
+                                // service was already alive never re-ran tryShow -
+                                // and on a static emulator cover there is no later
+                                // display/screen event to bring the opener back.
+                                // startForegroundService on an already-running service
+                                // is harmless: it just delivers onStartCommand, which
+                                // re-runs tryShow with fresh settings. So always poke
+                                // on enable, never guard.
+                                ContextCompat.startForegroundService(context,
+                                    Intent(context, CoverForegroundService::class.java))
+                                statusVersion++
+                            } else {
+                                // vc132: OFF hides BOTH openers, not just the bubble -
+                                // the old code left the swipe bar visible in bar mode.
+                                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                // vc133: stats recompute at once on toggle-off too
+                                // (the manual refresh button is gone).
+                                statusVersion++
+                            }
                         }
-                    }
-                    var openModeExpanded by remember { mutableStateOf(false) }
-                    var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
-                    // qp-outer-anim
-                    AnimatedVisibility(
-                        visible = settings.assistiveTouchEnabled,
-                        enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
-                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            // vc120 QUICK PANEL OPEN MODE (user,
-                            // 28/10): Quick Panel is NOT a bubble
-                            // action anymore - it is a feature
-                            // with two open modes (9Flip gb):
-                            // AssistiveTouch bubble or Swipe
-                            // indicator bar.
-                            OpenModeRow("Mở panel bằng", settings.panelOpenMode,
-                                expanded = openModeExpanded,
-                                onExpand = { openModeExpanded = true },
-                                onDismiss = { openModeExpanded = false },
-                                onSelect = { m ->
-                                    settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false
-                                    // vc132 POKE (see toggle above): re-show the opener
-                                    // for the new mode at once when Quick Panel is on.
-                                    if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
-                                        Intent(context, CoverForegroundService::class.java))
-                                })
-                            Text("Thanh nhỏ ở cạnh màn hình ngoài, chạm giống hệt bong bóng. Kéo ngang đổi cạnh, kéo dọc dời thanh, kéo không mở panel; chọn Thanh Vuốt thì bong bóng ẩn đi và ngược lại.",
-                                fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                            // vc136 SYNC: size + auto-dim are shared by both openers -
-                            // they sit outside the bubble-only block, so changing
-                            // them in either mode applies to bubble AND bar.
-                            Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
-                                for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
-                                    val selected = settings.assistiveTouchSize == size
-                                    Box(modifier = Modifier.weight(1f).clip(CircleShape)
-                                        .background(if (selected) CFlipColors.Accent else Color.Transparent)
-                                        .clickable {
-                                            settings = settings.copy(assistiveTouchSize = size)
-                                            settingsStore.save(settings)
-                                            // vc133 SIZE LIVE (user, 29/10: size picks
-                                            // did nothing): show() sizes the button once
-                                            // at creation, and while the bubble was up the
-                                            // service guard returned early, so a new size
-                                            // never took effect. Hide the opener and poke
-                                            // the service: tryShow re-shows it at the
-                                            // new size right away.
-                                            if (settings.assistiveTouchEnabled) {
-                                                com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                                com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
-                                                ContextCompat.startForegroundService(context,
-                                                    Intent(context, CoverForegroundService::class.java))
+                        var openModeExpanded by remember { mutableStateOf(false) }
+                        var bubbleMenuExpanded by remember { mutableStateOf<String?>(null) }
+                        // qp-outer-anim
+                        AnimatedVisibility(
+                            visible = settings.assistiveTouchEnabled,
+                            enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                            exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                // vc120 QUICK PANEL OPEN MODE (user,
+                                // 28/10): Quick Panel is NOT a bubble
+                                // action anymore - it is a feature
+                                // with two open modes (9Flip gb):
+                                // AssistiveTouch bubble or Swipe
+                                // indicator bar.
+                                OpenModeRow("Mở panel bằng", settings.panelOpenMode,
+                                    expanded = openModeExpanded,
+                                    onExpand = { openModeExpanded = true },
+                                    onDismiss = { openModeExpanded = false },
+                                    onSelect = { m ->
+                                        settings = settings.copy(panelOpenMode = m); settingsStore.save(settings); openModeExpanded = false
+                                        // vc132 POKE (see toggle above): re-show the opener
+                                        // for the new mode at once when Quick Panel is on.
+                                        if (settings.assistiveTouchEnabled) ContextCompat.startForegroundService(context,
+                                            Intent(context, CoverForegroundService::class.java))
+                                    })
+                                Text("Thanh nhỏ ở cạnh màn hình ngoài, chạm giống hệt bong bóng. Kéo ngang đổi cạnh, kéo dọc dời thanh, kéo không mở panel; chọn Thanh Vuốt thì bong bóng ẩn đi và ngược lại.",
+                                    fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                                // vc136 SYNC: size + auto-dim are shared by both openers -
+                                // they sit outside the bubble-only block, so changing
+                                // them in either mode applies to bubble AND bar.
+                                Row(modifier = Modifier.fillMaxWidth().clip(CircleShape).background(CFlipColors.Bg).padding(4.dp)) {
+                                    for ((size, label) in listOf(0 to "Nhỏ", 1 to "Vừa", 2 to "Lớn")) {
+                                        val selected = settings.assistiveTouchSize == size
+                                        Box(modifier = Modifier.weight(1f).clip(CircleShape)
+                                            .background(if (selected) CFlipColors.Accent else Color.Transparent)
+                                            .clickable {
+                                                settings = settings.copy(assistiveTouchSize = size)
+                                                settingsStore.save(settings)
+                                                // vc133 SIZE LIVE (user, 29/10: size picks
+                                                // did nothing): show() sizes the button once
+                                                // at creation, and while the bubble was up the
+                                                // service guard returned early, so a new size
+                                                // never took effect. Hide the opener and poke
+                                                // the service: tryShow re-shows it at the
+                                                // new size right away.
+                                                if (settings.assistiveTouchEnabled) {
+                                                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                                    com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                                    ContextCompat.startForegroundService(context,
+                                                        Intent(context, CoverForegroundService::class.java))
+                                                }
                                             }
+                                            .padding(vertical = 12.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                                            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                                                color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                                         }
-                                        .padding(vertical = 12.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-                                        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                                            color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                                     }
                                 }
-                            }
-                            HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
-                                settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
-                                // vc136 SYNC: re-show both openers at once so the bar
-                                // follows the same auto-dim switch as the bubble.
-                                if (settings.assistiveTouchEnabled) {
-                                    com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
-                                    com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
-                                    ContextCompat.startForegroundService(context,
-                                        Intent(context, CoverForegroundService::class.java))
+                                HubSwitch("Tự mờ sau 2.5s không chạm", settings.assistiveTouchAutoDim) {
+                                    settings = settings.copy(assistiveTouchAutoDim = it); settingsStore.save(settings)
+                                    // vc136 SYNC: re-show both openers at once so the bar
+                                    // follows the same auto-dim switch as the bubble.
+                                    if (settings.assistiveTouchEnabled) {
+                                        com.cuong.cflip.cover.CoverAssistiveTouchManager.hide()
+                                        com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
+                                        ContextCompat.startForegroundService(context,
+                                            Intent(context, CoverForegroundService::class.java))
+                                    }
                                 }
+                                // vc138 SYNC (user, 29/10: the bar is only a style,
+                                // not an independent function): touch actions now
+                                // apply to BOTH openers, so this block is shown
+                                // in both modes instead of bubble-only.
+                                // vc117 DROPDOWN (user, 27/10):
+                                // tap-to-cycle rows were easy to
+                                // overshoot (e.g. cycling past to
+                                // NONE, then long-press looked dead).
+                                // Each row now opens a dropdown with
+                                // all 5 actions, so the choice is
+                                // visible before it is made. Defaults:
+                                // tap = Home, double-tap = Full panel,
+                                // long-press = Recents.
+                                // vc138 SYNC: these rows now apply to both openers -
+                                // the bar is only a style, not an independent function.
+                                Text("Thay đổi hành vi AssistiveTouch",
+                                    fontSize = 13.sp, color = CFlipColors.TextPrimary)
+                                BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
+                                    expanded = bubbleMenuExpanded == "tap",
+                                    onExpand = { bubbleMenuExpanded = "tap" },
+                                    onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
+                                    onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                                BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
+                                    expanded = bubbleMenuExpanded == "double",
+                                    onExpand = { bubbleMenuExpanded = "double" },
+                                    onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
+                                    onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
+                                BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
+                                    expanded = bubbleMenuExpanded == "long",
+                                    onExpand = { bubbleMenuExpanded = "long" },
+                                    onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
+                                    onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                             }
-                            // vc138 SYNC (user, 29/10: the bar is only a style,
-                            // not an independent function): touch actions now
-                            // apply to BOTH openers, so this block is shown
-                            // in both modes instead of bubble-only.
-                            // vc117 DROPDOWN (user, 27/10):
-                            // tap-to-cycle rows were easy to
-                            // overshoot (e.g. cycling past to
-                            // NONE, then long-press looked dead).
-                            // Each row now opens a dropdown with
-                            // all 5 actions, so the choice is
-                            // visible before it is made. Defaults:
-                            // tap = Home, double-tap = Full panel,
-                            // long-press = Recents.
-                            // vc138 SYNC: these rows now apply to both openers -
-                            // the bar is only a style, not an independent function.
-                            Text("Thay đổi hành vi AssistiveTouch",
-                                fontSize = 13.sp, color = CFlipColors.TextPrimary)
-                            BubbleActionRow("Chạm 1 lần", settings.bubbleTapAction,
-                                expanded = bubbleMenuExpanded == "tap",
-                                onExpand = { bubbleMenuExpanded = "tap" },
-                                onDismiss = { if (bubbleMenuExpanded == "tap") bubbleMenuExpanded = null },
-                                onSelect = { a -> settings = settings.copy(bubbleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                            BubbleActionRow("Chạm 2 lần", settings.bubbleDoubleTapAction,
-                                expanded = bubbleMenuExpanded == "double",
-                                onExpand = { bubbleMenuExpanded = "double" },
-                                onDismiss = { if (bubbleMenuExpanded == "double") bubbleMenuExpanded = null },
-                                onSelect = { a -> settings = settings.copy(bubbleDoubleTapAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
-                            BubbleActionRow("Giữ lâu", settings.bubbleLongPressAction,
-                                expanded = bubbleMenuExpanded == "long",
-                                onExpand = { bubbleMenuExpanded = "long" },
-                                onDismiss = { if (bubbleMenuExpanded == "long") bubbleMenuExpanded = null },
-                                onSelect = { a -> settings = settings.copy(bubbleLongPressAction = a); settingsStore.save(settings); bubbleMenuExpanded = null })
                         }
                     }
                 }
-            }
+                }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -773,6 +868,22 @@ private fun EnterSection(
             else slideInVertically(animationSpec = tween(CFlipMotion.MediumMs, delayMillis = delay), initialOffsetY = { 24 }),
         exit = fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
     ) { content() }
+}
+
+// vc254 GROUP LABEL (fix: used by the two hub groups but never
+// defined — the build would fail on an unresolved reference):
+// a group header above a cluster of islands (TRẠNG THÁI /
+// MÀN HÌNH NGOÀI) — same 11sp caps as SectionLabel, with a mint
+// dot so a group reads as a group, not another island.
+@Composable
+private fun GroupLabel(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(modifier = Modifier.size(6.dp).clip(CircleShape)
+            .background(CFlipColors.Accent))
+        Text(text.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+            color = CFlipColors.TextFaint, letterSpacing = 1.4.sp)
+    }
 }
 
 @Composable

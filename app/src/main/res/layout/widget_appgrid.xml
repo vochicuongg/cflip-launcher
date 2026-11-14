@@ -18,7 +18,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="CFlip — Ứng dụng"
+            android:text="Ứng dụng"
             android:textColor="#F5F7F6"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -28,8 +28,8 @@
             android:layout_height="40dp"
             android:minWidth="40dp"
             android:minHeight="40dp"
-            android:background="@drawable/bg_widget_circle"
-            android:textColor="#7FE3C0"
+            android:background="@drawable/widget_circle_selector"
+            android:textColor="@color/widget_circle_text"
             android:text="↻"
             android:textSize="16sp" />
     </LinearLayout>

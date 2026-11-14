@@ -41,7 +41,8 @@ android {
         // vc251: brightness + volume sliders in the cover Quick Panel are VERTICAL whenever a media session exists (playing or paused), not only while playing — slidersVertical was mediaInfo?.isPlaying == true, now mediaInfo != null. NineFlipSlider vertical mode (fill from bottom, icon at bottom, drag up = increase) is unchanged. No media at all = horizontal as before. — versionCode 250 -> 251.
         // vc252: cover Quick Panel notification tab shows ONLY active notifications in two groups — Now Bar first (LiveBridge mirrors unwrapped to the source app + ongoing), then the rest newest-first; CFlip own notifications excluded, one row per group, mirrors never shown as LiveBridge; rows show the source app launcher icon + name. — versionCode 251 -> 252.
         // vc253: fix vc252 build break — Notification has no isGroupSummary() (only FLAG_GROUP_SUMMARY exists); group-summary check is now a flags test. No other change. — versionCode 252 -> 253.
-        versionCode = 253
+        // vc254: MainScreen regrouped (TRẠNG THÁI / MÀN HÌNH NGOÀI + 3 new islands: Nhóm ứng dụng, Hình nền & Kiểu, Mở gần đây; App + Notification islands deleted with their screens); AppGrid widget header button gets a pressed state; "CFlip — " prefix dropped from widget labels + screenshot title; layered in-app background. — versionCode 253 -> 254.
+        versionCode = 254
         versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
