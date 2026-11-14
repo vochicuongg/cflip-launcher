@@ -35,12 +35,15 @@
     </LinearLayout>
 
     <!-- vc247: hairline divider between the header and the grid — the
-         grid reads as a separate layer below the title now. -->
-    <View
+         grid reads as a separate layer below the title now.
+         vc249: ImageView, not View — Samsung's cover AppWidgetHost
+         refuses to inflate a plain android.view.View in RemoteViews. -->
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="8dp"
-        android:background="#1E2226" />
+        android:background="#1E2226"
+        android:contentDescription="@null" />
 
     <GridView
         android:id="@+id/app_grid"

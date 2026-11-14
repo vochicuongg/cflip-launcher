@@ -133,3 +133,15 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   (vc243 lesson), no FittedBox, no Shizuku, no new dependencies.
 - Do NOT touch: equalizer bars, rotation icons (awaiting owner's
   files), mirror / notification / reply / accessibility logic.
+- vc249 PLAIN-VIEW BAN (logcat-proven on Flip5, 14/11/2026): Samsung's
+  cover AppWidgetHost refuses to inflate a plain `android.view.View`
+  in RemoteViews (`InflateException: Class not allowed to be inflated
+  android.view.View`, seen on widget_clock line #23) — one `<View>`
+  kills its whole widget. The 4 decorative bars (clock mint rule,
+  cassette tape line x2, app-grid header divider) are `<ImageView>`
+  now, same size/margins/colours + `contentDescription="@null"`.
+  RULE: in `res/layout/widget_*.xml` use ONLY LinearLayout /
+  RelativeLayout / FrameLayout / GridLayout / TextView / TextClock /
+  ImageView / ImageButton / Button / ProgressBar / GridView /
+  ListView. NEVER `<View>`, `<Space>`, `<ViewStub>` or a custom view.
+  Grep before every widget push.

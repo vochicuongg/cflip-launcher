@@ -45,13 +45,16 @@
             android:layout_height="24dp"
             android:src="@drawable/ic_w_reel"
             android:contentDescription="Cuộn băng" />
-        <View
+        <!-- vc249: ImageView, not View — Samsung's cover AppWidgetHost
+             refuses to inflate a plain android.view.View in RemoteViews. -->
+        <ImageView
             android:layout_width="0dp"
             android:layout_height="2dp"
             android:layout_weight="1"
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
-            android:background="#337FE3C0" />
+            android:background="#337FE3C0"
+            android:contentDescription="@null" />
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"

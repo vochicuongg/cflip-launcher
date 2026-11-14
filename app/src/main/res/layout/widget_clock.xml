@@ -16,11 +16,15 @@
         android:textColor="#F5F7F6"
         android:textSize="44sp"
         android:textStyle="bold" />
-    <View
+    <!-- vc249: ImageView, not View — Samsung's cover AppWidgetHost
+         refuses to inflate a plain android.view.View in RemoteViews
+         (logcat InflateException on widget_clock). Decorative only. -->
+    <ImageView
         android:layout_width="24dp"
         android:layout_height="3dp"
         android:layout_marginTop="6dp"
-        android:background="#2FBF8F" />
+        android:background="#2FBF8F"
+        android:contentDescription="@null" />
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
