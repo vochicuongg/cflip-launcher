@@ -16,6 +16,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:maxLines="1"
-        android:textColor="#FFFFFF"
+        android:textColor="#F5F7F6"
         android:textSize="10sp" />
 </LinearLayout>

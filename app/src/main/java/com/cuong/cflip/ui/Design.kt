@@ -95,6 +95,9 @@ object CFlipColors {
 fun GlassCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    // vc245 DENSITY: compact cards pad 10dp instead of 14dp (used by the
+    // cover notification rows so more of them fit the 720x748 cover).
+    compact: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val pressSource = remember { MutableInteractionSource() }
@@ -107,7 +110,7 @@ fun GlassCard(
         m = m.pressScale(pressSource)
             .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() }
     }
-    Box(modifier = m.padding(14.dp)) { content() }
+    Box(modifier = m.padding(if (compact) 10.dp else 14.dp)) { content() }
 }
 
 /** Section title with an optional trailing action. */

@@ -77,14 +77,14 @@ fun MediaScreen(modifier: Modifier = Modifier) {
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Âm nhạc", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+        Text("Âm nhạc", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
             color = CFlipColors.TextPrimary, modifier = Modifier.fillMaxWidth())
         val m = media
         if (m == null) {
             EmptyState(Icons.Filled.MusicNote, "Chưa có bài nào đang phát",
                 "Mở YouTube Music / Spotify rồi quay lại")
         } else {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             // Disc: mint gradient ring while playing, quiet glass when paused.
             Box(
                 modifier = Modifier.size(148.dp).clip(CircleShape)
@@ -104,7 +104,7 @@ fun MediaScreen(modifier: Modifier = Modifier) {
                         modifier = Modifier.size(26.dp))
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             Text(m.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                 color = CFlipColors.TextPrimary, maxLines = 2, textAlign = TextAlign.Center)
             if (m.artist.isNotEmpty()) {
@@ -131,7 +131,7 @@ fun MediaScreen(modifier: Modifier = Modifier) {
                     Text(fmt(m.durationMs), fontSize = 11.sp, color = CFlipColors.TextFaint)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 RoundControl(Icons.Filled.SkipPrevious, 52.dp, false) { repo.previous() }

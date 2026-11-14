@@ -15,7 +15,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -50,11 +54,20 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
     val notifications by NotificationState.active.collectAsState()
     var replyTarget by remember { mutableStateOf<String?>(null) }
     var replyText by remember { mutableStateOf("") }
+    // vc245 READ/UNREAD: CoverNotification has no read field and the
+    // listener service is untouched, so read marks are session-local
+    // (remembered keys, reset when the tab leaves composition). Tapping
+    // Mở or sending a reply marks that notification read; unread rows
+    // show a mint dot + bold title, read rows are plain.
+    var readKeys by remember { mutableStateOf(setOf<String>()) }
+    fun markRead(key: String) {
+        if (key !in readKeys) readKeys = readKeys + key
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Thông báo", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+            Text("Thông báo", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                 color = CFlipColors.TextPrimary)
             if (notifications.isNotEmpty()) {
                 StatusPill(icon = null, text = notifications.size.toString())
@@ -79,6 +92,7 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
                     shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f))
                 IconButton(onClick = {
                     NotificationController.reply(replyTarget!!, replyText)
+                    markRead(replyTarget!!)
                     replyText = ""; replyTarget = null
                 }) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = CFlipColors.Accent) }
             }
@@ -87,13 +101,20 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
             EmptyState(Icons.Filled.NotificationsOff, "Không có thông báo",
                 "Thông báo mới sẽ hiện ở đây")
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp),
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp)) {
                 items(notifications, key = { it.key }) { n ->
-                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    val unread = n.key !in readKeys
+                    GlassCard(modifier = Modifier.fillMaxWidth(), compact = true) {
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(n.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                if (unread) {
+                                    Box(modifier = Modifier.size(6.dp).clip(CircleShape)
+                                        .background(CFlipColors.Accent))
+                                    Spacer(Modifier.width(6.dp))
+                                }
+                                Text(n.title, fontSize = 14.sp,
+                                    fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
                                     color = CFlipColors.TextPrimary, maxLines = 1,
                                     modifier = Modifier.weight(1f))
                                 Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(n.timeMs)),
@@ -101,11 +122,11 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
                             }
                             if (n.text.isNotEmpty()) {
                                 Text(n.text, fontSize = 13.sp, color = CFlipColors.TextSecondary,
-                                    maxLines = 3, modifier = Modifier.padding(top = 2.dp))
+                                    maxLines = 2, modifier = Modifier.padding(top = 2.dp))
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(top = 8.dp)) {
-                                ActionChip("Mở") { NotificationController.open(n.key) }
+                                modifier = Modifier.padding(top = 6.dp)) {
+                                ActionChip("Mở") { markRead(n.key); NotificationController.open(n.key) }
                                 ActionChip("Xoá") { NotificationController.dismiss(n.key) }
                                 if (n.canReply) ActionChip("Trả lời") { replyTarget = n.key }
                                 n.actionTitles.forEachIndexed { index, title ->
@@ -126,11 +147,12 @@ fun NotificationsScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun ActionChip(label: String, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.clip(CircleShape)
+        modifier = Modifier.heightIn(min = 48.dp)
+            .clip(CircleShape)
             .background(CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, CircleShape)
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
     ) {
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = CFlipColors.Accent)
     }

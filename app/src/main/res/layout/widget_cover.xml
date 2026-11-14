@@ -23,7 +23,7 @@
                 android:layout_height="wrap_content"
                 android:format24Hour="HH:mm"
                 android:format12Hour="hh:mm"
-                android:textColor="#FFFFFF"
+                android:textColor="#F5F7F6"
                 android:textSize="26sp"
                 android:textStyle="bold" />
             <TextClock
@@ -31,7 +31,7 @@
                 android:layout_height="wrap_content"
                 android:format24Hour="EEE, dd/MM"
                 android:format12Hour="EEE, dd/MM"
-                android:textColor="#BBBBBB"
+                android:textColor="#9AA8A1"
                 android:textSize="11sp" />
         </LinearLayout>
         <ImageView
@@ -45,7 +45,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="0"
-            android:textColor="#FFFFFF"
+            android:textColor="#F5F7F6"
             android:textSize="13sp" />
     </LinearLayout>
 
@@ -56,19 +56,19 @@
         android:orientation="horizontal">
         <LinearLayout android:id="@+id/fav_slot_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:id="@+id/fav_icon_1" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
         <LinearLayout android:id="@+id/fav_slot_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:id="@+id/fav_icon_2" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
         <LinearLayout android:id="@+id/fav_slot_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:id="@+id/fav_icon_3" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
         <LinearLayout android:id="@+id/fav_slot_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
             <ImageView android:id="@+id/fav_icon_4" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
     </LinearLayout>
 

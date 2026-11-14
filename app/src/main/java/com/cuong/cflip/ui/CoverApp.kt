@@ -285,7 +285,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
         Box(modifier = Modifier.fillMaxSize().background(CFlipColors.Scrim))
         Box(modifier = Modifier.fillMaxSize().background(CFlipColors.TopGlow))
 
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
             // vc130 MOTION (user, 29/10): the status row expands/fades in and out with the tab.
             AnimatedVisibility(
                 visible = tab != CoverTab.HOME,
@@ -321,7 +321,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
                                 placeholder = { Text("Tìm ứng dụng, điều khiển…") }, singleLine = true,
                                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                                 shape = RoundedCornerShape(20.dp),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                             )
                             // vc242 MOTION: the control results unfold
                             // (expand + fade) instead of popping in, and
@@ -429,7 +429,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
 private fun StatusRow(now: LocalDateTime, settings: CoverSettings, batteryPct: Int, charging: Boolean) {
     val timeFmt = if (settings.clock24h) DateTimeFormatter.ofPattern("HH:mm") else DateTimeFormatter.ofPattern("hh:mm a")
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(now.format(timeFmt), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
@@ -454,13 +454,13 @@ private fun HomeTab(
     onOpenNotifs: () -> Unit,
 ) {
     val timeFmt = if (settings.clock24h) DateTimeFormatter.ofPattern("HH:mm") else DateTimeFormatter.ofPattern("hh:mm a")
-    Column(modifier = Modifier.fillMaxSize().padding(top = 14.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
         Text(now.format(timeFmt),
-            style = TextStyle(brush = CFlipColors.ClockBrush, fontSize = 56.sp,
+            style = TextStyle(brush = CFlipColors.ClockBrush, fontSize = 52.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = (-1).sp))
         Text(now.format(DateTimeFormatter.ofPattern("EEEE, dd/MM/yyyy")),
             fontSize = 14.sp, color = CFlipColors.TextSecondary)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (batteryPct >= 0) {
                 StatusPill(icon = if (charging) Icons.Filled.Bolt else null, text = "Pin $batteryPct%")
@@ -477,7 +477,7 @@ private fun HomeTab(
             }
         }
         if (mediaTitle != null) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             GlassCard(modifier = Modifier.fillMaxWidth(), onClick = onOpenMedia) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -496,7 +496,7 @@ private fun HomeTab(
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
         // vc125 (user, 29/10): the YÊU THÍCH favorites section was
         // REMOVED (display only). Pin/unpin + favorites-first sorting
         // in the Apps tab and FavoritesStore stay untouched, so the
@@ -504,7 +504,7 @@ private fun HomeTab(
         Spacer(Modifier.weight(1f))
         Text("Vuốt ngang để chuyển tab · Giữ ứng dụng để mở menu",
             fontSize = 11.sp, color = CFlipColors.TextFaint,
-            modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+            modifier = Modifier.padding(top = 6.dp, start = 4.dp))
     }
 }
 
@@ -526,11 +526,11 @@ private fun PillNav(
     // cover feels alive even though the pill is a flat Compose row.
     val hapticView = LocalView.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
             .clip(RoundedCornerShape(28.dp))
             .background(CFlipColors.NavFill)
             .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(28.dp))
-            .padding(6.dp),
+            .padding(5.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -557,7 +557,7 @@ private fun PillNav(
                         onSelect(t)
                     }
                     .animateContentSize(animationSpec = tween(CFlipMotion.MediumMs))
-                    .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 8.dp),
+                    .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically,

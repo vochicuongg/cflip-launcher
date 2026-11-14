@@ -3,7 +3,9 @@ package com.cuong.cflip.ui
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -43,9 +46,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +61,7 @@ import com.cuong.cflip.service.MyAccessibilityService
 @Composable
 fun QuickControlsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val hapticView = LocalView.current
     var torch by remember { mutableStateOf(QuickControls.torchOn) }
     val (volInit, volMax) = remember { QuickControls.volume(context) }
     var volume by remember { mutableStateOf(volInit.toFloat()) }
@@ -69,12 +75,13 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Điều khiển nhanh", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
             color = CFlipColors.TextPrimary)
 
         // Flashlight: full-width state tile
         GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
+            hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
             val next = !torch
             if (QuickControls.setTorch(context, next)) torch = next else toast("Không tìm thấy đèn flash")
         }) {
@@ -93,6 +100,7 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        SectionHeader("ÂM LƯỢNG · ĐỘ SÁNG")
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically,
@@ -168,15 +176,15 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
                 fontSize = 12.sp, color = CFlipColors.Danger)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ControlTile(Icons.Filled.Lock, "Khoá máy", Modifier.weight(1f)) {
+            ControlTile(Icons.Filled.Lock, "Khoá máy", Modifier.weight(1f), enabled = a11y != null) {
                 if (a11y?.lockScreen() != true) toast("Cần bật Accessibility") }
-            ControlTile(Icons.Filled.RecentActors, "Gần đây", Modifier.weight(1f)) {
+            ControlTile(Icons.Filled.RecentActors, "Gần đây", Modifier.weight(1f), enabled = a11y != null) {
                 if (a11y?.openRecents() != true) toast("Cần bật Accessibility") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ControlTile(Icons.Filled.Notifications, "Thông báo", Modifier.weight(1f)) {
+            ControlTile(Icons.Filled.Notifications, "Thông báo", Modifier.weight(1f), enabled = a11y != null) {
                 if (a11y?.openNotifications() != true) toast("Cần bật Accessibility") }
-            ControlTile(Icons.Filled.Tune, "Cài đặt nhanh", Modifier.weight(1f)) {
+            ControlTile(Icons.Filled.Tune, "Cài đặt nhanh", Modifier.weight(1f), enabled = a11y != null) {
                 if (a11y?.openQuickSettings() != true) toast("Cần bật Accessibility") }
         }
 
@@ -194,15 +202,26 @@ fun QuickControlsScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Square tappable tile: icon over label, glass background. */
+/** Square tappable tile: icon over label, glass background.
+ * vc245 PANEL: 64dp min height, press scale + haptic tick (same pattern
+ * as the cover grid), and a dimmed look when disabled (a11y off) so a
+ * dead tile never looks tappable — the toast on tap stays as before. */
 @Composable
-private fun ControlTile(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ControlTile(icon: ImageVector, label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val pressSource = remember { MutableInteractionSource() }
+    val hapticView = LocalView.current
     Box(
         modifier = modifier
+            .heightIn(min = 64.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-            .clickable { onClick() }
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) {
+                hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                onClick()
+            }
+            .alpha(if (enabled) 1f else 0.5f)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {

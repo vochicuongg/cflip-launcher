@@ -40,3 +40,24 @@ CoverApp / CoverLauncherScreen / MediaScreen / NotificationsScreen.
   files), mirror / notification / reply / accessibility logic.
   No Shizuku, ever. No FittedBox around existing layouts.
   No new dependencies; only Compose APIs already in BOM 2024.09.
+
+- Widget drawer ("Widget màn hình ngoài", vc245): same top bar +
+  title pattern as the app drawer; section "TRONG PANEL MÀN HÌNH
+  NGOÀI" holds the single in-app toggle (Lưới ứng dụng, static mini
+  preview + mint Switch), section "WIDGET SAMSUNG" lists the 4
+  providers as info rows (Samsung's picker adds them, never the app).
+  Empty panel state is an inline card, never a blank screen.
+- Notification drawer ("Thông báo", vc245): compact cards (10dp
+  padding), app icon + title + 2-line text + time, action chips at
+  48dp, unread = mint dot + bold title (session-local read marks —
+  the service has no read field, so marks reset when the drawer
+  closes). Hub entry card shows count + latest preview.
+- Hub card styles are unified (vc245): every island uses Island()
+  (gradient card) — Permissions no longer has its own flat Surface
+  box. Island order: Hero, CẢNH BÁO, Quyền, Trạng thái, Ứng dụng,
+  Thông báo, Widget, Quick Panel.
+- Touch targets (vc245, pro-rules): every tappable row is >= 48dp —
+  PermissionRow (heightIn 48dp), HubSwitch rows (8dp vertical
+  padding), size segments + BubbleActionRow + OpenModeRow (12dp
+  padding + heightIn 48dp), notification/action chips (heightIn
+  48dp), panel tiles (64dp min).

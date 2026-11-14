@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -140,6 +141,9 @@ fun MainScreen(
     LaunchedEffect(Unit) { entered = true }
     // vc244 APP DRAWER: the full app list on the big screen.
     var showAppDrawer by remember { mutableStateOf(false) }
+    // vc245 WIDGET + NOTIFICATION DRAWERS: same early-return pattern.
+    var showWidgetDrawer by remember { mutableStateOf(false) }
+    var showNotifDrawer by remember { mutableStateOf(false) }
     // vc244 BADGES: the drawer reuses the cover's per-app unread counts
     // (NotificationState, the same source CoverApp reads) — no new data.
     val notifications by NotificationState.active.collectAsState()
@@ -176,6 +180,28 @@ fun MainScreen(
             notifCounts = notifCounts,
             onBack = { showAppDrawer = false },
         )
+        return
+    }
+
+    // vc245 WIDGET DRAWER: widget activation lives here now (was the
+    // Widget island below); the toggle, Samsung actions and the
+    // group-editor link moved with it.
+    if (showWidgetDrawer) {
+        BackHandler { showWidgetDrawer = false }
+        WidgetDrawerScreen(
+            settings = settings,
+            onSettingsChange = { settings = it; settingsStore.save(it) },
+            onBack = { showWidgetDrawer = false },
+            onOpenGroupEditor = { showWidgetDrawer = false; showGroupEditor = true },
+        )
+        return
+    }
+
+    // vc245 NOTIFICATION DRAWER: the in-app notification list
+    // (NotificationState, the same source the cover reads).
+    if (showNotifDrawer) {
+        BackHandler { showNotifDrawer = false }
+        NotificationDrawerScreen(onBack = { showNotifDrawer = false })
         return
     }
 
@@ -344,10 +370,7 @@ fun MainScreen(
             // since 3.2.0, but the QUICK-tab slider still needs the write
             // helpers, so they are restored; Write stays OUT of the required
             // set (3) and is granted on demand only.
-            SectionLabel("Quyền")
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-                .padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Island("Quyền") {
                 Column {
                     // perm-btn-anim
                     AnimatedVisibility(
@@ -438,82 +461,81 @@ fun MainScreen(
             }
             }
 
+            // vc245 NOTIFICATION DRAWER: entry card like the Apps island —
+            // count + latest notification preview, opens the drawer.
+            val latestNotif = notifications.firstOrNull()
+            val notifPreview = when {
+                latestNotif == null -> "Thông báo mới sẽ hiện ở đây"
+                latestNotif.text.isEmpty() -> latestNotif.title
+                else -> "${latestNotif.title} · ${latestNotif.text}"
+            }
             EnterSection(index = 5, entered = entered, reduced = reducedMotion) {
-            // Widgets, 3.1.0 — USER-ADDED ONLY, corrected after the user's
-            // complaint. Decompile truth (9Flip v149, static only):
-            // NineCoverAppGridWidgetProvider + RemoteViewsService and the
-            // Cassette widget family are standard Android AppWidgetProviders.
-            // No AppWidgetHost code and no forced overlay widget were found
-            // in the native scope — the user places widgets, the app does not
-            // force them. CFlip now follows that exactly:
-            //  - Nothing shows on the cover until the user turns a widget on
-            //    below (stored in SettingsStore.coverWidgets, default empty).
-            //  - 3.4.0: NO requestPinAppWidget() anymore. Pin is the main-home
-            //    launcher's dialog ("Mở điện thoại để tiếp tục") and can never
-            //    place a widget on the cover. 9Flip never pins either: it opens
-            //    Samsung's cover widget settings, and its widgets are keyguard
-            //    (not home_screen) + Samsung sub_screen, so Samsung's cover
-            //    picker on the folded phone lists them. CFlip now does the same.
-            //  - The cover widgets below live inside CFlip's own AssistiveTouch
-            //    panel, and only after the user adds them there.
-            SectionLabel("Widget")
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(CFlipColors.Surface).border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(20.dp))
-                .padding(16.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-                    run {
-                        // vc135: the Clock & Battery switch is gone - drop the key from
-                        // saved widgets so a previously-enabled clock widget does not
-                        // stay on with no switch to turn it off.
-                        if ("clock" in chosen) {
-                            val nextWidgets = (chosen - "clock").sorted().joinToString(",")
-                            settings = settings.copy(coverWidgets = nextWidgets); settingsStore.save(settings)
+            Island("Thông báo") {
+                GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showNotifDrawer = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                            .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Notifications, contentDescription = null,
+                                tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
                         }
-                        fun toggleWidget(key: String, on: Boolean) {
-                            val next = if (on) chosen + key else chosen - key
-                            settings = settings.copy(coverWidgets = next.sorted().joinToString(","))
-                            settingsStore.save(settings)
+                        Column(modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                if (notifications.isEmpty()) "Không có thông báo"
+                                else "${notifications.size} thông báo",
+                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                color = CFlipColors.TextPrimary)
+                            Text(notifPreview, fontSize = 12.sp, color = CFlipColors.TextSecondary,
+                                maxLines = 1)
                         }
-                        HubSwitch("Kích hoạt Widget màn hình ngoài", "appgrid" in chosen) { toggleWidget("appgrid", it) }
-                    }
-                    // vc165 WIDGET LIKE QUICK PANEL (user, 29/10):
-                    // the switch stays, the details only show while
-                    // it is on — same expand/fade as the Quick Panel
-                    // island, instead of always showing everything.
-                    AnimatedVisibility(
-                        visible = "appgrid" in chosen,
-                        enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
-                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Chưa bật gì thì panel không tự hiện Widget.",
-                                fontSize = 12.sp, color = CFlipColors.TextFaint)
-                            Text("Thêm Widget Samsung trên màn hình ngoài: gập máy, vuốt Widget tới cuối, bấm + và chọn CFlip.",
-                                fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                            Text("Hoặc mở cài đặt Widget Samsung bên dưới (chỉ mở được trên màn chính).",
-                                fontSize = 12.sp, color = CFlipColors.TextSecondary)
-                            TextButton(onClick = {
-                                com.cuong.cflip.widget.SamsungCoverWidgetHelper.openCoverWidgetSettings(context)
-                            }, modifier = Modifier.align(Alignment.Start)) {
-                                Text("Mở Cài đặt Widget màn hình ngoài Samsung", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
-                            TextButton(onClick = {
-                                toast(com.cuong.cflip.widget.SamsungCoverWidgetHelper.statusText(context))
-                            }, modifier = Modifier.align(Alignment.Start)) {
-                                Text("Kiểm tra Widget màn hình ngoài đã thêm chưa", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
-                            TextButton(onClick = { showGroupEditor = true },
-                                modifier = Modifier.align(Alignment.Start)) {
-                                Text("Tùy chỉnh nhóm ứng dụng", color = CFlipColors.Accent, fontSize = 13.sp)
-                            }
-                        }
+                        Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
                     }
                 }
             }
             }
 
+            // vc245 WIDGET DRAWER: activation moved into WidgetDrawerScreen
+            // (same pattern as the Apps island + drawer). The toggle,
+            // Samsung actions and group-editor link live there now.
+            // vc135 strip kept: a "clock" key saved from the cover panel
+            // is still dropped here so it cannot stay on with no switch
+            // to turn it off.
+            run {
+                val chosenNow = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                if ("clock" in chosenNow) {
+                    val nextWidgets = (chosenNow - "clock").sorted().joinToString(",")
+                    settings = settings.copy(coverWidgets = nextWidgets); settingsStore.save(settings)
+                }
+            }
+            val widgetChosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val widgetSummary = if (widgetChosen.isEmpty()) "Chưa bật widget nào · Mở đảo Widget"
+                else "Đã bật ${widgetChosen.size} widget · Mở đảo Widget"
             EnterSection(index = 6, entered = entered, reduced = reducedMotion) {
+            Island("Widget") {
+                GlassCard(modifier = Modifier.fillMaxWidth(), onClick = { showWidgetDrawer = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(modifier = Modifier.size(40.dp).clip(CircleShape)
+                            .background(CFlipColors.Accent.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.GridView, contentDescription = null,
+                                tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Widget màn hình ngoài", fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                                color = CFlipColors.TextPrimary)
+                            Text(widgetSummary, fontSize = 12.sp, color = CFlipColors.TextSecondary)
+                        }
+                        Text("›", fontSize = 20.sp, color = CFlipColors.TextFaint)
+                    }
+                }
+            }
+            }
+
+            EnterSection(index = 7, entered = entered, reduced = reducedMotion) {
             // vc121 ISLANDS (user, 28/10: group the
             // main settings into separate feature
             // islands, neat like 9Flip). The old
@@ -628,7 +650,7 @@ fun MainScreen(
                                                     Intent(context, CoverForegroundService::class.java))
                                             }
                                         }
-                                        .padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        .padding(vertical = 12.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
                                         Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                                             color = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary)
                                     }
@@ -777,7 +799,7 @@ private fun StatColumn(label: String, value: String, ok: Boolean, modifier: Modi
 @Composable
 private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
     val pressSource = remember { MutableInteractionSource() }
-    Row(modifier = Modifier.fillMaxWidth()
+    Row(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         .pressScale(pressSource)
         .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onOpen() }
         .padding(vertical = 11.dp),
@@ -804,7 +826,7 @@ private fun BubbleActionRow(label: String, cur: Int, expanded: Boolean, onExpand
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(CFlipColors.Bg)
             .clickable { onExpand() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
                 modifier = Modifier.weight(1f))
@@ -840,7 +862,7 @@ private fun OpenModeRow(label: String, cur: Int, expanded: Boolean, onExpand: ()
         Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(CFlipColors.Bg)
             .clickable { onExpand() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 13.sp, color = CFlipColors.TextSecondary,
                 modifier = Modifier.weight(1f))
@@ -870,7 +892,7 @@ private fun OpenModeRow(label: String, cur: Int, expanded: Boolean, onExpand: ()
 
 @Composable
 private fun HubSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 14.sp, color = CFlipColors.TextPrimary, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange,
             colors = SwitchDefaults.colors(

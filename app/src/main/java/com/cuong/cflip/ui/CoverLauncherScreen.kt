@@ -80,7 +80,7 @@ fun CoverLauncherScreen(
         columns = columns,
         contentPadding = PaddingValues(6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = modifier.fillMaxSize(),
     ) {
         itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
@@ -129,7 +129,7 @@ fun CoverLauncherScreen(
                             if (onAppMenu != null) onAppMenu(app) else onToggleFavorite(app)
                         }
                     )
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 2.dp)
             ) {
                 Box {
                     AppIcon(app.icon, settings.iconSizeDp)
@@ -192,7 +192,7 @@ fun CoverLauncherScreen(
                         text = app.label,
                         fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = CFlipColors.TextPrimary,
-                        modifier = Modifier.padding(top = 3.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }

@@ -12,7 +12,7 @@
         android:maxLines="1"
         android:ellipsize="end"
         android:text="Chưa có nhạc"
-        android:textColor="#FFFFFF"
+        android:textColor="#F5F7F6"
         android:textSize="15sp"
         android:textStyle="bold" />
     <TextView
@@ -22,7 +22,7 @@
         android:maxLines="1"
         android:ellipsize="end"
         android:text="Mở nhạc rồi bấm làm mới"
-        android:textColor="#BBBBBB"
+        android:textColor="#9AA8A1"
         android:textSize="12sp" />
     <LinearLayout
         android:layout_width="match_parent"
