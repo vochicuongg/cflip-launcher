@@ -48,6 +48,7 @@ object CoverAssistiveTouchManager {
 
     private var wm: WindowManager? = null
     private var button: View? = null
+    private var bubbleParams: WindowManager.LayoutParams? = null
     private var displayId: Int = -1
     private val handler = Handler(Looper.getMainLooper())
     private var dimRunnable: Runnable? = null
@@ -72,13 +73,44 @@ object CoverAssistiveTouchManager {
 
     fun isShown(): Boolean = button != null
 
+    // vc33 brightness holder: the bubble window itself carries
+    // screenBrightness while it is alive on the cover, so a brightness
+    // chosen in the panel does NOT revert when the panel closes.
+    // When the bubble is removed (phone unfolded), the window goes
+    // away and brightness returns to system — cover-only scope, no
+    // WRITE_SETTINGS, no effect on the main display.
+    fun applyCoverBrightness(appContext: Context) {
+        val params = bubbleParams; val v = button; val manager = wm
+        if (params == null || v == null || manager == null) return
+        val st = com.cuong.cflip.data.SettingsStore(appContext).load()
+        params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+        runCatching { manager.updateViewLayout(v, params) }
+    }
+
     fun show(appContext: Context, display: Display): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("AssistiveTouch is cover-only, refusing default display")
         }
         hide()
-        val displayContext = appContext.createDisplayContext(display)
-        val manager = displayContext.getSystemService(WindowManager::class.java)
+        // vc99 LOCK BUBBLE TYPE (9Flip ub.java: type =
+        // a11y != null ? 2032 : fallback): CFlip's bubble
+        // used 2038 (TYPE_APPLICATION_OVERLAY) + SHOW_WHEN
+        // _LOCKED, which Samsung hides over a secure
+        // keyguard (vc91 proof) - so vc95-vc98 had to use
+        // an Activity on lock, and an Activity displaces
+        // Samsung's lock UI (clock/calendar) even when
+        // its window is bubble-sized (vc97-vc98 proof:
+        // info still missing). A 2032 overlay window,
+        // like RotateHost vc96, survives lock WITHOUT
+        // being an Activity, so it should sit on lock
+        // WITHOUT displacing lock info. Try 2032 via
+        // the accessibility service display context
+        // first; if the system rejects it, fall back to
+        // 2038 in the same call (never worse than vc98).
+        val a11ySvc = MyAccessibilityService.instance
+        val displayContext = if (a11ySvc != null) a11ySvc.createDisplayContext(display) else appContext.createDisplayContext(display)
+        val bubbleType = if (a11ySvc != null) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        var manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val density = displayContext.resources.displayMetrics.density
@@ -104,10 +136,15 @@ object CoverAssistiveTouchManager {
         startX = startX.coerceIn(0, maxOf(0, dispW - size))
         startY = startY.coerceIn(0, maxOf(0, dispH - size))
 
+        // vc91 LOCK FIX (user: bubble must appear on lock screen
+        // and in Settings, otherwise rotate controls are lost
+        // exactly when the phone is locked): without
+        // SHOW_WHEN_LOCKED the keyguard hides this overlay.
         val params = WindowManager.LayoutParams(
             size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            bubbleType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START; x = startX; y = startY }
 
@@ -137,6 +174,7 @@ object CoverAssistiveTouchManager {
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
         var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
         var moved = false; var longPressed = false; var pendingSingleTap = false
+        var doubleTapOpened = false
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
 
@@ -154,54 +192,180 @@ object CoverAssistiveTouchManager {
         }
 
         btn.setOnTouchListener { v, e ->
+            // vc112 PRESS ANIMATION (user, 27/10:
+            // smooth interaction): shrink to 0.9
+            // on DOWN, spring back to 1.0 on UP /
+            // CANCEL. Visual only - drag maths use
+            // rawX/rawY and params, not view scale,
+            // so gestures are untouched.
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(100L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
+            if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(150L)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
             // 3.3.0: every touch on the cover button resets the cover
             // idle timer via keepScreenOn (see pokeKeepAwake above).
-            if (e.action == MotionEvent.ACTION_DOWN || e.action == MotionEvent.ACTION_MOVE) pokeKeepAwake()
+            // vc32: poke only on DOWN, not on every MOVE (handler churn per move event was part of the stutter).
+            if (e.action == MotionEvent.ACTION_DOWN) pokeKeepAwake()
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
                     btn.alpha = 1f
                     dimRunnable?.let { handler.removeCallbacks(it) }
+                    // vc41 fast double-tap: previously the panel opened
+                    // only on ACTION_UP of the second tap, so the user
+                    // paid a full tap duration before anything happened.
+                    // Now, if a first tap is already pending, the second
+                    // DOWN opens the panel immediately (no long-press
+                    // scheduled for this DOWN, no waiting for UP).
+                    // Trade-off, stated honestly: a tap-tap-drag that
+                    // starts a drag on the second tap will open the
+                    // panel instead of dragging - drags normally start
+                    // on the first touch, not the second, so this is
+                    // the standard double-tap trade-off for speed.
+                    if (pendingSingleTap) {
+                        pendingSingleTap = false
+                        singleTapRunnable?.let { handler.removeCallbacks(it) }
+                        singleTapRunnable = null
+                        // vc99: on lock, double-tap must
+                        // NOT open the panel (panel is an
+                        // overlay, hidden/displacing on
+                        // lock). Go to unlock instead.
+                        if (isKeyguardLocked(appContext)) {
+                            launchUnlockActivity(appContext, display.displayId)
+                            scheduleDim()
+                            return@setOnTouchListener true
+                        }
+                        doubleTapOpened = true
+                        downX = e.rawX; downY = e.rawY
+                        paramsX = params.x; paramsY = params.y
+                        moved = false; longPressed = false
+                        val dtAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleDoubleTapAction
+                        performBubbleAction(dtAction, appContext, display.displayId)
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
+                    doubleTapOpened = false
                     downX = e.rawX; downY = e.rawY
                     paramsX = params.x; paramsY = params.y
                     moved = false; longPressed = false
                     val r = Runnable {
                         longPressed = true
-                        doRecents(appContext)
+                        val action = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleLongPressAction
+                        performBubbleAction(action, appContext, display.displayId)
                     }
                     longPressRunnable = r
                     handler.postDelayed(r, longPressTimeout)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (e.rawX - downX).toInt(); val dy = (e.rawY - downY).toInt()
-                    if (abs(dx) + abs(dy) > touchSlop) {
-                        if (!moved) { cancelTapRunnables(); moved = true }
-                        params.x = (paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
-                        params.y = (paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
-                        runCatching { manager.updateViewLayout(v, params) }
+                    // vc117 LONG-PRESS FIX: vc33 cancelled
+                    // long-press on ANY move, so a finger
+                    // trembling by 1px while holding still
+                    // cancelled the hold before the timeout
+                    // fired - long-press looked dead. Now
+                    // cancel only past HALF the touch slop:
+                    // tiny tremor survives, a real drag
+                    // still cancels before it starts (moved
+                    // is set at full slop below).
+                    if (longPressRunnable != null) {
+                        val mdx = e.rawX - downX; val mdy = e.rawY - downY
+                        if (kotlin.math.hypot(mdx, mdy) > touchSlop / 2f) {
+                            handler.removeCallbacks(longPressRunnable!!)
+                            longPressRunnable = null
+                        }
+                    }
+                    // vc32: Euclidean distance (like 9Flip c1 hypot),
+                    // not Manhattan; keep float until the final round.
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (kotlin.math.hypot(dx, dy) > touchSlop) {
+                        if (!moved) {
+                            cancelTapRunnables(); moved = true
+                            // Elevation shadow is recomputed on every
+                            // updateViewLayout; drop it during drag.
+                            v.elevation = 0f
+                        }
+                        val newX = Math.round(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
+                        val newY = Math.round(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
+                        // Skip redundant relayouts (9Flip b6 does the same).
+                        if (newX != params.x || newY != params.y) {
+                            params.x = newX; params.y = newY
+                            runCatching { manager.updateViewLayout(v, params) }
+                        }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    cancelTapRunnables()
-                    if (moved) {
-                        prefs.edit()
-                            .putInt("x", params.x).putInt("y", params.y)
-                            .putInt("display_w", dispW).putInt("display_h", dispH)
-                            .apply()
+                    // vc41: UP belonging to the DOWN that already opened
+                    // the panel must not start a new pending single tap
+                    // (which would later fire Home over the panel).
+                    if (doubleTapOpened) {
+                        doubleTapOpened = false
+                        v.elevation = dp(8).toFloat()
                         scheduleDim()
                         return@setOnTouchListener true
                     }
+                    cancelTapRunnables()
+                    v.elevation = dp(8).toFloat()
+                    if (moved) {
+                        // vc35 snap to nearest side edge, like a floating
+                        // bubble should: centre left of mid -> left edge,
+                        // centre right of mid -> right edge, animated
+                        // 150ms Decelerate, then save the snapped position.
+                        val targetX = if (params.x + size / 2 < dispW / 2) 0 else maxOf(0, dispW - size)
+                        if (targetX != params.x) {
+                            val startX = params.x
+                            val anim = android.animation.ValueAnimator.ofInt(startX, targetX).apply {
+                                duration = 150L
+                                interpolator = android.view.animation.DecelerateInterpolator()
+                                addUpdateListener { a ->
+                                    params.x = a.animatedValue as Int
+                                    runCatching { manager.updateViewLayout(v, params) }
+                                }
+                                addListener(object : android.animation.AnimatorListenerAdapter() {
+                                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                                        prefs.edit()
+                                            .putInt("x", params.x).putInt("y", params.y)
+                                            .putInt("display_w", dispW).putInt("display_h", dispH)
+                                            .apply()
+                                        scheduleDim()
+                                    }
+                                })
+                            }
+                            anim.start()
+                        } else {
+                            prefs.edit()
+                                .putInt("x", params.x).putInt("y", params.y)
+                                .putInt("display_w", dispW).putInt("display_h", dispH)
+                                .apply()
+                            scheduleDim()
+                        }
+                        return@setOnTouchListener true
+                    }
                     if (longPressed) { scheduleDim(); return@setOnTouchListener true }
+                    // vc99: on lock, a tap must NOT fire
+                    // Home/Menu (both blocked on lock).
+                    // It asks the system to dismiss the
+                    // keyguard via UnlockActivity, exactly
+                    // like 9Flip's transient unlock flow.
+                    if (isKeyguardLocked(appContext)) {
+                        launchUnlockActivity(appContext, display.displayId)
+                        scheduleDim()
+                        return@setOnTouchListener true
+                    }
                     if (pendingSingleTap) {
-                        // Second tap inside the double-tap window -> Menu.
+                        // Second tap inside the double-tap window -> configured double-tap action.
                         pendingSingleTap = false
-                        doMenu(appContext, display.displayId)
+                        val dtAction2 = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleDoubleTapAction
+                        performBubbleAction(dtAction2, appContext, display.displayId)
                     } else {
                         pendingSingleTap = true
                         val r = Runnable {
                             pendingSingleTap = false
-                            doHome(appContext, display.displayId)
+                            val tapAction = com.cuong.cflip.data.SettingsStore(appContext).load().bubbleTapAction
+                            performBubbleAction(tapAction, appContext, display.displayId)
                         }
                         singleTapRunnable = r
                         handler.postDelayed(r, doubleTapTimeout)
@@ -210,14 +374,57 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    cancelTapRunnables(); pendingSingleTap = false; scheduleDim(); true
+                    doubleTapOpened = false
+                    cancelTapRunnables(); pendingSingleTap = false
+                    v.elevation = dp(8).toFloat()
+                    scheduleDim(); true
                 }
                 else -> false
             }
         }
 
-        manager.addView(btn, params)
-        wm = manager; button = btn; displayId = display.displayId
+        // vc33: 9Flip sets gesture exclusion to the whole button rect,
+        // so edge swipes do not steal the drag. CFlip never set it, so a
+        // bubble near the edge lost MOVE events to the system back/home
+        // gesture (ACTION_CANCEL) — the "swipe does not move" symptom.
+        runCatching {
+            btn.systemGestureExclusionRects = listOf(
+                android.graphics.Rect(0, 0, size, size))
+        }
+        try {
+            manager.addView(btn, params)
+        } catch (e: Exception) {
+            Log.w(TAG, "Bubble type $bubbleType rejected, falling back to 2038", e)
+            val fallbackCtx = appContext.createDisplayContext(display)
+            val fallbackMgr = fallbackCtx.getSystemService(WindowManager::class.java)
+                ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
+            params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            fallbackMgr.addView(btn, params)
+            manager = fallbackMgr
+        }
+        // vc112 SHOW ANIMATION: fade + scale in
+        // (200ms) instead of popping in, matching
+        // the panel enter animation. scheduleDim
+        // below still dims to 0.4 after idle, so
+        // the end state is unchanged.
+        btn.alpha = 0f
+        btn.scaleX = 0.8f
+        btn.scaleY = 0.8f
+        btn.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(200L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        Log.i(TAG, "Bubble type=${params.type} (a11yAlive=${a11ySvc != null})")
+        wm = manager; button = btn; bubbleParams = params; displayId = display.displayId
+        // vc141: hold the manual brightness on the cover after the panel
+        // closes (see CoverBrightnessHolder). Best effort only.
+        runCatching { CoverBrightnessHolder.show(appContext, display) }
+            .onFailure { Log.w(TAG, "Brightness holder failed", it) }
+        // Apply the saved cover brightness immediately, not only after
+        // the panel is opened once.
+        runCatching {
+            val st = com.cuong.cflip.data.SettingsStore(appContext).load()
+            params.screenBrightness = if (st.panelBrightnessManual) st.panelBrightness.coerceIn(0.05f, 1.0f) else -1f
+            manager.updateViewLayout(btn, params)
+        }
         scheduleDim()
         Log.i(TAG, "AssistiveTouch shown on cover display ${display.displayId} at ($startX,$startY)")
         Unit
@@ -232,9 +439,24 @@ object CoverAssistiveTouchManager {
         val v = button
         if (v != null) {
             runCatching { wm?.removeView(v) }
-            button = null; wm = null; displayId = -1
+            button = null; wm = null; bubbleParams = null; displayId = -1
             Log.i(TAG, "AssistiveTouch hidden")
         }
+        CoverBrightnessHolder.hide()
+    }
+
+    private fun isKeyguardLocked(context: Context): Boolean {
+        val km = context.getSystemService(android.app.KeyguardManager::class.java) ?: return false
+        return km.isKeyguardLocked
+    }
+
+    private fun launchUnlockActivity(context: Context, displayId: Int) {
+        runCatching {
+            val intent = Intent(context, CoverUnlockActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            val opts = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
+            context.startActivity(intent, opts.toBundle())
+        }.onFailure { Log.w(TAG, "Lock bubble unlock launch failed", it) }
     }
 
     private fun doHome(context: Context, displayId: Int) {
@@ -266,6 +488,45 @@ object CoverAssistiveTouchManager {
         }
     }
 
+    // vc115 CUSTOM ACTIONS (user, 27/10):
+    // tap / double-tap / long-press are no longer
+    // hard-coded. Each gesture reads its action
+    // from SettingsStore at fire time, so a change
+    // in MainScreen applies to the next touch
+    // without restarting the service. Defaults
+    // (SettingsStore) preserve the old mapping:
+    // tap = Home, double-tap = Full panel,
+    // long-press = Recents. Lock on keyguard is
+    // still handled at the call sites (unlock
+    // activity), exactly as before - this function
+    // only dispatches the chosen action.
+    // vc138: shared with the swipe bar - the bar is only a style,
+    // so it performs gestures through this same dispatcher, not its own.
+    fun performBubbleAction(action: Int, context: Context, displayId: Int) {
+        when (action) {
+            com.cuong.cflip.data.BubbleActions.HOME -> doHome(context, displayId)
+            com.cuong.cflip.data.BubbleActions.RECENTS -> doRecents(context)
+            com.cuong.cflip.data.BubbleActions.FULL_PANEL -> doMenu(context, displayId)
+            com.cuong.cflip.data.BubbleActions.LOCK -> doLock(context)
+            com.cuong.cflip.data.BubbleActions.NONE -> { /* deliberately nothing */ }
+            else -> doHome(context, displayId)
+        }
+    }
+
+    private fun doLock(context: Context) {
+        val a11y = MyAccessibilityService.instance
+        if (a11y?.lockScreen() != true) {
+            Log.w(TAG, "Lock failed: no AccessibilityService")
+            android.widget.Toast.makeText(
+                context, "Khóa máy không chạy: cần bật Accessibility cho CFlip",
+                android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // vc120: Menu is always the Full Panel now.
+    // Quick Panel is an open mode (bubble vs
+    // swipe bar), not a menu variant, so there
+    // is no quickPanel flag here anymore.
     private fun doMenu(context: Context, displayId: Int) {
         // Menu = CFlip's own Control Center panel, as an overlay on the
         // cover display (2.6.0). It used to launch MainActivity at the

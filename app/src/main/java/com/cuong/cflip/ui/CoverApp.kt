@@ -2,11 +2,30 @@ package com.cuong.cflip.ui
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,20 +39,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.RecentActors
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,14 +72,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cuong.cflip.control.QuickControls
 import com.cuong.cflip.data.AppInfo
 import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.data.BackgroundStyles
@@ -65,6 +93,7 @@ import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 import com.cuong.cflip.display.AppLauncher
 import com.cuong.cflip.media.MediaState
+import com.cuong.cflip.service.MyAccessibilityService
 import com.cuong.cflip.service.NotificationState
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
@@ -78,6 +107,15 @@ enum class CoverTab(val label: String, val icon: ImageVector) {
     QUICK("Tiện ích", Icons.Filled.Bolt),
     STYLE("Cá nhân", Icons.Filled.Palette)
 }
+
+// vc240: one row in unified search — a control the user can run straight
+// from the search results, without opening its tab first.
+private data class CoverSearchAction(
+    val label: String,
+    val keywords: String,
+    val icon: ImageVector,
+    val run: () -> Unit,
+)
 
 /**
  * The complete cover experience, redesigned in CFlip 2.0:
@@ -109,6 +147,11 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     var search by remember { mutableStateOf("") }
 
     val notifications by NotificationState.active.collectAsState()
+    // vc240 INTERACTION: per-app notification counts for badges on the
+    // app grid (FEATURES-V2 #4). Grouping here keeps the grid dumb.
+    val notifCounts = remember(notifications) {
+        notifications.groupingBy { it.packageName }.eachCount()
+    }
     val media by MediaState.current.collectAsState()
     val batteryPct = rememberBatteryPercent()
     val charging = remember(batteryPct) { readBatteryCharging(context) }
@@ -117,7 +160,6 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     LaunchedEffect(Unit) { while (true) { now = LocalDateTime.now(); delay(1000) } }
 
     val byPackage = remember(allApps) { allApps.associateBy { it.packageName } }
-    val favApps = favorites.mapNotNull { byPackage[it] }
     // Old bug: keyed only on favorites, so Recents never refreshed when the
     // app list changed (hide/unhide) or after launching an app from CFlip.
     // Keying on tab too means opening the Apps tab re-reads recents, so a
@@ -131,19 +173,12 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     // (firstInstallTime descending). Favorites-first, when on, is a stable
     // primary key on top of whichever sort the user picked.
     val appsOrdered = remember(favorites, settings.favoritesFirst, settings.sortMode, allApps, recentApps) {
-        val bySort: List<AppInfo> = when (settings.sortMode) {
-            1 -> {
-                val recentIdx = recentApps.mapIndexed { i, a -> a.packageName to i }.toMap()
-                allApps.sortedWith(compareBy<AppInfo> { recentIdx[it.packageName] ?: Int.MAX_VALUE }
-                    .thenBy { it.label.lowercase() })
-            }
-            2 -> {
-                val installed = appRepo.installTimes(allApps.map { it.packageName })
-                allApps.sortedWith(compareByDescending<AppInfo> { installed[it.packageName] ?: 0L }
-                    .thenBy { it.label.lowercase() })
-            }
-            else -> allApps
-        }
+        // vc255: one shared sort (AppSort) — same ordering as the
+        // panel grid and the AppGrid widget. Favorites-first stays
+        // a stable primary key on top, as before.
+        val installed = if (settings.sortMode == 2) appRepo.installTimes(allApps.map { it.packageName }) else emptyMap()
+        val bySort = com.cuong.cflip.data.AppSort.sort(
+            allApps, settings.sortMode, recentApps.map { it.packageName }, installed)
         if (settings.favoritesFirst) bySort.sortedByDescending { it.packageName in favorites } else bySort
     }
 
@@ -176,6 +211,49 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     var dragTotal by remember { mutableStateOf(0f) }
     val tabs = CoverTab.entries
 
+    // vc240 INTERACTION: unified search (9Flip "find apps and controls
+    // in one place"). One query matches apps AND these controls, so the
+    // user never has to remember which tab a control lives on. Keywords
+    // include unaccented spellings ("den pin", "khoa may") because the
+    // cover keyboard makes diacritics slow. No Shizuku, no new permission:
+    // every action reuses an existing QuickControls / Accessibility call.
+    // Tab-switch actions just set `tab`; panel actions run from the app
+    // context like QuickControlsScreen does.
+    // vc241 FIX (vc240 broke the build): Compose BOM 2024.09's
+    // HapticFeedbackType has no VirtualKey, so the platform View API
+    // is used instead — HapticFeedbackConstants always has VIRTUAL_KEY.
+    val hapticView = LocalView.current
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    val searchActions = listOf(
+        CoverSearchAction("Đèn pin", "den pin flash torch den", Icons.Filled.FlashOn) {
+            if (!QuickControls.setTorch(context, !QuickControls.torchOn)) toast("Không tìm thấy đèn flash")
+        },
+        CoverSearchAction("Wi-Fi", "wifi mang", Icons.Filled.Wifi) { QuickControls.openWifiPanel(context) },
+        CoverSearchAction("Internet", "internet mang data 4g 5g", Icons.Filled.Language) { QuickControls.openInternetPanel(context) },
+        CoverSearchAction("Bluetooth", "bluetooth tai nghe", Icons.Filled.Bluetooth) { QuickControls.openBluetoothSettings(context) },
+        CoverSearchAction("NFC", "nfc", Icons.Filled.Nfc) { QuickControls.openNfcPanel(context) },
+        CoverSearchAction("Cài đặt hệ thống", "cai dat settings he thong", Icons.Filled.Settings) { QuickControls.openDeviceSettings(context) },
+        CoverSearchAction("Khóa máy", "khoa may lock khoa man hinh", Icons.Filled.Lock) {
+            if (MyAccessibilityService.instance?.lockScreen() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Gần đây", "gan day recents ung dung vua mo", Icons.Filled.RecentActors) {
+            if (MyAccessibilityService.instance?.openRecents() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Mở khay thông báo", "thong bao notification khay", Icons.Filled.Notifications) {
+            if (MyAccessibilityService.instance?.openNotifications() != true) toast("Cần bật Accessibility")
+        },
+        CoverSearchAction("Nhạc", "nhac music media phat nhac", Icons.Filled.MusicNote) { tab = CoverTab.MEDIA },
+        CoverSearchAction("Tiện ích", "tien ich quick dieu khien nhanh", Icons.Filled.Bolt) { tab = CoverTab.QUICK },
+        CoverSearchAction("Cá nhân hóa", "ca nhan hoa style hinh nen", Icons.Filled.Palette) { tab = CoverTab.STYLE },
+    )
+    val matchedActions = remember(search) {
+        if (search.isBlank()) emptyList()
+        else {
+            val q = search.trim().lowercase()
+            searchActions.filter { it.label.lowercase().contains(q) || it.keywords.contains(q) }
+        }
+    }
+
     Box(
         modifier = modifier.fillMaxSize()
             .background(Color(BackgroundStyles.colors[settings.backgroundStyle.coerceIn(0, BackgroundStyles.colors.lastIndex)]))
@@ -198,64 +276,104 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
         Box(modifier = Modifier.fillMaxSize().background(CFlipColors.Scrim))
         Box(modifier = Modifier.fillMaxSize().background(CFlipColors.TopGlow))
 
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            if (tab != CoverTab.HOME) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
+            // vc130 MOTION (user, 29/10): the status row expands/fades in and out with the tab.
+            AnimatedVisibility(
+                visible = tab != CoverTab.HOME,
+                enter = expandVertically(animationSpec = tween(300)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(300)) + fadeOut(animationSpec = tween(200)),
+            ) {
                 StatusRow(now = now, settings = settings, batteryPct = batteryPct, charging = charging)
             }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (tab) {
-                    CoverTab.HOME -> HomeTab(
-                        now = now, settings = settings,
-                        batteryPct = batteryPct, charging = charging,
-                        notifCount = notifications.size,
-                        mediaTitle = media?.title, mediaPlaying = media?.isPlaying == true,
-                        favApps = favApps, favorites = favorites,
-                        onOpenMedia = { tab = CoverTab.MEDIA },
-                        onOpenNotifs = { tab = CoverTab.NOTIFS },
-                        onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
-                        onToggleFavorite = { app ->
-                            favoritesStore.toggle(app.packageName)
-                            favorites = favoritesStore.getFavorites()
-                        },
-                        onAppMenu = { menuApp = it },
-                    )
-                    CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
-                        OutlinedTextField(
-                            value = search, onValueChange = { search = it },
-                            placeholder = { Text("Tìm ứng dụng") }, singleLine = true,
-                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                            shape = RoundedCornerShape(20.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                // vc130 MOTION (user, 29/10): tab content slides + fades
+                // in the swipe direction instead of popping.
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        (slideInHorizontally(animationSpec = tween(300)) { if (forward) it else -it } + fadeIn(animationSpec = tween(200))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(300)) { if (forward) -it else it } + fadeOut(animationSpec = tween(200)))
+                    },
+                    label = "coverTab",
+                ) { targetTab ->
+                    when (targetTab) {
+                        CoverTab.HOME -> HomeTab(
+                            now = now, settings = settings,
+                            batteryPct = batteryPct, charging = charging,
+                            notifCount = notifications.size,
+                            mediaTitle = media?.title, mediaPlaying = media?.isPlaying == true,
+                            onOpenMedia = { tab = CoverTab.MEDIA },
+                            onOpenNotifs = { tab = CoverTab.NOTIFS },
                         )
-                        if (recentApps.isNotEmpty() && search.isEmpty()) {
-                            SectionHeader("GẦN ĐÂY")
+                        CoverTab.APPS -> Column(modifier = Modifier.fillMaxSize()) {
+                            OutlinedTextField(
+                                value = search, onValueChange = { search = it },
+                                placeholder = { Text("Tìm ứng dụng, điều khiển…") }, singleLine = true,
+                                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            )
+                            // vc242 MOTION: the control results unfold
+                            // (expand + fade) instead of popping in, and
+                            // fold away the same way when the query clears.
+                            AnimatedVisibility(
+                                visible = matchedActions.isNotEmpty(),
+                                enter = expandVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeIn(animationSpec = tween(CFlipMotion.FastMs)),
+                                exit = shrinkVertically(animationSpec = tween(CFlipMotion.MediumMs)) + fadeOut(animationSpec = tween(CFlipMotion.FastMs)),
+                            ) {
+                                Column {
+                                    SectionHeader("ĐIỀU KHIỂN")
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                                        matchedActions.forEach { action ->
+                                            GlassCard(modifier = Modifier.fillMaxWidth(), onClick = {
+                                                hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                                                action.run()
+                                            }) {
+                                                Row(verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Icon(action.icon, contentDescription = null,
+                                                        tint = CFlipColors.Accent, modifier = Modifier.size(20.dp))
+                                                    Text(action.label, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                                                        color = CFlipColors.TextPrimary)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (recentApps.isNotEmpty() && search.isEmpty()) {
+                                SectionHeader("GẦN ĐÂY")
+                            }
+                            val base = if (search.isEmpty()) {
+                                (recentApps + appsOrdered).distinctBy { it.packageName }
+                            } else appsOrdered.filter { it.label.contains(search, ignoreCase = true) }
+                            CoverLauncherScreen(
+                                apps = base,
+                                favorites = favorites,
+                                settings = settings,
+                                notifCounts = notifCounts,
+                                onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
+                                onToggleFavorite = { app ->
+                                    favoritesStore.toggle(app.packageName)
+                                    favorites = favoritesStore.getFavorites()
+                                },
+                                onAppMenu = { menuApp = it },
+                            )
                         }
-                        val base = if (search.isEmpty()) {
-                            (recentApps + appsOrdered).distinctBy { it.packageName }
-                        } else appsOrdered.filter { it.label.contains(search, ignoreCase = true) }
-                        CoverLauncherScreen(
-                            apps = base,
-                            favorites = favorites,
-                            settings = settings,
-                            onAppClick = { AppLauncher.launch(context, it.packageName, targetDisplayId) },
-                            onToggleFavorite = { app ->
-                                favoritesStore.toggle(app.packageName)
-                                favorites = favoritesStore.getFavorites()
-                            },
-                            onAppMenu = { menuApp = it },
-                        )
+                        CoverTab.NOTIFS -> NotificationsScreen()
+                        CoverTab.MEDIA -> MediaScreen()
+                        CoverTab.QUICK -> QuickControlsScreen()
+                        CoverTab.STYLE -> SettingsScreen(settings = settings,
+                            onSettingsChange = { settings = it },
+                            hiddenApps = hiddenApps,
+                            onUnhideApp = { app ->
+                                hiddenStore.unhide(app.packageName)
+                                hidden = hiddenStore.getHidden()
+                                appsVersion++
+                            })
                     }
-                    CoverTab.NOTIFS -> NotificationsScreen()
-                    CoverTab.MEDIA -> MediaScreen()
-                    CoverTab.QUICK -> QuickControlsScreen()
-                    CoverTab.STYLE -> SettingsScreen(settings = settings,
-                        onSettingsChange = { settings = it },
-                        hiddenApps = hiddenApps,
-                        onUnhideApp = { app ->
-                            hiddenStore.unhide(app.packageName)
-                            hidden = hiddenStore.getHidden()
-                            appsVersion++
-                        })
                 }
             }
             PillNav(
@@ -266,33 +384,24 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
         }
 
         // Long-press app menu: favourite toggle + hide (v1.3)
+        // vc248: shared MenuDialog (one dark surface + 48dp rows),
+        // replacing the bare M3 AlertDialog with stacked TextButtons.
         menuApp?.let { app ->
-            AlertDialog(
-                onDismissRequest = { menuApp = null },
-                title = { Text(app.label) },
-                text = {
-                    Column {
-                        TextButton(onClick = {
-                            favoritesStore.toggle(app.packageName)
-                            favorites = favoritesStore.getFavorites()
-                            menuApp = null
-                        }) {
-                            Text(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích")
-                        }
-                        if (app.packageName != context.packageName) {
-                            TextButton(onClick = {
-                                hiddenStore.hide(app.packageName)
-                                hidden = hiddenStore.getHidden()
-                                appsVersion++
-                                menuApp = null
-                            }) { Text("Ẩn ứng dụng này") }
-                        }
+            MenuDialog(title = app.label, onDismiss = { menuApp = null }) {
+                MenuActionRow(if (app.packageName in favorites) "Bỏ ghim yêu thích" else "Ghim yêu thích") {
+                    favoritesStore.toggle(app.packageName)
+                    favorites = favoritesStore.getFavorites()
+                    menuApp = null
+                }
+                if (app.packageName != context.packageName) {
+                    MenuActionRow("Ẩn ứng dụng này", color = CFlipColors.Danger) {
+                        hiddenStore.hide(app.packageName)
+                        hidden = hiddenStore.getHidden()
+                        appsVersion++
+                        menuApp = null
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = { menuApp = null }) { Text("Đóng") }
-                },
-            )
+                }
+            }
         }
     }
 }
@@ -302,7 +411,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
 private fun StatusRow(now: LocalDateTime, settings: CoverSettings, batteryPct: Int, charging: Boolean) {
     val timeFmt = if (settings.clock24h) DateTimeFormatter.ofPattern("HH:mm") else DateTimeFormatter.ofPattern("hh:mm a")
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(now.format(timeFmt), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = CFlipColors.TextPrimary)
@@ -323,34 +432,34 @@ private fun HomeTab(
     notifCount: Int,
     mediaTitle: String?,
     mediaPlaying: Boolean,
-    favApps: List<AppInfo>,
-    favorites: Set<String>,
     onOpenMedia: () -> Unit,
     onOpenNotifs: () -> Unit,
-    onAppClick: (AppInfo) -> Unit,
-    onToggleFavorite: (AppInfo) -> Unit,
-    onAppMenu: (AppInfo) -> Unit,
 ) {
     val timeFmt = if (settings.clock24h) DateTimeFormatter.ofPattern("HH:mm") else DateTimeFormatter.ofPattern("hh:mm a")
-    Column(modifier = Modifier.fillMaxSize().padding(top = 14.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
         Text(now.format(timeFmt),
-            style = TextStyle(brush = CFlipColors.ClockBrush, fontSize = 56.sp,
+            style = TextStyle(brush = CFlipColors.ClockBrush, fontSize = 52.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = (-1).sp))
         Text(now.format(DateTimeFormatter.ofPattern("EEEE, dd/MM/yyyy")),
             fontSize = 14.sp, color = CFlipColors.TextSecondary)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (batteryPct >= 0) {
                 StatusPill(icon = if (charging) Icons.Filled.Bolt else null, text = "Pin $batteryPct%")
             }
-            Box(modifier = Modifier.clickable { onOpenNotifs() }) {
+            // vc242 MOTION: press scale on the notification pill, same
+            // interaction source as its clickable (GlassCard pattern).
+            val notifPress = remember { MutableInteractionSource() }
+            Box(modifier = Modifier
+                .pressScale(notifPress)
+                .clickable(interactionSource = notifPress, indication = LocalIndication.current) { onOpenNotifs() }) {
                 StatusPill(icon = Icons.Filled.Notifications,
                     text = if (notifCount > 0) "$notifCount thông báo mới" else "Không có thông báo",
                     tint = if (notifCount > 0) CFlipColors.Accent else CFlipColors.TextSecondary)
             }
         }
         if (mediaTitle != null) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             GlassCard(modifier = Modifier.fillMaxWidth(), onClick = onOpenMedia) {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -369,30 +478,25 @@ private fun HomeTab(
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        SectionHeader("YÊU THÍCH")
-        GlassCard(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            if (favApps.isEmpty()) {
-                EmptyState(Icons.Filled.Home, "Chưa ghim ứng dụng nào",
-                    "Sang tab Ứng dụng, giữ một ứng dụng để ghim vào đây")
-            } else {
-                CoverLauncherScreen(
-                    apps = favApps,
-                    favorites = favorites,
-                    settings = settings,
-                    onAppClick = onAppClick,
-                    onToggleFavorite = onToggleFavorite,
-                    onAppMenu = onAppMenu,
-                )
-            }
-        }
+        Spacer(Modifier.height(10.dp))
+        // vc125 (user, 29/10): the YÊU THÍCH favorites section was
+        // REMOVED (display only). Pin/unpin + favorites-first sorting
+        // in the Apps tab and FavoritesStore stay untouched, so the
+        // weight spacer below keeps the hint pinned to the bottom.
+        Spacer(Modifier.weight(1f))
         Text("Vuốt ngang để chuyển tab · Giữ ứng dụng để mở menu",
             fontSize = 11.sp, color = CFlipColors.TextFaint,
-            modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+            modifier = Modifier.padding(top = 6.dp, start = 4.dp))
     }
 }
 
-/** Floating pill navigation: selected tab gets a filled mint pill + label. */
+/** Floating pill navigation: selected tab gets a filled mint pill + label.
+ * vc242 MOTION: the selected pill no longer pops — its background colour
+ * animates (250ms), the icon grows ~12% on a spring, and the label fades
+ * + expands in. The pill also answers presses with the shared press scale.
+ * The gradient fill became a solid animated mint so the colour CAN animate
+ * (a Brush cannot); the solid is the gradient's mid-tone, so the look is
+ * unchanged at rest. */
 @Composable
 private fun PillNav(
     tabs: List<CoverTab>,
@@ -400,23 +504,42 @@ private fun PillNav(
     notifCount: Int,
     onSelect: (CoverTab) -> Unit,
 ) {
+    // vc240: every tab tap answers with a short haptic tick, so the
+    // cover feels alive even though the pill is a flat Compose row.
+    val hapticView = LocalView.current
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
             .clip(RoundedCornerShape(28.dp))
             .background(CFlipColors.NavFill)
             .border(1.dp, CFlipColors.CardStroke, RoundedCornerShape(28.dp))
-            .padding(6.dp),
+            .padding(5.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { t ->
             val selected = t == current
+            val pillColor by animateColorAsState(
+                targetValue = if (selected) CFlipColors.Accent else Color.Transparent,
+                animationSpec = tween(CFlipMotion.MediumMs),
+                label = "pillColor",
+            )
+            val iconScale by animateFloatAsState(
+                targetValue = if (selected) 1.12f else 1f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
+                label = "pillIconScale",
+            )
+            val pressSource = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(if (selected) CFlipColors.AccentBrush else SolidColor(Color.Transparent))
-                    .clickable { onSelect(t) }
-                    .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 8.dp),
+                    .background(pillColor)
+                    .pressScale(pressSource)
+                    .clickable(interactionSource = pressSource, indication = LocalIndication.current) {
+                        if (t != current) hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                        onSelect(t)
+                    }
+                    .animateContentSize(animationSpec = tween(CFlipMotion.MediumMs))
+                    .padding(horizontal = if (selected) 12.dp else 9.dp, vertical = 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically,
@@ -428,9 +551,15 @@ private fun PillNav(
                     }) {
                         Icon(t.icon, contentDescription = t.label,
                             tint = if (selected) CFlipColors.AccentDark else CFlipColors.TextSecondary,
-                            modifier = Modifier.size(20.dp))
+                            modifier = Modifier.size(20.dp).graphicsLayer {
+                                scaleX = iconScale; scaleY = iconScale
+                            })
                     }
-                    if (selected) {
+                    AnimatedVisibility(
+                        visible = selected,
+                        enter = fadeIn(animationSpec = tween(CFlipMotion.FastMs)) + expandHorizontally(animationSpec = tween(CFlipMotion.MediumMs)),
+                        exit = fadeOut(animationSpec = tween(CFlipMotion.FastMs)) + shrinkHorizontally(animationSpec = tween(CFlipMotion.MediumMs)),
+                    ) {
                         Text(t.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                             color = CFlipColors.AccentDark)
                     }

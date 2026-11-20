@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- vc38 auto-brightness toggle icon: a capital A, used as the
+         right icon on the brightness slider (tap = manual/auto). -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12,4 L19,20 H16.5 L12,9 L7.5,20 H5 Z M9,15 H15 V17 H9 Z" />
+</vector>

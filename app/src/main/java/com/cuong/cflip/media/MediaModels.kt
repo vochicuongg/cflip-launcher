@@ -1,5 +1,8 @@
 package com.cuong.cflip.media
 
+import android.app.PendingIntent
+import android.graphics.Bitmap
+
 import android.media.session.PlaybackState
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -10,6 +13,12 @@ data class MediaInfo(
     val isPlaying: Boolean,
     val positionMs: Long,
     val durationMs: Long,
+    val albumArt: Bitmap? = null,
+    // vc41: MediaSession's own destination for this track/app
+    // (sessionActivity PendingIntent), if the app provides one.
+    // Null for apps that do not expose it - then the panel falls
+    // back to launching the app package on the cover display.
+    val sessionActivity: PendingIntent? = null,
 )
 
 object MediaState {

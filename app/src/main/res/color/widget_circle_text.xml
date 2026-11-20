@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc254 PRESS: text colour for the AppGrid header button, paired
+     with res/drawable/widget_circle_selector.xml — the mint glyph
+     turns dark while the circle floods mint, so it stays readable
+     through the press. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:color="#07271C" />
+    <item android:color="#7FE3C0" />
+</selector>

@@ -4,13 +4,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#111111"
-    android:padding="10dp">
+    android:background="@drawable/bg_widget_card"
+    android:padding="12dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -22,7 +23,7 @@
                 android:layout_height="wrap_content"
                 android:format24Hour="HH:mm"
                 android:format12Hour="hh:mm"
-                android:textColor="#FFFFFF"
+                android:textColor="#F5F7F6"
                 android:textSize="26sp"
                 android:textStyle="bold" />
             <TextClock
@@ -30,48 +31,113 @@
                 android:layout_height="wrap_content"
                 android:format24Hour="EEE, dd/MM"
                 android:format12Hour="EEE, dd/MM"
-                android:textColor="#BBBBBB"
+                android:textColor="#9AA8A1"
                 android:textSize="11sp" />
         </LinearLayout>
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="4dp"
+            android:src="@drawable/ic_w_bell"
+            android:contentDescription="Thông báo" />
         <TextView
             android:id="@+id/widget_notif"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🔔 0"
-            android:textColor="#FFFFFF"
+            android:text="0"
+            android:textColor="#F5F7F6"
             android:textSize="13sp" />
     </LinearLayout>
 
+    <!-- vc246: section label + now-playing line (9Flip cassette lesson:
+         a widget must answer "what is playing" at a glance). The title
+         is set by CoverWidgetProvider (GONE when nothing plays). -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="YÊU THÍCH"
+        android:textColor="#66766E"
+        android:textSize="10sp"
+        android:textStyle="bold" />
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:orientation="horizontal">
-        <LinearLayout android:id="@+id/fav_slot_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+        <!-- vc247: favourite slots are lifted tiles now (same cell
+             selector as the app grid: tile at rest, mint on press). -->
+        <LinearLayout android:id="@+id/fav_slot_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:background="@drawable/widget_cell_selector" android:paddingTop="8dp" android:paddingBottom="8dp">
             <ImageView android:id="@+id/fav_icon_1" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/fav_slot_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+        <LinearLayout android:id="@+id/fav_slot_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:background="@drawable/widget_cell_selector" android:paddingTop="8dp" android:paddingBottom="8dp">
             <ImageView android:id="@+id/fav_icon_2" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/fav_slot_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+        <LinearLayout android:id="@+id/fav_slot_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:background="@drawable/widget_cell_selector" android:paddingTop="8dp" android:paddingBottom="8dp">
             <ImageView android:id="@+id/fav_icon_3" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
-        <LinearLayout android:id="@+id/fav_slot_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+        <LinearLayout android:id="@+id/fav_slot_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center" android:background="@drawable/widget_cell_selector" android:paddingTop="8dp" android:paddingBottom="8dp">
             <ImageView android:id="@+id/fav_icon_4" android:layout_width="34dp" android:layout_height="34dp" />
-            <TextView android:id="@+id/fav_label_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#FFFFFF" android:textSize="9sp" />
+            <TextView android:id="@+id/fav_label_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:maxLines="1" android:textColor="#F5F7F6" android:textSize="9sp" />
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- vc247: the now-playing line is a lifted strip (note icon +
+         title on its own surface) instead of a loose grey caption.
+         The provider toggles the whole row now (id widget_media_row);
+         the title id and text-setting are unchanged. -->
+    <LinearLayout
+        android:id="@+id/widget_media_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_widget_media_row"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_w_note"
+            android:contentDescription="Đang phát" />
+        <TextView
+            android:id="@+id/widget_media_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#F5F7F6"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal">
-        <Button android:id="@+id/btn_torch" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="🔦 Đèn" android:textSize="11sp" />
-        <Button android:id="@+id/btn_playpause" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏯ Nhạc" android:textSize="11sp" />
-        <Button android:id="@+id/btn_next" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="⏭ Kế" android:textSize="11sp" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/btn_torch" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_torch"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Đèn pin" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/btn_playpause" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_play"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Phát / tạm dừng nhạc" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center">
+            <ImageButton android:id="@+id/btn_next" android:layout_width="48dp" android:layout_height="48dp"
+                android:background="@drawable/bg_widget_circle" android:src="@drawable/ic_w_next"
+                android:padding="12dp" android:scaleType="fitCenter" android:contentDescription="Bài kế" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

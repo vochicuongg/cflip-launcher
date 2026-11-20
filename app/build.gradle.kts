@@ -32,8 +32,22 @@ android {
         // Flip 5 ships Android 13 / One UI 5.1.1 -> minSdk 33 covers Flip 5/6/7.
         minSdk = 33
         targetSdk = 35
-        versionCode = 29
-        versionName = "3.6.0"
+        // vc245: widget + notification drawers, PANEL tile redo,
+        // hub card unification + 48dp targets, cover density pass.
+        // vc247: dead-widget fix (exported + in-app refresh) + widget depth redesign — versionCode 246 -> 247.
+        // vc248: sub-screen + micro-interaction polish (settings/group-editor/media/notifications/quick/mirror, shared menu dialog, 48dp targets) — versionCode 247 -> 248.
+        // vc249: fix white/failed widgets — Samsung's cover AppWidgetHost refuses to inflate plain android.view.View in RemoteViews (logcat InflateException); the 4 decorative bars in widget_clock/widget_music/widget_music_small/widget_appgrid become ImageView. No other change — vc247 depth design kept. — versionCode 248 -> 249.
+        // vc250: fix vc248 build break — ColorDot took argb: Int but BackgroundStyles.colors is List<Long> (0xFF...L); the call site passed a Long, so compileReleaseKotlin failed at SettingsScreen.kt:154. Param type Int -> Long; Color(argb) accepts Long. No other change. — versionCode 249 -> 250.
+        // vc251: brightness + volume sliders in the cover Quick Panel are VERTICAL whenever a media session exists (playing or paused), not only while playing — slidersVertical was mediaInfo?.isPlaying == true, now mediaInfo != null. NineFlipSlider vertical mode (fill from bottom, icon at bottom, drag up = increase) is unchanged. No media at all = horizontal as before. — versionCode 250 -> 251.
+        // vc252: cover Quick Panel notification tab shows ONLY active notifications in two groups — Now Bar first (LiveBridge mirrors unwrapped to the source app + ongoing), then the rest newest-first; CFlip own notifications excluded, one row per group, mirrors never shown as LiveBridge; rows show the source app launcher icon + name. — versionCode 251 -> 252.
+        // vc253: fix vc252 build break — Notification has no isGroupSummary() (only FLAG_GROUP_SUMMARY exists); group-summary check is now a flags test. No other change. — versionCode 252 -> 253.
+        // vc254: MainScreen regrouped (TRẠNG THÁI / MÀN HÌNH NGOÀI + 3 new islands: Nhóm ứng dụng, Hình nền & Kiểu, Mở gần đây; App + Notification islands deleted with their screens); AppGrid widget header button gets a pressed state; "CFlip — " prefix dropped from widget labels + screenshot title; layered in-app background. — versionCode 253 -> 254.
+        // vc255: fix Style island — panel grid measured cells (cols 3/5/6 no longer clip apps) + icon size honoured on all 3 surfaces, shared AppSort for cover/panel/widget, panel applies wallpaper + style colour, wallpaper re-pick gets a unique file (old one showed forever), Usage Access row moves to MainScreen Quyền island. — versionCode 254 -> 255.
+        // vc256: GroupEditor member tiles 96dp -> 112dp so the label has room for two lines (11sp 1-line showed only ~11 chars, apps sharing a prefix were indistinguishable); label 12sp, maxLines 2, centred; dragRowHPx moves in step, 4 columns + drag geometry unchanged. — versionCode 255 -> 256.
+        // vc257: notification-card buttons fixed (UI-opening actions get launch-first like taps, null actionIntents no longer report success, Xoa only hides the card when the dismiss really issued); Quick Panel tabs slide+fade (was alpha-only); in-app background is ONE FLAT colour per theme + liquid-glass cards (translucent fill + bright rim + specular + soft shadow, no blur on flat colour); new Giao diện setting Dark/Light/Follow system in the Style island (in-app Compose only, cover stays dark); warning card stays solid, never blurred. — versionCode 256 -> 257.
+        // vc258: fix vc255+vc257 build breaks (compileReleaseKotlin failed on the first combined build): setViewLayoutWidth/Height take THREE args (viewId, Float size, unit) — no (viewId, px) overload exists, so the 4 vc255 calls now pass the computed px with COMPLEX_UNIT_PX; TrashIcon read CFlipColors.Danger inside the Canvas draw scope, which is not a composable context since vc257 made CFlipColors a @Composable accessor — the colour is now read in the composable body. — versionCode 257 -> 258.
+        versionCode = 258
+        versionName = "3.9.0-samsung-local"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

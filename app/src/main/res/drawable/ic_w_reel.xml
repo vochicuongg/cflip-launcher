@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc246 CASSETTE: tape reel — mint stroke circle + 3 spokes + hub dot.
+     Static visual cue only (RemoteViews cannot rotate it); used in the
+     music widget tape window and the compact cassette widget. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path
+        android:strokeColor="#7FE3C0" android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M12,3 A9,9 0 1,1 12,21 A9,9 0 1,1 12,3 Z M12,12 L12,5.5 M12,12 L17.6,15.2 M12,12 L6.4,15.2" />
+    <path
+        android:fillColor="#7FE3C0"
+        android:pathData="M12,10.5 A1.5,1.5 0 1,1 12,13.5 A1.5,1.5 0 1,1 12,10.5 Z" />
+</vector>

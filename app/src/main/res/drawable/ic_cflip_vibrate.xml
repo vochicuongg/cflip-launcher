@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- vc41 vibrate, clean-room: speaker + two straight vibration bars
+         on the right (not curved sound waves), single colour for tile tint. -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3,9 L3,15 L7,15 L12,20 L12,4 L7,9 Z M16,9 H17.5 V15 H16 Z M19,7 H20.5 V17 H19 Z" />
+</vector>

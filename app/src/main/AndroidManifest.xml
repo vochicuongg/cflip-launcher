@@ -17,7 +17,11 @@
     <!-- Brightness control (user grants "Modify system settings" per-app) -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Real wave amplitude: Visualizer on the output mix (vc142, normal permission, no runtime prompt) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- vc150 BOOT RESTORE: normal permission, auto-granted, no runtime prompt -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
 
     <application
@@ -38,6 +42,142 @@
             </intent-filter>
         </activity>
 
+        <!-- vc32: MediaProjection permission activity for the panel Mirror
+             tile (like 9Flip's MirrorPermissionActivity in architecture).
+             Translucent, no UI of its own — only the system capture dialog
+             shows, on the main display. Not exported. -->
+        <!-- vc34: separate task affinity + excludeFromRecents, so the
+             permission activity never brings MainActivity forward and
+             never looks like re-entering the CFlip app. It only shows
+             the system sharing dialog, then removes its own task. -->
+        <activity
+            android:name=".mirror.MirrorPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.mirror"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <!-- vc195 SAMSUNG COVER FLAG (no-dual fix):
+                 DualHost (flagged since vc186) reaches the
+                 cover, but this permission activity had NO
+                 flag — in the vc191 no-dual run the consent
+                 degraded to a system notification bubble
+                 near the bottom and the flow stalled with
+                 no feed and no error pill. Flagging it
+                 marks it as a legitimate cover activity
+                 so the consent shows as a real dialog on
+                 the cover without dual mode, like
+                 PowerFlip's cover activities. -->
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
+        <!-- vc83: dedicated dual host (9Flip host-first flow, own code).
+             Tile opens this on the cover; it enables dual only when
+             top-resumed, then launches MirrorPermissionActivity on the
+             cover. It never shows a dialog and never disables dual
+             on death; service cleanup owns dual disable. -->
+        <activity
+            android:name=".mirror.DualHostActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.dualhost"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <!-- vc186 SAMSUNG COVER FLAG (PowerFlip
+                 CoverMirrorActivity parity, manifest only):
+                 marks this cover host as a legitimate
+                 cover-screen activity. Hypothesis: Samsung
+                 keeps flagged cover-stack members across
+                 a cover-stack reset, while CFlip's unflagged
+                 mirror window gets swept. -->
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
+        <!-- vc187 ACTIVITY PORT (PowerFlip CoverMirrorActivity parity,
+             own code): the mirror feed is now a real Activity on
+             display 1 instead of a Presentation window. singleInstance
+             with its own affinity so nothing else lands in its task;
+             showWhenLocked + turnScreenOn like PowerFlip; the
+             Samsung cover flag like vc186's DualHost entry. -->
+        <!-- vc212 REPLY CARD (LiveBridge-style Now Bar card on the
+             cover): a real Activity so the keyboard can appear on
+             the cover display. Translucent + dim-behind, own
+             affinity, never in recents, singleTop so a second reply
+             reuses it via onNewIntent. Launched from the panel's
+             notification tab with the notification's key + context. -->
+        <activity
+            android:name=".cover.CoverReplyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity="com.cuong.cflip.reply"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
+        <activity
+            android:name=".mirror.MirrorActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity="com.cuong.cflip.mirroractivity"
+            android:theme="@style/CflipMirrorTheme">
+            <meta-data
+                android:name="com.samsung.android.multiwindow.show_on_cover"
+                android:value="true" />
+        </activity>
+
+        <!-- vc95: lock bubble activity (9Flip UnlockActivity pattern,
+             own code). An Activity window with setShowWhenLocked,
+             so it is visible over the secure keyguard where the
+             overlay bubble is hidden. Launched on the cover by
+             CoverForegroundService only while locked; tap asks
+             the system to dismiss the keyguard, then the normal
+             overlay bubble returns. Never exported, never in
+             recents, singleTop so relaunches reuse it. -->
+        <activity
+            android:name=".cover.CoverUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.unlock"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- vc86: main-side host for mirror (9Flip host-on-main pattern).
+             Launched by MirrorPermissionActivity on display 0 right
+             after grant; keeps the folded main display awake for
+             AUTO_MIRROR capture. 1x1 transparent, never disables dual
+             on death, finishes when MirrorState stops. -->
+        <activity
+            android:name=".mirror.MainHostActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:configChanges="density|smallestScreenSize|screenSize|uiMode|screenLayout|orientation"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.cuong.cflip.mainhost"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Keeps cover-related work alive while the phone is folded -->
         <service
             android:name=".service.CoverForegroundService"
@@ -47,6 +187,24 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="cover_screen_launcher" />
         </service>
+
+        <!-- vc150 BOOT RESTORE (user, 29/10): after a reboot or an app
+             update, bring the opener back exactly as the user left it:
+             Quick Panel ON -> start CoverForegroundService (its own
+             guards decide whether the opener shows); Quick Panel OFF
+             -> nothing. The widget setting needs no boot action: it
+             already persists and the panel re-reads it on every open.
+             No LOCKED_BOOT_COMPLETED on purpose: before first unlock
+             the settings file is still encrypted and the lock rule
+             forbids openers on the lock screen anyway. -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Floating bubble menu: CFlip's own overlay surface (deprecated, see BubbleControls) -->
         <service
@@ -112,7 +270,7 @@
         <receiver
             android:name=".widget.AppGridWidgetProvider"
             android:exported="true"
-            android:label="CFlip — Lưới ứng dụng">
+            android:label="Lưới ứng dụng">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -137,10 +295,13 @@
             android:exported="true"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <!-- vc247: exported=true, like the AppGrid receiver — the
+             music widget had no in-app refresh of its own, so it must
+             also be reachable for host-sent updates. -->
         <receiver
             android:name=".widget.MusicWidgetProvider"
-            android:exported="false"
-            android:label="CFlip — Nhạc">
+            android:exported="true"
+            android:label="Nhạc">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -156,10 +317,33 @@
                 android:resource="@xml/samsung_music_widget_info" />
         </receiver>
 
+        <!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music
+             widget, subclass of MusicWidgetProvider (same code path, only
+             the layout differs). Same Samsung sub_screen registration. -->
+        <!-- vc247: exported=true, like the AppGrid receiver (same
+             reason as the full music widget). -->
+        <receiver
+            android:name=".widget.MusicSmallWidgetProvider"
+            android:exported="true"
+            android:label="Nhạc (nhỏ)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/music_small_widget_info" />
+            <meta-data
+                android:name="com.samsung.android.appwidget.provider"
+                android:resource="@xml/samsung_music_small_widget_info" />
+        </receiver>
+
+        <!-- vc247: exported=true, like the AppGrid receiver — the
+             clock widget had no in-app refresh of its own, so it must
+             also be reachable for host-sent updates. -->
         <receiver
             android:name=".widget.ClockWidgetProvider"
-            android:exported="false"
-            android:label="CFlip — Đồng hồ &amp; Pin">
+            android:exported="true"
+            android:label="Đồng hồ &amp; Pin">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

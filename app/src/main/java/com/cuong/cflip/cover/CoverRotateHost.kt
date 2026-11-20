@@ -60,6 +60,8 @@ object CoverRotateHostManager {
     private var wm: WindowManager? = null
     private var view: View? = null
     private var currentOrientation: Int? = null
+    private var hostDisplayId: Int = -1
+    private var currentType: Int? = null
     private val handler = Handler(Looper.getMainLooper())
 
     fun isShown(): Boolean = view != null
@@ -84,34 +86,85 @@ object CoverRotateHostManager {
         }
     }
 
-    private fun addHost(appContext: Context, display: Display, orientation: Int): Result<Unit> = runCatching {
+    // vc81 IDEMPOTENT (normal-mode loop fix): tryShow runs on EVERY display
+    // change, and before vc81 every call did remove() + addView() even when
+    // the host was already on the same display with the same orientation.
+    // That remove gap let Samsung Flex Window / the sensor move the display,
+    // then lock() re-locked to the NEW (wrong) rotation, so the cover kept
+    // flipping and only settled when tilted back to the system direction.
+    // Now a call with the same display + orientation is a no-op (no gap, no
+    // flicker). A stale view (display removed/re-added with a new ID) still
+    // re-adds, because hostDisplayId differs. pulse() forces a real re-add
+    // to preserve its original one-time-snap behaviour.
+    private fun addHost(appContext: Context, display: Display, orientation: Int, force: Boolean = false): Result<Unit> = runCatching {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Rotate host is cover-only, refusing default display")
+        }
+        // vc96 ROTATE (9Flip RotateOverlayHost, decompiled
+        // 27/10): 9Flip's host is 1x1, gravity TOP|START,
+        // flags NOT_FOCUSABLE|NOT_TOUCHABLE, screenOrientation
+        // as passed, but its window TYPE is 2032
+        // (TYPE_ACCESSIBILITY_OVERLAY) when its accessibility
+        // service is alive, falling back otherwise (ub.java:
+        // type = a11y != null ? 2032 : fallback). 2032 windows
+        // survive the secure keyguard and secure apps where
+        // 2038 (TYPE_APPLICATION_OVERLAY, what CFlip used)
+        // is hidden - that is why rotation (and with it the
+        // cover UI that follows it) vanished on lock and in
+        // Settings. CFlip's display context is already the
+        // a11y service context when alive (see displayContextFor
+        // above), exactly like 9Flip's l(), so 2032 is the
+        // matching type here. If the system rejects 2032, fall
+        // back to 2038 in the same call so rotation never
+        // regresses below vc95.
+        val a11yAlive = com.cuong.cflip.service.MyAccessibilityService.instance != null
+        val preferredType = if (a11yAlive) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        if (!force && view != null && currentOrientation == orientation && hostDisplayId == display.displayId && currentType == preferredType) {
+            Log.i(TAG, "Rotate host already on display ${display.displayId} orientation=$orientation, skipping re-add (vc81 idempotent)")
+            return@runCatching Unit
         }
         val displayContext = displayContextFor(appContext, display)
         val manager = displayContext.getSystemService(WindowManager::class.java)
             ?: throw IllegalStateException("No WindowManager for display ${display.displayId}")
         remove()
         val v = View(displayContext)
-        val params = WindowManager.LayoutParams(
+        // vc91 LOCK FIX kept for the 2038 fallback; for 2032
+        // (accessibility overlay) the type itself already
+        // survives lock, the flag is harmless there.
+        fun paramsFor(type: Int) = WindowManager.LayoutParams(
             1, 1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             screenOrientation = orientation
         }
-        manager.addView(v, params)
-        wm = manager; view = v; currentOrientation = orientation
+        val addedType = try {
+            manager.addView(v, paramsFor(preferredType))
+            preferredType
+        } catch (e: Exception) {
+            Log.w(TAG, "Rotate host type $preferredType rejected, falling back to 2038", e)
+            runCatching { manager.removeView(v) }
+            manager.addView(v, paramsFor(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY))
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        }
+        Log.i(TAG, "Rotate host type=$addedType (a11yAlive=$a11yAlive)")
+        wm = manager; view = v; currentOrientation = orientation; hostDisplayId = display.displayId; currentType = addedType
         Log.i(TAG, "Rotate host on display ${display.displayId}: orientation=$orientation")
         Unit
     }.onFailure { Log.w(TAG, "Rotate host addView failed", it) }
 
     /** Legacy apply, kept for compatibility: FOLLOW -> follow(), LOCK -> lock(). */
     fun apply(appContext: Context, display: Display): Result<Unit> {
-        return if (SettingsStore(appContext).load().rotateMode == 0) follow(appContext, display) else lock(appContext, display)
+        return when (SettingsStore(appContext).load().rotateMode) {
+            0 -> follow(appContext, display)
+            1 -> lock(appContext, display)
+            else -> { remove(); Result.success(Unit) }
+        }
     }
 
     fun show(appContext: Context, display: Display, degrees: Int): Result<Unit> {
@@ -139,7 +192,7 @@ object CoverRotateHostManager {
 
     /** Sensor pulse: FULL_SENSOR for 220ms, then remove (9Flip's h()). */
     fun pulse(appContext: Context, display: Display): Result<Unit> = runCatching {
-        val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR)
+        val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR, force = true)
         handler.postDelayed({ remove() }, 220L)
         r.getOrThrow(); Unit
     }.onFailure { Log.w(TAG, "Rotate pulse failed", it) }
@@ -163,5 +216,7 @@ object CoverRotateHostManager {
             runCatching { wm?.removeView(v) }
             view = null; wm = null; currentOrientation = null
         }
+        hostDisplayId = -1
+        currentType = null
     }
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc247: mint status chip (music ĐANG PHÁT / TẠM DỪNG / CHƯA CÓ NHẠC)
+     — the state is a solid chip with black text now, not mint text on
+     a dark card, so it reads at a glance and never relies on colour
+     alone (the words are still there). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#7FE3C0" />
+    <corners android:radius="10dp" />
+</shape>

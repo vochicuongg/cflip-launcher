@@ -27,7 +27,7 @@ class ClockWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.clock_battery, batteryText)
             views.setTextViewText(
                 R.id.clock_notif,
-                "🔔 ${NotificationState.active.value.size} thông báo",
+                "${NotificationState.active.value.size} thông báo",  // vc210: bell is an icon in the layout now
             )
             // 3.5.0: distinct requestCode per widget id (all widgets
             // used to share 0, so FLAG_UPDATE_CURRENT overwrote each

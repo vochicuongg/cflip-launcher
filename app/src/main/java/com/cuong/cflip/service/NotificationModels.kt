@@ -9,8 +9,41 @@ data class CoverNotification(
     val title: String,
     val text: String,
     val timeMs: Long,
+    // vc217: StatusBarNotification id - for a LiveBridge mirror
+    // this is abs(sourceKey.hashCode()), the exact key to its source.
+    val notifId: Int = 0,
     val actionTitles: List<String> = emptyList(),
+    // vc209: per-action reply flag (an action with RemoteInput
+    // must never be fired bare - it needs typed input).
+    val actionIsReply: List<Boolean> = emptyList(),
+    // vc215: per-action creator package (PendingIntent
+    // creator) - a mirror's plain action is the SOURCE app's own
+    // intent, so its creator is the source app, not the mirror.
+    val actionCreatorPackages: List<String?> = emptyList(),
+    // vc257: per-action UI flag (PendingIntent.isActivity, API
+    // 31+) - an action that opens UI must be launched-first like
+    // taps (vc214 proved a bare send with cover options lands on
+    // the MAIN display, invisible while folded); a background
+    // action (service/broadcast) fires directly and never pops
+    // the app open.
+    val actionIsActivity: List<Boolean> = emptyList(),
     val canReply: Boolean = false,
+    // vc252 NOW BAR: true when this row belongs in the Now Bar
+    // group - it is an ongoing notification (music / call /
+    // navigation / timer, sbn.isOngoing) or it has a LiveBridge
+    // mirror (the Now Bar shows it through LiveBridge). The
+    // list is already ordered Now Bar first, then the rest.
+    val isNowBar: Boolean = false,
+    // vc252 DISPLAY IDENTITY: launcher label of the app this row
+    // is shown as. For a LiveBridge mirror this is the SOURCE
+    // app's label - a mirror is never shown as LiveBridge.
+    val appName: String = "",
+    // vc252 DISPLAY ICON: launcher icon bitmap of the app this
+    // row is shown as (source app for a mirror, never
+    // LiveBridge's icon). Resolved in refresh() on the binder
+    // thread, never on the UI thread; null = no icon available
+    // (row falls back to the system app icon).
+    val appIcon: android.graphics.Bitmap? = null,
 )
 
 /** Shared, observable snapshot of active notifications for the cover UI. */
@@ -22,9 +55,15 @@ object NotificationState {
 object NotificationController {
     @Volatile var listener: MyNotificationListenerService? = null
 
-    fun open(key: String) { listener?.openByKey(key) }
-    fun dismiss(key: String) { listener?.dismissByKey(key) }
-    fun clickAction(key: String, index: Int) { listener?.clickActionByKey(key, index) }
+    // vc212: true when something actually launched, so the
+    // panel only closes when the tap really went somewhere.
+    fun open(key: String): Boolean = listener?.openByKey(key) ?: false
+    // vc257: true when the cancel was actually issued — the panel
+    // only hides the card on true (a failed dismiss used to hide
+    // the card while the notification stayed and came back on the
+    // next rebuild).
+    fun dismiss(key: String): Boolean = listener?.dismissByKey(key) ?: false
+    fun clickAction(key: String, index: Int): Boolean = listener?.clickActionByKey(key, index) ?: false
     fun reply(key: String, message: String) { listener?.replyByKey(key, message) }
     fun isConnected(): Boolean = listener != null
 }

@@ -1,8 +1,17 @@
 package com.cuong.cflip.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,42 +74,62 @@ fun MediaScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         while (true) { repo.refresh(); delay(1000) }
     }
+    // vc248 ENTRANCE: the disc fades in once per tab visit (shared
+    // EnterItem); the title/artist crossfade on every track change
+    // instead of swapping instantly. The disc/equalizer visuals are
+    // untouched (pending owner's observations).
+    val reduced = rememberReducedMotion()
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { entered = true }
 
     Column(modifier = modifier.fillMaxSize().padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Âm nhạc", fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+        Text("Âm nhạc", fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
             color = CFlipColors.TextPrimary, modifier = Modifier.fillMaxWidth())
         val m = media
         if (m == null) {
             EmptyState(Icons.Filled.MusicNote, "Chưa có bài nào đang phát",
                 "Mở YouTube Music / Spotify rồi quay lại")
         } else {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             // Disc: mint gradient ring while playing, quiet glass when paused.
-            Box(
-                modifier = Modifier.size(148.dp).clip(CircleShape)
-                    .background(
-                        if (m.isPlaying) Brush.sweepGradient(
-                            listOf(CFlipColors.Accent, Color(0xFF2E8C6B),
-                                Color(0xFF7FE3C0), CFlipColors.Accent))
-                        else Brush.linearGradient(
-                            listOf(Color(0xFF2A3330), Color(0xFF171D1B)))
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(modifier = Modifier.size(52.dp).clip(CircleShape)
-                    .background(CFlipColors.Bg), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.MusicNote, contentDescription = null,
-                        tint = if (m.isPlaying) CFlipColors.Accent else CFlipColors.TextSecondary,
-                        modifier = Modifier.size(26.dp))
+            EnterItem(index = 0, entered = entered, reduced = reduced) {
+                Box(
+                    modifier = Modifier.size(148.dp).clip(CircleShape)
+                        .background(
+                            if (m.isPlaying) Brush.sweepGradient(
+                                listOf(CFlipColors.Accent, Color(0xFF2E8C6B),
+                                    Color(0xFF7FE3C0), CFlipColors.Accent))
+                            else Brush.linearGradient(
+                                listOf(Color(0xFF2A3330), Color(0xFF171D1B)))
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(modifier = Modifier.size(52.dp).clip(CircleShape)
+                        .background(CFlipColors.Bg), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.MusicNote, contentDescription = null,
+                            tint = if (m.isPlaying) CFlipColors.Accent else CFlipColors.TextSecondary,
+                            modifier = Modifier.size(26.dp))
+                    }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Text(m.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                color = CFlipColors.TextPrimary, maxLines = 2, textAlign = TextAlign.Center)
-            if (m.artist.isNotEmpty()) {
-                Text(m.artist, fontSize = 13.sp, color = CFlipColors.TextSecondary,
-                    maxLines = 1, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            AnimatedContent(
+                targetState = m.title to m.artist,
+                transitionSpec = {
+                    (fadeIn(tween(CFlipMotion.FastMs)) + scaleIn(tween(CFlipMotion.FastMs), initialScale = 0.95f)) togetherWith
+                        (fadeOut(tween(CFlipMotion.FastMs)) + scaleOut(tween(CFlipMotion.FastMs), targetScale = 0.95f))
+                },
+                label = "mediaTitle",
+            ) { (title, artist) ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                        color = CFlipColors.TextPrimary, maxLines = 2, textAlign = TextAlign.Center)
+                    if (artist.isNotEmpty()) {
+                        Text(artist, fontSize = 13.sp, color = CFlipColors.TextSecondary,
+                            maxLines = 1, textAlign = TextAlign.Center)
+                    }
+                }
             }
             if (m.durationMs > 0) {
                 Spacer(Modifier.height(8.dp))
@@ -122,7 +151,7 @@ fun MediaScreen(modifier: Modifier = Modifier) {
                     Text(fmt(m.durationMs), fontSize = 11.sp, color = CFlipColors.TextFaint)
                 }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 RoundControl(Icons.Filled.SkipPrevious, 52.dp, false) { repo.previous() }
@@ -136,7 +165,10 @@ fun MediaScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Circular media button: filled mint for the primary action, glass otherwise. */
+/** Circular media button: filled mint for the primary action, glass otherwise.
+ * vc242 MOTION: press scale (same source as the clickable) + the icon
+ * crossfades/scales between play and pause instead of swapping instantly.
+ * The equalizer/disc visuals are untouched (pending owner's observations). */
 @Composable
 private fun RoundControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -144,15 +176,26 @@ private fun RoundControl(
     primary: Boolean,
     onClick: () -> Unit,
 ) {
+    val pressSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier.size(size).clip(CircleShape)
             .background(if (primary) CFlipColors.Accent else CFlipColors.CardFill)
             .border(1.dp, CFlipColors.CardStroke, CircleShape)
-            .clickable { onClick() },
+            .pressScale(pressSource)
+            .clickable(interactionSource = pressSource, indication = LocalIndication.current) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null,
-            tint = if (primary) CFlipColors.AccentDark else CFlipColors.TextPrimary,
-            modifier = Modifier.size(size * 0.5f))
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = {
+                (fadeIn(tween(CFlipMotion.FastMs)) + scaleIn(tween(CFlipMotion.FastMs), initialScale = 0.7f)) togetherWith
+                    (fadeOut(tween(CFlipMotion.FastMs)) + scaleOut(tween(CFlipMotion.FastMs), targetScale = 0.7f))
+            },
+            label = "mediaControlIcon",
+        ) { targetIcon ->
+            Icon(targetIcon, contentDescription = null,
+                tint = if (primary) CFlipColors.AccentDark else CFlipColors.TextPrimary,
+                modifier = Modifier.size(size * 0.5f))
+        }
     }
 }

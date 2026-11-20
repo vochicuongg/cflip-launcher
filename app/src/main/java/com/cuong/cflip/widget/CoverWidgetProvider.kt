@@ -19,6 +19,7 @@ import com.cuong.cflip.data.FavoritesStore
 import com.cuong.cflip.display.AppLauncher
 import com.cuong.cflip.display.DisplayRepository
 import com.cuong.cflip.media.MediaControllerRepository
+import com.cuong.cflip.media.MediaState
 import com.cuong.cflip.service.NotificationState
 
 /**
@@ -78,8 +79,29 @@ class CoverWidgetProvider : AppWidgetProvider() {
         )
         views.setOnClickPendingIntent(R.id.widget_root, openApp)
 
-        views.setTextViewText(R.id.widget_notif, "🔔 ${NotificationState.active.value.size}")
-        views.setTextViewText(R.id.btn_torch, if (QuickControls.torchOn) "🔦 Đèn: Bật" else "🔦 Đèn")
+        // vc210: bell is an icon in the layout now; torch/play are round icon buttons.
+        views.setTextViewText(R.id.widget_notif, "${NotificationState.active.value.size}")
+        views.setImageViewResource(R.id.btn_torch, R.drawable.ic_w_torch)
+        views.setInt(R.id.btn_torch, "setBackgroundResource",
+            if (QuickControls.torchOn) R.drawable.bg_widget_circle_active else R.drawable.bg_widget_circle)
+        views.setInt(R.id.btn_torch, "setColorFilter",
+            if (QuickControls.torchOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+        views.setImageViewResource(R.id.btn_playpause,
+            if (MediaState.current.value?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play)
+        // vc246: now-playing line (9Flip cassette lesson) — GONE when
+        // nothing plays, so the widget never shows a stale title.
+        // vc247: the whole media row hides now (the title lives inside
+        // the lifted row), so no empty strip is left behind.
+        val now = MediaState.current.value
+        if (now != null && now.title.isNotBlank()) {
+            views.setViewVisibility(R.id.widget_media_row, View.VISIBLE)
+            views.setTextViewText(
+                R.id.widget_media_title,
+                if (now.artist.isNotBlank()) "${now.title} — ${now.artist}" else now.title,
+            )
+        } else {
+            views.setViewVisibility(R.id.widget_media_row, View.GONE)
+        }
 
         fun broadcast(requestCode: Int, action: String, pkg: String? = null): PendingIntent {
             val i = Intent(context, CoverWidgetProvider::class.java).setAction(action)

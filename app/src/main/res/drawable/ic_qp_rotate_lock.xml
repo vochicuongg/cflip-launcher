@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Rotate LOCK (locked state): Samsung rotation-lock tile structure
+         from quick_panel_icon_rotation_lock JSONs — portrait phone with a
+         padlock on it (body = rounded rect, shackle = thick inverted-U).
+         Same phone as ic_qp_rotate_auto for a matching pair. The plain
+         padlock (ic_cflip_lock) stays for the "Khoa man hinh" tile only.
+         Hand-drawn, render-verified. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M10,4 H14 Q16,4 16,6 V18 Q16,20 14,20 H10 Q8,20 8,18 V6 Q8,4 10,4 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M10.6,13 V11.6 Q10.6,10.2 12,10.2 Q13.4,10.2 13.4,11.6 V13" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10.3,13 H13.7 Q14.5,13 14.5,13.8 V16.2 Q14.5,17 13.7,17 H10.3 Q9.5,17 9.5,16.2 V13.8 Q9.5,13 10.3,13 Z" />
+</vector>

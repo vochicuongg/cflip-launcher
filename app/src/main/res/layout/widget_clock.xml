@@ -4,42 +4,92 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#111111"
-    android:padding="10dp">
+    android:background="@drawable/bg_widget_card"
+    android:padding="12dp">
+    <!-- vc246 GLANCEABLE: time 38 -> 44sp (the one thing this widget
+         is for) + a mint accent bar so the eye lands on it first. -->
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:format24Hour="HH:mm"
         android:format12Hour="hh:mm"
-        android:textColor="#FFFFFF"
-        android:textSize="34sp"
+        android:textColor="#F5F7F6"
+        android:textSize="44sp"
         android:textStyle="bold" />
+    <!-- vc249: ImageView, not View — Samsung's cover AppWidgetHost
+         refuses to inflate a plain android.view.View in RemoteViews
+         (logcat InflateException on widget_clock). Decorative only. -->
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="3dp"
+        android:layout_marginTop="6dp"
+        android:background="#2FBF8F"
+        android:contentDescription="@null" />
     <TextClock
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:format24Hour="EEE, dd/MM"
         android:format12Hour="EEE, dd/MM"
-        android:textColor="#BBBBBB"
+        android:textColor="#9AA8A1"
         android:textSize="12sp" />
+    <!-- vc247: battery + notification counts are glanceable chips
+         now (icon + text on a lifted surface), not one loose text row.
+         Ids unchanged — the provider still sets the same two texts. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
-        <TextView
-            android:id="@+id/clock_battery"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pin —"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
-        <TextView
-            android:id="@+id/clock_notif"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_widget_chip_dark"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:src="@drawable/ic_w_battery"
+                android:contentDescription="Pin" />
+            <TextView
+                android:id="@+id/clock_battery"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pin —"
+                android:textColor="#F5F7F6"
+                android:textSize="12sp" />
+        </LinearLayout>
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:text="🔔 0 thông báo"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
+            android:layout_marginStart="8dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_widget_chip_dark"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:src="@drawable/ic_w_bell"
+                android:tint="#7FE3C0"
+                android:contentDescription="Thông báo" />
+            <TextView
+                android:id="@+id/clock_notif"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 thông báo"
+                android:textColor="#F5F7F6"
+                android:textSize="12sp" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

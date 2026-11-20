@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music widget,
+     same provider family as widget_music, cover only. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="352dp"
+    android:minHeight="160dp"
+    android:initialLayout="@layout/widget_music_small"
+    android:previewLayout="@layout/widget_music_small"
+    android:updatePeriodMillis="0"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="keyguard" />
