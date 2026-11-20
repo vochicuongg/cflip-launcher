@@ -114,12 +114,16 @@ object CoverSwipeIndicatorManager {
         // INVISIBLE touch area along the screen edge that swallowed
         // taps meant for on-screen items near the bar (worse after
         // the bar dimmed to 25% and became hard to see). The window
-        // now hugs the visible bar (halo 14dp + a 2dp margin each
-        // side; content 84dp + margin). Gestures are unaffected:
-        // once a DOWN lands on the bar, the whole drag stream keeps
-        // coming to this window wherever the finger moves.
-        val barW = (dp(18) * sizeScale).toInt()
-        val barH = (dp(88) * sizeScale).toInt()
+        // now hugs the visible bar, keeping only a few dp of
+        // landing margin: a double-tap's second tap is aimed fast
+        // and lands slightly off the bar, and a tap that misses
+        // the window entirely leaves the first tap's single-tap
+        // action to fire alone (user report, 2026-11-20).
+        // Gestures are unaffected: once a DOWN lands on the bar,
+        // the whole drag stream keeps coming to this window
+        // wherever the finger moves.
+        val barW = (dp(22) * sizeScale).toInt()
+        val barH = (dp(96) * sizeScale).toInt()
         val dispW = displayContext.resources.displayMetrics.widthPixels
         val dispH = displayContext.resources.displayMetrics.heightPixels
         val edgeMargin = dp(8)

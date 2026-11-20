@@ -197,14 +197,26 @@ object CoverAssistiveTouchManager {
             // square but the visible button is the inscribed OVAL.
             // Taps in the square's corners — invisible area right
             // next to real on-screen items — used to be swallowed
-            // by the bubble and opened the panel. A DOWN outside
-            // the circle is now refused, and with
-            // FLAG_NOT_TOUCH_MODAL on the window it falls through
-            // to whatever is actually underneath.
-            if (e.action == MotionEvent.ACTION_DOWN) {
-                val cx = v.width / 2f; val cy = v.height / 2f
-                val dx = e.x - cx; val dy = e.y - cy
-                if (dx * dx + dy * dy > cx * cx) {
+            // by the bubble and opened the panel. A DOWN in the
+            // corner region outside a rounded-rect hit area is now
+            // refused, and with FLAG_NOT_TOUCH_MODAL on the window
+            // it falls through to whatever is actually underneath.
+            // The hit area is a ROUNDED rect (not the strict
+            // circle) so taps on the circle's edge band still land,
+            // and while a single tap is pending ANY down in the
+            // square counts: a double-tap's second tap is aimed
+            // fast at a dimmed bubble and often lands off-centre —
+            // refusing it would leave the first tap's single-tap
+            // action to fire instead of the double-tap action
+            // (user report, 2026-11-20: double-tap set to Lock
+            // opened the panel via the pending single tap).
+            if (e.action == MotionEvent.ACTION_DOWN && !pendingSingleTap) {
+                val half = v.width / 2f
+                val dx = kotlin.math.abs(e.x - half)
+                val dy = kotlin.math.abs(e.y - v.height / 2f)
+                val cr = half * 0.55f
+                val qx = dx - (half - cr); val qy = dy - (half - cr)
+                if (qx > 0f && qy > 0f && qx * qx + qy * qy > cr * cr) {
                     return@setOnTouchListener false
                 }
             }
