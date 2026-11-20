@@ -141,6 +141,8 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Snapshot serving is never-empty: any persisted snapshot serves instantly, exact one rebuilds in background",
+      "rebuildInBackground" in read("widget/AppGridSnapshot.kt") and "storedKey" in read("widget/AppGridSnapshot.kt"))
 check("Quick Panel openers only touch their VISIBLE shape (bar window hugs the bar, bubble corners fall through)",
       "dp(18)" in read("cover/CoverSwipeIndicator.kt") and "dp(88)" in read("cover/CoverSwipeIndicator.kt") and "FLAG_NOT_TOUCH_MODAL" in read("cover/CoverAssistiveTouch.kt") and "dx * dx + dy * dy > cx * cx" in read("cover/CoverAssistiveTouch.kt"))
 check("App list version persists in prefs (snapshot signature stable across processes)",

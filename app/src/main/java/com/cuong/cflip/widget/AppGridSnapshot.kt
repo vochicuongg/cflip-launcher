@@ -144,36 +144,76 @@ object AppGridSnapshotBuilder {
         ).joinToString("|")
     }
 
-    /** The current snapshot, building it first if the signature moved. */
+    /**
+     * The current snapshot. NEVER-EMPTY rule (preview fix,
+     * 2026-11-20): a binding must never sit empty while ANY
+     * snapshot exists. Samsung's picker preview kept coming up
+     * blank because the persisted snapshot was gated on exact
+     * signature + cell-size equality — in the picker's fresh
+     * process the size (density source) or a signature component
+     * could differ, the disk snapshot was rejected, and the
+     * factory paid a full cold build on its binder thread while
+     * the host was already capturing. Now: an exact match wins;
+     * otherwise any in-memory or persisted snapshot is served
+     * immediately (icons decode at their stored size and the
+     * host scales them into the cells) and the exact snapshot is
+     * rebuilt in the background, re-notifying the widgets when
+     * it lands. A synchronous build happens only when no
+     * snapshot exists anywhere yet.
+     */
     fun snapshot(context: Context, cellPx: Int): AppGridSnapshotStore.Snapshot {
         if (cellPx > 0) lastCellPx = cellPx
         val key = signature(context)
-        AppGridSnapshotStore.current?.let { if (it.key == key) return it }
+        AppGridSnapshotStore.current?.let { cur ->
+            if (cur.key == key) return cur
+            rebuildInBackground(context, key, cellPx)
+            return cur
+        }
         synchronized(buildLock) {
             AppGridSnapshotStore.current?.let { if (it.key == key) return it }
-            // Disk fallback (the reference app persists apps_snapshot.json for
-            // the same reason): a fresh process — widget-picker
-            // preview binding, or the first open after Samsung
-            // killed the process during a long fold — serves the
-            // persisted snapshot in milliseconds instead of paying
-            // a full cold build while the host waits.
-            loadFromDisk(context, key, cellPx)?.let { disk ->
+            loadFromDisk(context)?.let { disk ->
                 AppGridSnapshotStore.current = disk
+                if (disk.key != key) rebuildInBackground(context, key, cellPx)
                 return disk
             }
-            val built = build(context, key, cellPx)
-            // Never publish an empty snapshot: a transient-empty
-            // query (vc59/vc71) must neither blank the grid over a
-            // good snapshot nor be cached as if it were real (the
-            // vc111 rule) — serve the previous snapshot, or the
-            // empty one unstored so the next load retries.
-            if (built.top.isNotEmpty()) {
-                AppGridSnapshotStore.current = built
-                persistAsync(context, built, cellPx)
-                return built
-            }
-            return AppGridSnapshotStore.current ?: built
+            return buildAndStore(context, key, cellPx)
         }
+    }
+
+    /** Build + publish + persist. The caller holds [buildLock]. */
+    private fun buildAndStore(
+        context: Context,
+        key: String,
+        cellPx: Int,
+    ): AppGridSnapshotStore.Snapshot {
+        val built = build(context, key, cellPx)
+        // Never publish an empty snapshot: a transient-empty
+        // query (vc59/vc71) must neither blank the grid over a
+        // good snapshot nor be cached as if it were real (the
+        // vc111 rule) — serve the previous snapshot, or the
+        // empty one unstored so the next load retries.
+        if (built.top.isNotEmpty()) {
+            AppGridSnapshotStore.current = built
+            persistAsync(context, built, cellPx)
+            return built
+        }
+        return AppGridSnapshotStore.current ?: built
+    }
+
+    private val rebuilding = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Rebuild the exact snapshot off the binder thread, then re-notify. */
+    private fun rebuildInBackground(context: Context, key: String, cellPx: Int) {
+        if (!rebuilding.compareAndSet(false, true)) return
+        val appContext = context.applicationContext
+        Thread {
+            try {
+                synchronized(buildLock) { buildAndStore(appContext, key, cellPx) }
+                runCatching { AppGridWidgetProvider.refreshAll(appContext) }
+            } finally {
+                rebuilding.set(false)
+            }
+        }.start()
     }
 
     /**
@@ -356,16 +396,21 @@ object AppGridSnapshotBuilder {
         }.start()
     }
 
+    /**
+     * The persisted snapshot, whatever its signature / cell size
+     * (see the never-empty rule on [snapshot]). Icon paths use
+     * the STORED cell size — that is the size the PNG files on
+     * disk were actually written at.
+     */
     private fun loadFromDisk(
         context: Context,
-        key: String,
-        cellPx: Int,
     ): AppGridSnapshotStore.Snapshot? = runCatching {
         val file = java.io.File(snapshotDir(context), "snapshot.json")
         if (!file.exists()) return null
         val root = org.json.JSONObject(file.readText())
-        if (root.optString("key") != key) return null
-        if (root.optInt("cellPx") != cellPx) return null
+        val storedKey = root.optString("key")
+        if (storedKey.isEmpty()) return null
+        val cellPx = root.optInt("cellPx")
         fun iconPath(packageName: String, sizePx: Int): String? {
             val f = iconFile(context, packageName, sizePx)
             return if (f.exists()) f.path else null
@@ -422,7 +467,7 @@ object AppGridSnapshotBuilder {
         }
         if (top.isEmpty()) return null
         AppGridSnapshotStore.Snapshot(
-            key = key,
+            key = storedKey,
             iconDp = root.optInt("iconDp", 44),
             showLabels = root.optBoolean("showLabels", true),
             top = top,
