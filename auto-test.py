@@ -141,10 +141,14 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Case-friendly openers: 500ms double-tap window, bubble snaps with a 6dp edge inset, bar sits 6dp in from the edge",
+      "500L" in read("cover/CoverAssistiveTouch.kt") and "500L" in read("cover/CoverSwipeIndicator.kt") and "edgeInset" in read("cover/CoverAssistiveTouch.kt") and "edgePad" in read("cover/CoverSwipeIndicator.kt"))
+check("App Grid preview path is instrumented (CFlipAppGrid log tag)",
+      "CFlipAppGrid" in read("widget/AppGridWidgetProvider.kt") and "CFlipAppGrid" in read("widget/AppGridSnapshot.kt"))
 check("Snapshot serving is never-empty: any persisted snapshot serves instantly, exact one rebuilds in background",
       "rebuildInBackground" in read("widget/AppGridSnapshot.kt") and "storedKey" in read("widget/AppGridSnapshot.kt"))
 check("Quick Panel openers only touch their VISIBLE shape (bar window hugs the bar, bubble corners fall through)",
-      "dp(22)" in read("cover/CoverSwipeIndicator.kt") and "dp(96)" in read("cover/CoverSwipeIndicator.kt") and "FLAG_NOT_TOUCH_MODAL" in read("cover/CoverAssistiveTouch.kt") and "!pendingSingleTap" in read("cover/CoverAssistiveTouch.kt") and "qx * qx + qy * qy > cr * cr" in read("cover/CoverAssistiveTouch.kt"))
+      "dp(28)" in read("cover/CoverSwipeIndicator.kt") and "dp(96)" in read("cover/CoverSwipeIndicator.kt") and "FLAG_NOT_TOUCH_MODAL" in read("cover/CoverAssistiveTouch.kt") and "!pendingSingleTap" in read("cover/CoverAssistiveTouch.kt") and "qx * qx + qy * qy > cr * cr" in read("cover/CoverAssistiveTouch.kt"))
 check("App list version persists in prefs (snapshot signature stable across processes)",
       "VERSION_PREFS" in read("data/AppRepository.kt") and "appListVersion(context)" in read("widget/AppGridSnapshot.kt"))
 check("Accessibility ON re-shows the Quick Panel opener at once when the feature is enabled",

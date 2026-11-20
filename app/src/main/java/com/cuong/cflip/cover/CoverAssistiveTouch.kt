@@ -171,7 +171,14 @@ object CoverAssistiveTouchManager {
         // Gesture state machine, using system timeouts (not hardcoded guesses):
         // long-press timeout for hold, double-tap timeout for the tap delay.
         val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
-        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
+        // Case-friendly double-tap (user, 2026-11-20): with a
+        // case on, the raised lip around the cover screen makes
+        // double-taps slower and less precise, and the system's
+        // ~300ms window is easy to miss. Widen it to at least
+        // 500ms — the double-tap action itself still fires on the
+        // second DOWN (no added latency); only the single-tap
+        // action waits out the longer window.
+        val doubleTapTimeout = maxOf(ViewConfiguration.getDoubleTapTimeout().toLong(), 500L)
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
         var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
         var moved = false; var longPressed = false; var pendingSingleTap = false
@@ -342,7 +349,12 @@ object CoverAssistiveTouchManager {
                         // bubble should: centre left of mid -> left edge,
                         // centre right of mid -> right edge, animated
                         // 150ms Decelerate, then save the snapped position.
-                        val targetX = if (params.x + size / 2 < dispW / 2) 0 else maxOf(0, dispW - size)
+                        // Case-friendly snap (user, 2026-11-20):
+                        // keep a 6dp inset from the edge — flush
+                        // against the edge, a case's raised lip
+                        // makes the bubble hard to tap accurately.
+                        val edgeInset = dp(6)
+                        val targetX = if (params.x + size / 2 < dispW / 2) edgeInset else maxOf(0, dispW - size - edgeInset)
                         if (targetX != params.x) {
                             val startX = params.x
                             val anim = android.animation.ValueAnimator.ofInt(startX, targetX).apply {

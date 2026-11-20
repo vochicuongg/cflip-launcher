@@ -165,17 +165,23 @@ object AppGridSnapshotBuilder {
         if (cellPx > 0) lastCellPx = cellPx
         val key = signature(context)
         AppGridSnapshotStore.current?.let { cur ->
-            if (cur.key == key) return cur
+            if (cur.key == key) {
+                android.util.Log.i("CFlipAppGrid", "snapshot: memory exact, top=${cur.top.size}, cellPx=$cellPx")
+                return cur
+            }
+            android.util.Log.i("CFlipAppGrid", "snapshot: memory STALE (key differs), serving top=${cur.top.size}, cellPx=$cellPx")
             rebuildInBackground(context, key, cellPx)
             return cur
         }
         synchronized(buildLock) {
             AppGridSnapshotStore.current?.let { if (it.key == key) return it }
             loadFromDisk(context)?.let { disk ->
+                android.util.Log.i("CFlipAppGrid", "snapshot: DISK served, top=${disk.top.size}, keyMatch=${disk.key == key}, cellPx=$cellPx")
                 AppGridSnapshotStore.current = disk
                 if (disk.key != key) rebuildInBackground(context, key, cellPx)
                 return disk
             }
+            android.util.Log.i("CFlipAppGrid", "snapshot: no memory/disk snapshot — cold BUILD, cellPx=$cellPx")
             return buildAndStore(context, key, cellPx)
         }
     }

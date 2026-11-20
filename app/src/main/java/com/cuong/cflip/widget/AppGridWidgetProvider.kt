@@ -255,6 +255,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 views.setOnClickPendingIntent(R.id.app_grid_refresh, refresh)
             }
             manager.updateAppWidget(id, views)
+            android.util.Log.i("CFlipAppGrid", "updateWidget id=$id openId='$openId' cols=$cols iconDp=$iconDp")
         }
     }
 }
@@ -263,6 +264,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
 class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
         val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 0)
+        android.util.Log.i("CFlipAppGrid", "onGetViewFactory widgetId=$widgetId data=${intent.data}")
         return AppGridFactory(applicationContext, widgetId)
     }
 }
@@ -435,6 +437,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             if (openId.isNotEmpty()) AppGridWidgetProvider.setOpenGroup(context, "")
             items = snap.top
         }
+        android.util.Log.i("CFlipAppGrid", "factory load widgetId=$widgetId items=${items.size} snapTop=${snap.top.size} openId='$openId'")
     }
 
 

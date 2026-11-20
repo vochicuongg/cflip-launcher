@@ -122,7 +122,7 @@ object CoverSwipeIndicatorManager {
         // Gestures are unaffected: once a DOWN lands on the bar,
         // the whole drag stream keeps coming to this window
         // wherever the finger moves.
-        val barW = (dp(22) * sizeScale).toInt()
+        val barW = (dp(28) * sizeScale).toInt()
         val barH = (dp(96) * sizeScale).toInt()
         val dispW = displayContext.resources.displayMetrics.widthPixels
         val dispH = displayContext.resources.displayMetrics.heightPixels
@@ -173,7 +173,16 @@ object CoverSwipeIndicatorManager {
             // vc193 EDGE-FLUSH: row hugs the window edge on the
             // bar's side (was CENTER, leaving ~13dp inside window).
             gravity = Gravity.CENTER_VERTICAL or if (startOnRight) Gravity.RIGHT else Gravity.LEFT
-            setPadding(0, (dp(6) * sizeScale).toInt(), 0, (dp(6) * sizeScale).toInt())
+            // Case-friendly inset (user, 2026-11-20): the visible
+            // bar sits 6dp in from the screen edge, so a case's
+            // raised lip does not block the fingertip when
+            // tapping (especially double-tapping) the bar. The
+            // window still starts at the edge, so edge swipes
+            // keep landing.
+            val edgePad = (dp(6) * sizeScale).toInt()
+            setPadding(
+                if (startOnRight) 0 else edgePad, (dp(6) * sizeScale).toInt(),
+                if (startOnRight) edgePad else 0, (dp(6) * sizeScale).toInt())
             // vc138: no chevron anymore - the pill alone is the bar.
             addView(halo)
         }
@@ -189,7 +198,10 @@ object CoverSwipeIndicatorManager {
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
         val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
-        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
+        // Case-friendly double-tap (user, 2026-11-20): same
+        // widening as the bubble — at least 500ms, because a case
+        // lip makes edge double-taps slower and less precise.
+        val doubleTapTimeout = maxOf(ViewConfiguration.getDoubleTapTimeout().toLong(), 500L)
         // vc135 DIM (user, 29/10: a little fainter): the bar fades to
         // 25% after 2.5s without a touch, and comes back on touch.
         // vc136: the dim follows the shared auto-dim switch - off
