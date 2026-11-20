@@ -334,7 +334,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
         // The snapshot's bitmap is pre-rendered at exactly the
         // view's host-pixel size (see AppGridSnapshotBuilder).
-        item.icon?.let { bmp ->
+        item.iconBitmap()?.let { bmp ->
             views.setImageViewBitmap(R.id.app_grid_item_icon, bmp)
         }
         // vc255 ICON SIZE: the icon view was a fixed 44dp and the
@@ -380,7 +380,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         for (i in 0 until 9) {
             val slotId = groupIconIds[i]
             if (i < item.memberCount) {
-                item.memberIcons.getOrNull(i)?.let { bmp ->
+                item.memberIconBitmap(i)?.let { bmp ->
                     views.setImageViewBitmap(slotId, bmp)
                 }
             } else {

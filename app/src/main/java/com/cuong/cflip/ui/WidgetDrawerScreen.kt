@@ -36,10 +36,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -48,8 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuong.cflip.data.CoverSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * vc245 WIDGET DRAWER (UI/UX Pro Max) — widget activation on the big
@@ -84,6 +90,25 @@ fun WidgetDrawerScreen(
 
     val chosen = settings.coverWidgets.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     val appgridOn = "appgrid" in chosen
+
+    // Real-apps preview (user request, 2026-11-20): the widget row
+    // preview used to be a static mock of coloured squares. It now
+    // shows the actual first entries of the App Grid snapshot —
+    // the same items, with the same pre-rendered icons, that the
+    // cover widget displays (9 Flip's preview does the same).
+    var previewSnapshot by remember {
+        mutableStateOf<com.cuong.cflip.widget.AppGridSnapshotStore.Snapshot?>(null)
+    }
+    LaunchedEffect(Unit) {
+        previewSnapshot = withContext(Dispatchers.Default) {
+            runCatching {
+                val cellPx = (settings.iconSizeDp *
+                    context.resources.displayMetrics.density).toInt()
+                com.cuong.cflip.widget.AppGridSnapshotBuilder
+                    .snapshot(context.applicationContext, cellPx)
+            }.getOrNull()
+        }
+    }
     fun toggleWidget(key: String, on: Boolean) {
         val next = if (on) chosen + key else chosen - key
         onSettingsChange(settings.copy(coverWidgets = next.sorted().joinToString(",")))
@@ -122,8 +147,8 @@ fun WidgetDrawerScreen(
             }
             StaggerRow(index = rowIndex++) {
                 // The one in-app toggle: the app grid inside the cover
-                // Quick Panel. Preview is a static mini mock (RemoteViews
-                // cannot animate, and the real widget lives on the cover).
+                // Quick Panel. Preview shows the real snapshot apps
+                // (see previewSnapshot above).
                 WidgetToggleRow(
                     icon = Icons.Filled.GridView,
                     title = "Lưới ứng dụng",
@@ -134,28 +159,52 @@ fun WidgetDrawerScreen(
                         toggleWidget("appgrid", it)
                     },
                 ) {
-                    // Mini grid preview: 2 rows x 4 cells, icon + label
-                    // bar, matching the real widget cells (44dp icon,
-                    // 11sp label) at preview scale.
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        repeat(2) { r ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                repeat(4) { c ->
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                                    ) {
+                    // Mini grid preview: the REAL first 8 entries of
+                    // the widget snapshot (apps with their icons,
+                    // groups by their first member's icon), 2 rows x
+                    // 4 at preview scale. Falls back to the old static
+                    // mock only while the snapshot is unavailable.
+                    val snap = previewSnapshot
+                    if (snap != null && snap.top.isNotEmpty()) {
+                        val first = snap.top.take(8)
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            repeat(2) { r ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    repeat(4) { c ->
+                                        val item = first.getOrNull(r * 4 + c)
+                                        val bmp = item?.let {
+                                            if (it.isGroup) it.memberIconBitmap(0)
+                                            else it.iconBitmap()
+                                        }
+                                        Box(
+                                            modifier = Modifier.size(10.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(CFlipColors.CardFill),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (bmp != null) {
+                                                androidx.compose.foundation.Image(
+                                                    bitmap = bmp.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(10.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            repeat(2) { r ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    repeat(4) { c ->
                                         Box(
                                             modifier = Modifier.size(12.dp).clip(RoundedCornerShape(3.dp))
                                                 .background(
                                                     if ((r * 4 + c) % 3 == 0) CFlipColors.Accent.copy(alpha = 0.85f)
                                                     else CFlipColors.CardFill
                                                 )
-                                        )
-                                        Box(
-                                            modifier = Modifier.size(width = 10.dp, height = 2.dp)
-                                                .clip(RoundedCornerShape(1.dp))
-                                                .background(CFlipColors.CardFill)
                                         )
                                     }
                                 }

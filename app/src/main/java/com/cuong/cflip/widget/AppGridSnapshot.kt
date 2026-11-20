@@ -55,7 +55,45 @@ object AppGridSnapshotStore {
         val memberIcons: List<Bitmap?> = emptyList(),
         /** Group: real member count (memberIcons is capped at 9). */
         val memberCount: Int = 0,
-    )
+        /** Group: member packages in display order (snapshot persistence). */
+        val memberPkgs: List<String> = emptyList(),
+        /** Disk-loaded items only: PNG to decode lazily for [icon]. */
+        val iconPath: String? = null,
+        /** Disk-loaded items only: PNG paths parallel to the first members. */
+        val memberIconPaths: List<String?> = emptyList(),
+    ) {
+        // Lazy icon decoding for disk-loaded snapshots: the factory
+        // (or any other consumer, e.g. a widget-picker preview
+        // binding in a fresh process) gets the bitmap on first use,
+        // decoded once from the persisted PNG — no PackageManager
+        // query, no re-render.
+        @Volatile
+        private var decodedIcon: Bitmap? = icon
+
+        fun iconBitmap(): Bitmap? {
+            decodedIcon?.let { return it }
+            val path = iconPath ?: return null
+            val bmp = runCatching { android.graphics.BitmapFactory.decodeFile(path) }
+                .getOrNull() ?: return null
+            decodedIcon = bmp
+            return bmp
+        }
+
+        private val decodedMemberIcons = HashMap<Int, Bitmap?>()
+
+        fun memberIconBitmap(index: Int): Bitmap? {
+            if (memberIcons.isNotEmpty()) return memberIcons.getOrNull(index)
+            synchronized(decodedMemberIcons) {
+                if (decodedMemberIcons.containsKey(index)) return decodedMemberIcons[index]
+                val path = memberIconPaths.getOrNull(index)
+                val bmp = path?.let {
+                    runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull()
+                }
+                decodedMemberIcons[index] = bmp
+                return bmp
+            }
+        }
+    }
 
     class Snapshot(
         val key: String,
@@ -113,6 +151,16 @@ object AppGridSnapshotBuilder {
         AppGridSnapshotStore.current?.let { if (it.key == key) return it }
         synchronized(buildLock) {
             AppGridSnapshotStore.current?.let { if (it.key == key) return it }
+            // Disk fallback (9 Flip persists apps_snapshot.json for
+            // the same reason): a fresh process — widget-picker
+            // preview binding, or the first open after Samsung
+            // killed the process during a long fold — serves the
+            // persisted snapshot in milliseconds instead of paying
+            // a full cold build while the host waits.
+            loadFromDisk(context, key, cellPx)?.let { disk ->
+                AppGridSnapshotStore.current = disk
+                return disk
+            }
             val built = build(context, key, cellPx)
             // Never publish an empty snapshot: a transient-empty
             // query (vc59/vc71) must neither blank the grid over a
@@ -121,6 +169,7 @@ object AppGridSnapshotBuilder {
             // empty one unstored so the next load retries.
             if (built.top.isNotEmpty()) {
                 AppGridSnapshotStore.current = built
+                persistAsync(context, built, cellPx)
                 return built
             }
             return AppGridSnapshotStore.current ?: built
@@ -193,6 +242,7 @@ object AppGridSnapshotBuilder {
                 icon = null,
                 memberIcons = members.take(9).map { iconFor(it.packageName, 32) },
                 memberCount = members.size,
+                memberPkgs = members.map { it.packageName },
             )
         }
         for (app in sorted(ungrouped)) {
@@ -206,4 +256,177 @@ object AppGridSnapshotBuilder {
             groups = groups,
         )
     }
+
+    // ---- Disk persistence (9 Flip's apps_snapshot.json pattern) ----
+    //
+    // The structure is one small JSON in filesDir; icons are PNG
+    // files per package+size, written once and reused across
+    // snapshot generations (an app's icon rarely changes). A stale
+    // JSON (signature or cell size moved on) is ignored, never
+    // served. All failures are silent: persistence is an
+    // accelerator, never a requirement.
+
+    private fun snapshotDir(context: Context) =
+        java.io.File(context.filesDir, "appgrid_snapshot")
+
+    private fun iconFile(context: Context, packageName: String, sizePx: Int) =
+        java.io.File(snapshotDir(context), "icons/$packageName@$sizePx.png")
+
+    @Volatile
+    private var persistedKey: String? = null
+
+    private fun persistAsync(
+        context: Context,
+        snap: AppGridSnapshotStore.Snapshot,
+        cellPx: Int,
+    ) {
+        if (persistedKey == snap.key) return
+        val appContext = context.applicationContext
+        Thread {
+            runCatching {
+                val dir = snapshotDir(appContext)
+                java.io.File(dir, "icons").mkdirs()
+                fun writeIcon(packageName: String, bmp: Bitmap?, sizePx: Int) {
+                    if (bmp == null) return
+                    val f = iconFile(appContext, packageName, sizePx)
+                    if (f.exists()) return
+                    val tmp = java.io.File(f.path + ".tmp")
+                    java.io.FileOutputStream(tmp).use { out ->
+                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    tmp.renameTo(f)
+                }
+                // Full-size icons for every app item, 32 px previews
+                // for group members (same files the disk loader
+                // points at).
+                val seenFull = HashSet<String>()
+                val seenPreview = HashSet<String>()
+                fun persistApp(item: AppGridSnapshotStore.Item) {
+                    if (seenFull.add(item.id)) writeIcon(item.id, item.icon, cellPx)
+                }
+                for (item in snap.top) {
+                    if (item.isGroup) {
+                        item.memberPkgs.take(9).forEachIndexed { i, pkg ->
+                            if (seenPreview.add(pkg)) {
+                                writeIcon(pkg, item.memberIcons.getOrNull(i), 32)
+                            }
+                        }
+                    } else {
+                        persistApp(item)
+                    }
+                }
+                for ((_, members) in snap.groups) members.forEach { persistApp(it) }
+                // Structure JSON.
+                val root = org.json.JSONObject()
+                root.put("v", 1)
+                root.put("key", snap.key)
+                root.put("iconDp", snap.iconDp)
+                root.put("showLabels", snap.showLabels)
+                root.put("cellPx", cellPx)
+                val topArr = org.json.JSONArray()
+                for (item in snap.top) {
+                    val o = org.json.JSONObject()
+                    o.put("g", item.isGroup)
+                    o.put("id", item.id)
+                    o.put("label", item.label)
+                    if (item.isGroup) {
+                        o.put("count", item.memberCount)
+                        o.put("members", org.json.JSONArray(item.memberPkgs))
+                    }
+                    topArr.put(o)
+                }
+                root.put("top", topArr)
+                val groupsObj = org.json.JSONObject()
+                for ((gid, members) in snap.groups) {
+                    val arr = org.json.JSONArray()
+                    for (m in members) {
+                        val o = org.json.JSONObject()
+                        o.put("id", m.id)
+                        o.put("label", m.label)
+                        arr.put(o)
+                    }
+                    groupsObj.put(gid, arr)
+                }
+                root.put("groups", groupsObj)
+                val tmp = java.io.File(dir, "snapshot.json.tmp")
+                tmp.writeText(root.toString())
+                tmp.renameTo(java.io.File(dir, "snapshot.json"))
+                persistedKey = snap.key
+            }
+        }.start()
+    }
+
+    private fun loadFromDisk(
+        context: Context,
+        key: String,
+        cellPx: Int,
+    ): AppGridSnapshotStore.Snapshot? = runCatching {
+        val file = java.io.File(snapshotDir(context), "snapshot.json")
+        if (!file.exists()) return null
+        val root = org.json.JSONObject(file.readText())
+        if (root.optString("key") != key) return null
+        if (root.optInt("cellPx") != cellPx) return null
+        fun iconPath(packageName: String, sizePx: Int): String? {
+            val f = iconFile(context, packageName, sizePx)
+            return if (f.exists()) f.path else null
+        }
+        val groups = LinkedHashMap<String, List<AppGridSnapshotStore.Item>>()
+        val groupsObj = root.getJSONObject("groups")
+        val gids = groupsObj.keys()
+        while (gids.hasNext()) {
+            val gid = gids.next()
+            val arr = groupsObj.getJSONArray(gid)
+            val members = ArrayList<AppGridSnapshotStore.Item>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val pkg = o.getString("id")
+                members += AppGridSnapshotStore.Item(
+                    isGroup = false,
+                    id = pkg,
+                    label = o.optString("label"),
+                    icon = null,
+                    iconPath = iconPath(pkg, cellPx),
+                )
+            }
+            groups[gid] = members
+        }
+        val topArr = root.getJSONArray("top")
+        val top = ArrayList<AppGridSnapshotStore.Item>(topArr.length())
+        for (i in 0 until topArr.length()) {
+            val o = topArr.getJSONObject(i)
+            val id = o.getString("id")
+            if (o.optBoolean("g")) {
+                val memberPkgs = ArrayList<String>()
+                val mArr = o.optJSONArray("members")
+                if (mArr != null) {
+                    for (j in 0 until mArr.length()) memberPkgs += mArr.getString(j)
+                }
+                top += AppGridSnapshotStore.Item(
+                    isGroup = true,
+                    id = id,
+                    label = o.optString("label"),
+                    icon = null,
+                    memberCount = o.optInt("count", memberPkgs.size),
+                    memberPkgs = memberPkgs,
+                    memberIconPaths = memberPkgs.take(9).map { iconPath(it, 32) },
+                )
+            } else {
+                top += AppGridSnapshotStore.Item(
+                    isGroup = false,
+                    id = id,
+                    label = o.optString("label"),
+                    icon = null,
+                    iconPath = iconPath(id, cellPx),
+                )
+            }
+        }
+        if (top.isEmpty()) return null
+        AppGridSnapshotStore.Snapshot(
+            key = key,
+            iconDp = root.optInt("iconDp", 44),
+            showLabels = root.optBoolean("showLabels", true),
+            top = top,
+            groups = groups,
+        )
+    }.getOrNull()
 }

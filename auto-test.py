@@ -141,6 +141,10 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Snapshot persists to disk and reloads in a fresh process (9 Flip apps_snapshot pattern)",
+      "loadFromDisk" in read("widget/AppGridSnapshot.kt") and "persistAsync" in read("widget/AppGridSnapshot.kt") and "snapshot.json" in read("widget/AppGridSnapshot.kt"))
+check("Widget drawer preview shows the REAL snapshot apps, not only a static mock",
+      "previewSnapshot" in read("ui/WidgetDrawerScreen.kt") and "iconBitmap()" in read("ui/WidgetDrawerScreen.kt"))
 check("Snapshot builder never publishes an empty snapshot over a good one (hotfix)",
       "Never publish an empty snapshot" in read("widget/AppGridSnapshot.kt"))
 
