@@ -195,6 +195,12 @@ object CoverSwipeIndicatorManager {
         var longPressed = false
         var pendingSingleTap = false
         var doubleTapOpened = false
+        // Tap-burst tracking, same as the bubble (user,
+        // 2026-11-20): a tap within TAP_BURST_WINDOW of the
+        // previous tap's UP continues the burst and fires the
+        // double-tap action — slow double-taps and triple-taps
+        // included.
+        var lastTapUpAt = 0L
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
         val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
@@ -202,6 +208,7 @@ object CoverSwipeIndicatorManager {
         // widening as the bubble — at least 500ms, because a case
         // lip makes edge double-taps slower and less precise.
         val doubleTapTimeout = maxOf(ViewConfiguration.getDoubleTapTimeout().toLong(), 500L)
+        val tapBurstWindowMs = 900L
         // vc135 DIM (user, 29/10: a little fainter): the bar fades to
         // 25% after 2.5s without a touch, and comes back on touch.
         // vc136: the dim follows the shared auto-dim switch - off
@@ -231,7 +238,9 @@ object CoverSwipeIndicatorManager {
                     // not an independent function): gestures are the
                     // bubble's - fast double-tap fires on the second
                     // DOWN, exactly like the bubble (vc41).
-                    if (pendingSingleTap) {
+                    val burstContinuation = !pendingSingleTap && lastTapUpAt > 0L &&
+                        (e.eventTime - lastTapUpAt) <= tapBurstWindowMs
+                    if (pendingSingleTap || burstContinuation) {
                         pendingSingleTap = false
                         singleTapRunnable?.let { dimHandler.removeCallbacks(it) }
                         singleTapRunnable = null
@@ -297,6 +306,7 @@ object CoverSwipeIndicatorManager {
                         // double-tap action must not start a pending single
                         // (bubble vc41: it would later fire Home over the panel).
                         doubleTapOpened = false
+                        lastTapUpAt = e.eventTime
                         armDim()
                         true
                     } else {
@@ -330,6 +340,7 @@ object CoverSwipeIndicatorManager {
                             // Tap: schedule the single-tap action after the
                             // double-tap window, so a second DOWN can still
                             // turn it into a double-tap (bubble behaviour).
+                            lastTapUpAt = e.eventTime
                             pendingSingleTap = true
                             val r = Runnable {
                                 pendingSingleTap = false

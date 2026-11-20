@@ -179,10 +179,21 @@ object CoverAssistiveTouchManager {
         // second DOWN (no added latency); only the single-tap
         // action waits out the longer window.
         val doubleTapTimeout = maxOf(ViewConfiguration.getDoubleTapTimeout().toLong(), 500L)
+        val tapBurstWindowMs = 900L
         val touchSlop = ViewConfiguration.get(displayContext).scaledTouchSlop
         var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
         var moved = false; var longPressed = false; var pendingSingleTap = false
         var doubleTapOpened = false
+        // Tap-burst tracking (user, 2026-11-20): when the opener
+        // is idle/dimmed and the user taps slowly (case on the
+        // phone), the gap between taps can exceed the double-tap
+        // window — the first tap's single action then fires and
+        // the second tap starts over. A tap landing within
+        // TAP_BURST_WINDOW_MS of the previous tap's UP continues
+        // the burst and fires the double-tap action instead, so
+        // a slow double-tap — and even a triple-tap — still
+        // performs it (e.g. double-tap = Lock screen).
+        var lastTapUpAt = 0L
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
 
@@ -260,7 +271,16 @@ object CoverAssistiveTouchManager {
                     // panel instead of dragging - drags normally start
                     // on the first touch, not the second, so this is
                     // the standard double-tap trade-off for speed.
-                    if (pendingSingleTap) {
+                    // Burst continuation: a tap shortly after the
+                    // previous one counts as the double-tap even
+                    // when the single-tap action already fired in
+                    // between (slow taps, see lastTapUpAt above) —
+                    // this is also what makes a TRIPLE tap work:
+                    // the third tap continues the burst the same
+                    // way and fires the double-tap action again.
+                    val burstContinuation = !pendingSingleTap && lastTapUpAt > 0L &&
+                        (e.eventTime - lastTapUpAt) <= tapBurstWindowMs
+                    if (pendingSingleTap || burstContinuation) {
                         pendingSingleTap = false
                         singleTapRunnable?.let { handler.removeCallbacks(it) }
                         singleTapRunnable = null
@@ -338,6 +358,7 @@ object CoverAssistiveTouchManager {
                     // (which would later fire Home over the panel).
                     if (doubleTapOpened) {
                         doubleTapOpened = false
+                        lastTapUpAt = e.eventTime
                         v.elevation = dp(8).toFloat()
                         scheduleDim()
                         return@setOnTouchListener true
@@ -395,6 +416,7 @@ object CoverAssistiveTouchManager {
                         scheduleDim()
                         return@setOnTouchListener true
                     }
+                    lastTapUpAt = e.eventTime
                     if (pendingSingleTap) {
                         // Second tap inside the double-tap window -> configured double-tap action.
                         pendingSingleTap = false
@@ -554,6 +576,11 @@ object CoverAssistiveTouchManager {
     }
 
     private fun doLock(context: Context) {
+        // If a slow tap burst opened the panel via the single-tap
+        // action just before this lock fires, close the panel
+        // first — locking with it open leaves it floating over
+        // the keyguard.
+        if (CoverControlCenterManager.isShown()) CoverControlCenterManager.hide()
         val a11y = MyAccessibilityService.instance
         if (a11y?.lockScreen() != true) {
             Log.w(TAG, "Lock failed: no AccessibilityService")

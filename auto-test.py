@@ -141,6 +141,8 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Tap bursts: a tap within 900ms of the previous tap fires the double-tap action (slow doubles and triples work from the dimmed state)",
+      "tapBurstWindowMs = 900L" in read("cover/CoverAssistiveTouch.kt") and "tapBurstWindowMs = 900L" in read("cover/CoverSwipeIndicator.kt") and "burstContinuation" in read("cover/CoverAssistiveTouch.kt") and "burstContinuation" in read("cover/CoverSwipeIndicator.kt") and "CoverControlCenterManager.isShown()" in read("cover/CoverAssistiveTouch.kt"))
 check("Case-friendly openers: 500ms double-tap window, bubble snaps with a 6dp edge inset, bar sits 6dp in from the edge",
       "500L" in read("cover/CoverAssistiveTouch.kt") and "500L" in read("cover/CoverSwipeIndicator.kt") and "edgeInset" in read("cover/CoverAssistiveTouch.kt") and "edgePad" in read("cover/CoverSwipeIndicator.kt"))
 check("App Grid preview path is instrumented (CFlipAppGrid log tag)",
