@@ -53,6 +53,20 @@ class AppRepository(private val context: Context) {
         // the hidden filter is applied per call
         // from the cached unfiltered list, so
         // hiding / unhiding takes effect at once.
+        // Preview/cold-start fix (2026-11-20): the list version is
+        // ALSO persisted in prefs. It used to be a purely in-memory
+        // counter, so the App Grid snapshot's dataset signature —
+        // which embeds this version — changed on every process
+        // restart, and the disk-persisted snapshot was rejected as
+        // stale by every fresh process (Samsung's widget-picker
+        // preview binding, first open after a long fold). That is
+        // why the picker preview stayed empty: the factory had to
+        // cold-build while the picker was already capturing. With
+        // the counter in prefs, the signature is stable across
+        // process incarnations and the disk snapshot is served.
+        private const val VERSION_PREFS = "app_list_meta"
+        private const val VERSION_KEY = "version"
+        @Volatile private var versionContext: Context? = null
         @Volatile private var cachedUnfiltered: List<AppInfo>? = null
         // Scroll-reload fix (2026-11-20): SEPARATE cache for the
         // icon-less variant (widget factory). The first lag fix made
@@ -70,15 +84,40 @@ class AppRepository(private val context: Context) {
         @Volatile private var receiverRegistered: Boolean = false
         private val cacheLock = Any()
         fun appListVersion(): Int = cacheVersionValue
+
+        /** Process-stable version: the persisted counter wins if it is ahead. */
+        fun appListVersion(context: Context): Int {
+            val persisted = runCatching {
+                context.getSharedPreferences(VERSION_PREFS, Context.MODE_PRIVATE)
+                    .getInt(VERSION_KEY, 0)
+            }.getOrDefault(0)
+            return maxOf(cacheVersionValue, persisted)
+        }
+
         fun clearAppListCache() {
             synchronized(cacheLock) {
                 cachedUnfiltered = null
                 cachedUnfilteredNoIcons = null
                 cacheVersionValue++
+                val ctx = versionContext
+                if (ctx != null) {
+                    runCatching {
+                        ctx.getSharedPreferences(VERSION_PREFS, Context.MODE_PRIVATE)
+                            .edit().putInt(VERSION_KEY, cacheVersionValue).apply()
+                    }
+                }
             }
         }
         private fun ensurePackageReceiver(appContext: Context): Boolean {
             synchronized(cacheLock) {
+                versionContext = appContext
+                // Seed from the persisted counter so a fresh process
+                // continues the sequence instead of restarting at 0.
+                val persisted = runCatching {
+                    appContext.getSharedPreferences(VERSION_PREFS, Context.MODE_PRIVATE)
+                        .getInt(VERSION_KEY, 0)
+                }.getOrDefault(0)
+                if (persisted > cacheVersionValue) cacheVersionValue = persisted
                 if (receiverRegistered) return true
                 val ok = runCatching {
                     val filter = IntentFilter().apply {

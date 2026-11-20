@@ -15,8 +15,8 @@ import android.widget.ImageView
  * with a black icon inside it (sun for brightness, speaker for volume),
  * and a small dark circle button below it (moon / mute in the panel).
  *
- * 9Flip's own sliders (p6/e, ue) are horizontal, but the system look
- * Cường asked for is vertical, so this keeps 9Flip's VALUE logic
+ * the reference app's own sliders (p6/e, ue) are horizontal, but the system look
+ * Cường asked for is vertical, so this keeps the reference app's VALUE logic
  * (brightness clamp, volume mute restore) and changes only the shape
  * to the Samsung vertical pill. Value 0 = thumb at bottom, 1 = at top.
  */
@@ -82,7 +82,7 @@ class VerticalSlider(context: Context) : FrameLayout(context) {
     }
 
     fun setManual(manual: Boolean) {
-        // 9Flip p6: alpha 1.0 manual, 0.42 system-following.
+        // the reference app p6: alpha 1.0 manual, 0.42 system-following.
         alpha = if (manual) 1f else 0.42f
     }
 

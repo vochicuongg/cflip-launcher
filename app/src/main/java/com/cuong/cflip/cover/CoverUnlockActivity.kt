@@ -19,12 +19,12 @@ import android.widget.FrameLayout
 import android.widget.TextView
 
 /**
- * vc95 LOCK BUBBLE (9Flip UnlockActivity architecture, own code).
+ * vc95 LOCK BUBBLE (the reference app UnlockActivity architecture, own code).
  *
  * Problem (vc91-vc94): the AssistiveTouch bubble is a
  * TYPE_APPLICATION_OVERLAY window. Samsung hides such overlays
  * over a secure keyguard no matter what FLAG_SHOW_WHEN_LOCKED
- * is set (vc91 flag proved this on device). 9Flip does NOT
+ * is set (vc91 flag proved this on device). the reference app does NOT
  * show its menu over lock either: when locked and the user
  * calls the menu, it opens CoverFloatingMenuUnlockActivity
  * (setShowWhenLocked, transparent), which requests dismiss
@@ -48,7 +48,7 @@ import android.widget.TextView
  *   - already unlocked on resume (user unlocked via main) ->
  *     finish at once and ask for the overlay bubble.
  *
- * Safety guards, mirroring 9Flip's generation guard:
+ * Safety guards, mirroring the reference app's generation guard:
  *   - singleTop in the manifest, so repeated launches reuse
  *     this instance instead of stacking activities.
  *   - mirror active -> finish at once (mirror Presentation
@@ -88,7 +88,7 @@ class CoverUnlockActivity : Activity() {
         // every display change while locked - including
         // the change that turns the cover OFF after lock -
         // so TurnScreenOn woke the cover right back up,
-        // again and again. 9Flip's UnlockActivity is only
+        // again and again. the reference app's UnlockActivity is only
         // launched when the user CALLS the menu while
         // locked, never automatically on lock, so it never
         // wakes a screen that just turned off. CFlip's
@@ -109,7 +109,7 @@ class CoverUnlockActivity : Activity() {
         // background, a full-screen showWhenLocked activity
         // on the cover displaces Samsung's cover lock UI,
         // so its clock/calendar are not drawn underneath.
-        // 9Flip's UnlockActivity is also transparent, but
+        // the reference app's UnlockActivity is also transparent, but
         // it is TRANSIENT (it requests dismiss at once and
         // finishes) - it never sits on lock. CFlip's lock
         // bubble DOES sit on lock, so its window must be
@@ -258,7 +258,7 @@ class CoverUnlockActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // 9Flip b(): if the keyguard is already gone, do not
+        // the reference app b(): if the keyguard is already gone, do not
         // sit on top of the unlocked cover - finish and hand
         // back to the normal overlay bubble.
         if (!isKeyguardLocked()) {

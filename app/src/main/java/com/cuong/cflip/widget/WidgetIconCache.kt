@@ -13,10 +13,10 @@ import java.util.concurrent.ConcurrentHashMap
  * Why this exists: REA decompilation of the two reference cover
  * launchers showed both keep rendered icon bitmaps around instead of
  * re-rendering them in RemoteViewsFactory.getViewAt():
- *  - Cover Power (g4.c) holds a static ConcurrentHashMap of labels and
+ *  - the reference app (g4.c) holds a static ConcurrentHashMap of labels and
  *    a g4.a LruCache (sizeOf) of icon Bitmaps; getViewAt() checks the
  *    cache first and only converts a Drawable on a miss.
- *  - 9 Flip (t5.a) goes further and pre-renders the Bitmap into its
+ *  - the reference app (t5.a) goes further and pre-renders the Bitmap into its
  *    persisted render snapshot (v5.a.f8241d), so getViewAt() is a pure
  *    memory read.
  *

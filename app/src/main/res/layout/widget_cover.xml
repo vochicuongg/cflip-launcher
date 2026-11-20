@@ -49,7 +49,7 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- vc246: section label + now-playing line (9Flip cassette lesson:
+    <!-- vc246: section label + now-playing line (the reference app cassette lesson:
          a widget must answer "what is playing" at a glance). The title
          is set by CoverWidgetProvider (GONE when nothing plays). -->
     <TextView

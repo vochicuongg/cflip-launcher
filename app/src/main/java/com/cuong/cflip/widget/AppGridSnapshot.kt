@@ -9,10 +9,10 @@ import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.data.SettingsStore
 
 /**
- * 9 Flip-style render snapshot for the App Grid widget
+ * reference-style render snapshot for the App Grid widget
  * (architecture rework, 2026-11-20).
  *
- * REA evidence (9 Flip t5.a.getViewAt, ev_831c7afe): their factory
+ * REA evidence (the reference app t5.a.getViewAt, ev_831c7afe): their factory
  * holds NO cell state and does NO data work — it reads a prebuilt
  * snapshot from a store outside the factory (v5.c via h.k()), and
  * getViewAt() is a pure field read plus setImageViewBitmap() of the
@@ -37,7 +37,7 @@ import com.cuong.cflip.data.SettingsStore
  * Icons are rendered through [WidgetIconCache], so bitmaps are
  * shared with the cache and a rebuild reuses still-valid renders.
  * Full-size bitmaps are rendered at the cell's real display size
- * (dpPx(iconDp), 1x) like 9 Flip's snapshot — not the 2x oversample
+ * (dpPx(iconDp), 1x) like the reference app's snapshot — not the 2x oversample
  * the old per-cell path used; the whole grid's bitmaps then total
  * roughly 15-20 MB instead of ~70 MB.
  */
@@ -125,7 +125,7 @@ object AppGridSnapshotBuilder {
     fun signature(context: Context): String {
         val st = SettingsStore(context).load()
         return listOf(
-            AppRepository.appListVersion().toString(),
+            AppRepository.appListVersion(context).toString(),
             CustomGroupStore.signature(
                 CustomGroupStore.load(context),
                 CustomGroupStore.loadHiddenAuto(context),
@@ -151,7 +151,7 @@ object AppGridSnapshotBuilder {
         AppGridSnapshotStore.current?.let { if (it.key == key) return it }
         synchronized(buildLock) {
             AppGridSnapshotStore.current?.let { if (it.key == key) return it }
-            // Disk fallback (9 Flip persists apps_snapshot.json for
+            // Disk fallback (the reference app persists apps_snapshot.json for
             // the same reason): a fresh process — widget-picker
             // preview binding, or the first open after Samsung
             // killed the process during a long fold — serves the
@@ -257,7 +257,7 @@ object AppGridSnapshotBuilder {
         )
     }
 
-    // ---- Disk persistence (9 Flip's apps_snapshot.json pattern) ----
+    // ---- Disk persistence (the reference app's apps_snapshot.json pattern) ----
     //
     // The structure is one small JSON in filesDir; icons are PNG
     // files per package+size, written once and reused across

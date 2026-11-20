@@ -7,14 +7,14 @@ import android.content.Intent
 import android.widget.Toast
 
 /**
- * Samsung cover-widget flow, decompiled from 9Flip v149 (o6/n0, t5.h.f).
+ * Samsung cover-widget flow, decompiled from the reference app v149 (o6/n0, t5.h.f).
  *
- * 9Flip NEVER uses requestPinAppWidget() for its cover widget. Pin is
+ * the reference app NEVER uses requestPinAppWidget() for its cover widget. Pin is
  * the main-home launcher's dialog: it always says "Mở điện thoại để
  * tiếp tục", and the widget lands on the main home, never on the cover.
  * That is exactly the bug in the screenshots.
  *
- * 9Flip's only add flow is:
+ * the reference app's only add flow is:
  *   openCoverWidgetSettings() -> Samsung's own activity
  *   com.samsung.android.app.aodservice /
  *   com.samsung.android.app.subui.settings.multiwidget.SubLauncherMultiWidgetSettingsActivity
@@ -43,7 +43,7 @@ object SamsungCoverWidgetHelper {
             component = ComponentName(SAMSUNG_PKG, SAMSUNG_ACTIVITY)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        // vc134 (user, 29/10: the button did nothing): 9Flip starts this
+        // vc134 (user, 29/10: the button did nothing): the reference app starts this
         // intent from its MainActivity, while CFlip started it from the
         // application context - the one proven deviation. Start from the
         // Activity when we have one (MainScreen), keep the app-context

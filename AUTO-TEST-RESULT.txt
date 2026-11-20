@@ -74,19 +74,19 @@ PASS - Panel show() passes initialTab to buildPanel
 PASS - Panel buildPanel() declares initialTab parameter 
 PASS - Widget add buttons exist on cover panel, not only on main 
 PASS - Widget add on cover refreshes panel in place, no main jump 
-PASS - Samsung cover widget settings ComponentName from 9Flip decompile 
+PASS - Samsung cover widget settings ComponentName from the reference app decompile 
 PASS - Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel 
 PASS - Rotate FOLLOW uses follow(), not pulse() 
 PASS - Rotate LOCK uses lock() 
 PASS - SettingsStore has rotateMode 
 PASS - Panel brightness uses panel window, not system Settings 
-PASS - Panel brightness clamp 0.05-1.0 like 9Flip 
-PASS - Panel brightness slider alpha 0.42 when not manual, like 9Flip p6 
+PASS - Panel brightness clamp 0.05-1.0 like the reference app 
+PASS - Panel brightness slider alpha 0.42 when not manual, like the reference app p6 
 PASS - Volume uses flag 0, no Samsung popup 
 PASS - Volume mute/restore button exists in panel 
 PASS - Rotate FOLLOW keeps FULL_SENSOR host alive, not pulse-remove 
 PASS - Rotate LOCK is explicit fixed-orientation host, not remove-only 
-PASS - Rotate host tries AccessibilityService display context first (9Flip l()) 
+PASS - Rotate host tries AccessibilityService display context first (the reference app l()) 
 PASS - Panel FOLLOW button uses follow(), not pulse() 
 PASS - Samsung sub_screen meta-data present for all widget providers 
 PASS - Samsung widget files use display=sub_screen and keyguard 
@@ -101,12 +101,12 @@ PASS - Standard widget info is cover size 352x339
 PASS - Samsung helper exists and opens Samsung settings activity 
 PASS - Samsung helper checks cover status by appWidgetCategory 
 PASS - Panel widget card offers Samsung status check from cover 
-PASS - AppGrid template is MUTABLE, not IMMUTABLE (9Flip t5.h.i) 
+PASS - AppGrid template is MUTABLE, not IMMUTABLE (the reference app t5.h.i) 
 PASS - AppGrid template is NOT IMMUTABLE 
 PASS - AppGrid fill-in carries package_name + click_action + widget id 
 PASS - AppGrid onReceive accepts package_name as well as pkg 
 PASS - AppGrid factory receives widget id from service intent 
-PASS - RemoteViewsService exported=true like 9Flip 
+PASS - RemoteViewsService exported=true like the reference app 
 PASS - Clock/Music/Cover getActivity use distinct per-id requestCodes, not shared 0 
 PASS - Widget getActivity launches on cover display when available 
 PASS - Panel order: Media before Brightness before Function island before Widget (addView order) 

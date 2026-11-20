@@ -211,7 +211,7 @@ fun CoverApp(modifier: Modifier = Modifier, targetDisplayId: Int? = null, initia
     var dragTotal by remember { mutableStateOf(0f) }
     val tabs = CoverTab.entries
 
-    // vc240 INTERACTION: unified search (9Flip "find apps and controls
+    // vc240 INTERACTION: unified search (the reference app "find apps and controls
     // in one place"). One query matches apps AND these controls, so the
     // user never has to remember which tab a control lives on. Keywords
     // include unaccented spellings ("den pin", "khoa may") because the

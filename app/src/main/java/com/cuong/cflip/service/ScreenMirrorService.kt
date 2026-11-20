@@ -43,8 +43,8 @@ import android.app.ActivityOptions
  *
  * Mirrors the main screen onto the cover display.
  *
- * vc47 ARCHITECTURE CHANGE (from full 9Flip mirror decompile):
- * 9Flip's mirror does NOT render into a separate Presentation window.
+ * vc47 ARCHITECTURE CHANGE (from full the reference app mirror decompile):
+ * the reference app's mirror does NOT render into a separate Presentation window.
  * Its cover UI itself supplies a Surface, and the projection service
  * creates an AUTO_MIRROR virtual display at the SOURCE display's size
  * into that surface - the feed lives INSIDE the normal cover UI.
@@ -57,7 +57,7 @@ import android.app.ActivityOptions
  * an OVERLAY on the cover (the same TYPE_APPLICATION_OVERLAY route
  * the bubble and panel already use successfully on this cover),
  * with the virtual display sized to the MAIN display (source size,
- * like 9Flip) and the TextureView scaling it down to the cover.
+ * like the reference app) and the TextureView scaling it down to the cover.
  * The feed will look vertically squished (tall main UI onto a near-
  * square cover) - that is inherent to mirroring, not a bug; the
  * goal of vc47 is visibility first, aspect refinement later.
@@ -77,7 +77,7 @@ class ScreenMirrorService : Service() {
     // and every cleanupSession. Surface callbacks capture the
     // generation they belong to and ignore stale ones, so a
     // surface from a dead session can never attach to (or
-    // release) a new session's virtual display (9Flip
+    // release) a new session's virtual display (the reference app
     // snapshot-token rule, own code).
     private var mirrorGeneration = 0
     // vc169 SOURCE TRACKING: main display size/dpi last seen by
@@ -93,7 +93,7 @@ class ScreenMirrorService : Service() {
     // (Presentation + overlay). Set in startMirroring before any
     // mirror window is created; UNSPECIFIED means "not set yet".
     private var mirrorWinOrient: Int = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-    // vc79 POWERFLIP CONTENT ROTATION: degrees to rotate the
+    // vc79 the reference app CONTENT ROTATION: degrees to rotate the
     // mirror CONTENT (not the display) so the feed looks upright
     // even when dual snaps the cover back to 0°. Computed in
     // startMirroring as (desired - actual) mod 360, where desired
@@ -128,7 +128,7 @@ class ScreenMirrorService : Service() {
             MirrorSurfaceRelay.activity?.applyRotation(mirrorContentDeg)
         }
     }
-    // vc169 SOURCE LISTENER (9Flip s4/l DisplayListener, own
+    // vc169 SOURCE LISTENER (the reference app s4/l DisplayListener, own
     // code): the main display can rotate or resize while
     // mirroring (user turns the phone). The old code only
     // watched the cover display, so a main rotation left a
@@ -259,9 +259,9 @@ class ScreenMirrorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             // vc103 STOP -> LOCK (user request 27/10):
-            // neither 9Flip nor PowerFlip locks on
-            // mirror stop in decompile (9Flip: SCREEN_OFF
-            // -> stop, reverse direction; PowerFlip:
+            // neither the reference app nor the reference app locks on
+            // mirror stop in decompile (the reference app: SCREEN_OFF
+            // -> stop, reverse direction; the reference app:
             // stopService + finish, no lock; CFlip
             // vc94 MainHost comment also says main
             // only follows its own timeout after stop).
@@ -306,7 +306,7 @@ class ScreenMirrorService : Service() {
         // the same way). Nothing before cleanupSession used
         // sessionGen, so moving the capture here is safe.
         // vc47: mirror notification now has a STOP action
-        // (like 9Flip's), so the user can stop from the shade
+        // (like the reference app's), so the user can stop from the shade
         // as a third exit path besides the overlay button and
         // the panel tile.
         val stopIntent = Intent(this, ScreenMirrorService::class.java).apply { action = ACTION_STOP }
@@ -343,7 +343,7 @@ class ScreenMirrorService : Service() {
             Log.w(TAG, "No secondary display - nothing to mirror onto")
             stopSelf(); return
         }
-        // vc48 GATE (tunnel diagnosis): 9Flip refuses mirror when
+        // vc48 GATE (tunnel diagnosis): the reference app refuses mirror when
         // dual display is off, and CFlip must do the same. The
         // vc47 photo (748x720, cover size) shows the cover
         // mirroring ITSELF: when folded, the main display is OFF,
@@ -365,7 +365,7 @@ class ScreenMirrorService : Service() {
         // blocks folded mirror by design - folded main is OFF,
         // so vc64 folded test (feed never appeared) died here,
         // then disable-dual turned the cover off, then the
-        // one-shot MediaProjection asked again on retry. 9Flip
+        // one-shot MediaProjection asked again on retry. the reference app
         // gates on dual true only, not main ON (its permission
         // activity refuses on dual off, its service requires
         // dual true + STARTING). New gate: dual ON + cover ON
@@ -468,19 +468,19 @@ class ScreenMirrorService : Service() {
         if (proj == null) { Log.w(TAG, "getMediaProjection returned null"); showFailurePillAndStop(secondary, "Mirror failed: projection null"); return }
         proj.registerCallback(projectionCallback, handler)
 
-        // vc47 source size (9Flip approach): the virtual
+        // vc47 source size (the reference app approach): the virtual
         // display is sized to the MAIN display, not the cover.
         // vc44-vc46 sized it to the cover (720x748-ish) and the
         // system then had to mirror a tall main display into a
         // near-square virtual display - a second reason the feed
         // could come out black/distorted on Samsung.
-        // vc55 9FLIP SIZE: 9Flip session l.e() reads display 0
+        // vc55 the reference app SIZE: the reference app session l.e() reads display 0
         // via getRealMetrics (full real resolution, not the
         // app-usable getSize which excludes system UI area).
         // CFlip vc47-vc54 used getSize, so the virtual display
         // could be smaller than the real main display and Samsung
         // then had to mirror into a mismatched size. Use real
-        // metrics, dpi clamped to >=120 like 9Flip.
+        // metrics, dpi clamped to >=120 like the reference app.
         val dm = getSystemService(DisplayManager::class.java)
         val main = dm?.getDisplay(Display.DEFAULT_DISPLAY)
         val realMetrics = android.util.DisplayMetrics()
@@ -495,8 +495,8 @@ class ScreenMirrorService : Service() {
         sourceLastW = mainWidth; sourceLastH = mainHeight; sourceLastDpi = mainDpi
         runCatching { getSystemService(DisplayManager::class.java)?.registerDisplayListener(mirrorSourceListener, handler) }
 
-        // vc58 PRESENTATION FIRST (full 9Flip decompile):
-        // 9Flip mirror UI lives in a Presentation (p4) created
+        // vc58 PRESENTATION FIRST (full the reference app decompile):
+        // the reference app mirror UI lives in a Presentation (p4) created
         // from its AccessibilityService on display 1, NOT in a
         // TYPE_APPLICATION_OVERLAY window from a service. In
         // DUAL mode Samsung shows Presentation windows on the
@@ -508,7 +508,7 @@ class ScreenMirrorService : Service() {
         // display, permission on main, NO_HISTORY) that vc51-vc57
         // have since fixed. Retry Presentation now, with those
         // fixes in place, preferring AccessibilityService context
-        // like 9Flip (l4.e), falling back to service context.
+        // like the reference app (l4.e), falling back to service context.
         // If Presentation.show() fails or it is not showing,
         // fall through to the vc57 overlay path below - no
         // regression, overlay remains the fallback.
@@ -530,8 +530,8 @@ class ScreenMirrorService : Service() {
             android.view.Surface.ROTATION_270 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
             else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-        // vc79 CONTENT ROTATION (PowerFlip lesson, own code):
-        // PowerFlip does not force the display at all; it rotates
+        // vc79 CONTENT ROTATION (the reference app lesson, own code):
+        // the reference app does not force the display at all; it rotates
         // the mirror content (View.setRotation, default 180°) and
         // freezes rotation during mirror. CFlip vc72-vc74 proved
         // display forcing is ignored in dual, so rotate content
@@ -573,8 +573,8 @@ class ScreenMirrorService : Service() {
         // forcing display. Fields mirrorRotateView/mirrorRotateWm
         // and their cleanup removal are kept (null-safe) so
         // cleanupSession needs no change; they simply stay null.
-        // vc187 ACTIVITY PORT (PowerFlip survival proof 30/10,
-        // log-powerflip4.txt): a real Activity on display 1
+        // vc187 ACTIVITY PORT (the reference app survival proof 30/10,
+        // log-the reference app4.txt): a real Activity on display 1
         // survived the exact Settings trigger that sweeps
         // CFlip's Presentation window (channels gone in
         // ~100ms, focus(1) -> SubHome, no onStop). The
@@ -638,16 +638,16 @@ class ScreenMirrorService : Service() {
         // vc187 BAL: a background service cannot reliably start an
         // Activity (background-activity-launch block). The
         // AccessibilityService is exempt, so launch through it
-        // when present (PowerFlip launches from its own
+        // when present (the reference app launches from its own
         // accessibility service the same way); fall back to a
         // direct start, which the just-finished permission
         // activity's foreground grace window may still allow.
-        // vc189 START DELAY (PowerFlip parity): PowerFlip waits 1000ms
+        // vc189 START DELAY (the reference app parity): the reference app waits 1000ms
         // after its trigger before launching the mirror Activity.
         // vc190 CORRECTION: this pre-launch delay did NOT fix the
         // 1-2s dead touch (user report on vc189) — the window tracks
         // Activity launch / dual, not pre-launch time. Kept for
-        // PowerFlip parity (harmless); the real fixes are no-dual
+        // the reference app parity (harmless); the real fixes are no-dual
         // (above) and the late feed (onSurfaceReady, vc190).
         // Guarded by generation: a cleanup during the delay bumps
         // mirrorGeneration and skips the launch (cleanup also
@@ -756,7 +756,7 @@ class ScreenMirrorService : Service() {
     private fun createVirtualDisplay(proj: MediaProjection, surface: Surface) {
         // vc80 REVERT vc79 PUBLIC: flags 17 (PUBLIC + AUTO_MIRROR)
         // correlated with vc79 mirror disconnect + second-attempt
-        // crash, and PowerFlip's 17 is proven only from an
+        // crash, and the reference app's 17 is proven only from an
         // Activity context, not from a service. Back to the
         // vc62-proven AUTO_MIRROR (16) only, which did show a
         // feed. Content rotation (vc79) is kept; only the
@@ -925,9 +925,9 @@ class ScreenMirrorService : Service() {
 
 
 /**
- * vc51 Dual Display toggle, following 9Flip's mechanism in
+ * vc51 Dual Display toggle, following the reference app's mechanism in
  * principle (own code, not a copy of its obfuscated helpers).
- * 9Flip's decompile shows: dual ON = DeviceStateManager
+ * the reference app's decompile shows: dual ON = DeviceStateManager
  * ("device_state" Binder service) transact 3 with payload
  * [Binder token, int 4, int 20]; dual OFF = transact 4 with
  * empty payload (just the interface token), falling back to
@@ -950,7 +950,7 @@ object DualDisplayHelper {
 
     fun enable(): Result<String> = runCatching {
         if (token != null) return@runCatching "dual already on"
-        // vc57 9FLIP ORDER: 9Flip h() calls SemWindowManager
+        // vc57 the reference app ORDER: the reference app h() calls SemWindowManager
         // .getInstance() and checks it is non-null BEFORE
         // transact 3. CFlip vc51-vc56 went straight to transact,
         // so a missing/blocked SemWindowManager could leave

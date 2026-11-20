@@ -23,7 +23,7 @@ import com.cuong.cflip.data.SettingsStore
  * AssistiveTouch" (in practice: only the one rotated View moved, and
  * the rest of the cover did not follow).
  *
- * What 9Flip does (verified in rotate/ROTATE-SUMMARY.md, static only,
+ * What the reference app does (verified in rotate/ROTATE-SUMMARY.md, static only,
  * clean-room re-implementation, no copied code): put ONE invisible
  * 1x1 View on the secondary display's WindowManager with
  * `LayoutParams.screenOrientation` set. A window carrying a screen
@@ -34,7 +34,7 @@ import com.cuong.cflip.data.SettingsStore
  * Mapping (CFlip's own, degrees -> ActivityInfo orientation):
  *   0   -> PORTRAIT, 90 -> LANDSCAPE,
  *   180 -> REVERSE_PORTRAIT, 270 -> REVERSE_LANDSCAPE.
- * AUTO (mode -1 in SettingsStore.coverRotation) is 9Flip's sensor pulse:
+ * AUTO (mode -1 in SettingsStore.coverRotation) is the reference app's sensor pulse:
  * a FULL_SENSOR 1x1 view for 220ms, then removed — it lets the sensor
  * pick an orientation and then lets go, it does not hold a forced angle.
  * OFF is simply no host view at all.
@@ -67,7 +67,7 @@ object CoverRotateHostManager {
     fun isShown(): Boolean = view != null
     fun currentOrientation(): Int? = currentOrientation
 
-    // 3.3.0, decompile correction: 9Flip's rotate host l() does NOT use
+    // 3.3.0, decompile correction: the reference app's rotate host l() does NOT use
     // appContext.createDisplayContext(). It uses the AccessibilityService
     // singleton's createDisplayContext(display 1). If that service is
     // dead, l() returns null and rotation stops — it does not silently
@@ -81,7 +81,7 @@ object CoverRotateHostManager {
             Log.i(TAG, "Rotate host: using AccessibilityService display context")
             svc.createDisplayContext(display)
         } else {
-            Log.w(TAG, "Rotate host: AccessibilityService not running, using appContext (9Flip would stop here)")
+            Log.w(TAG, "Rotate host: AccessibilityService not running, using appContext (the reference app would stop here)")
             appContext.createDisplayContext(display)
         }
     }
@@ -100,8 +100,8 @@ object CoverRotateHostManager {
         if (display.displayId == Display.DEFAULT_DISPLAY) {
             throw IllegalArgumentException("Rotate host is cover-only, refusing default display")
         }
-        // vc96 ROTATE (9Flip RotateOverlayHost, decompiled
-        // 27/10): 9Flip's host is 1x1, gravity TOP|START,
+        // vc96 ROTATE (the reference app RotateOverlayHost, decompiled
+        // 27/10): the reference app's host is 1x1, gravity TOP|START,
         // flags NOT_FOCUSABLE|NOT_TOUCHABLE, screenOrientation
         // as passed, but its window TYPE is 2032
         // (TYPE_ACCESSIBILITY_OVERLAY) when its accessibility
@@ -113,7 +113,7 @@ object CoverRotateHostManager {
         // cover UI that follows it) vanished on lock and in
         // Settings. CFlip's display context is already the
         // a11y service context when alive (see displayContextFor
-        // above), exactly like 9Flip's l(), so 2032 is the
+        // above), exactly like the reference app's l(), so 2032 is the
         // matching type here. If the system rejects 2032, fall
         // back to 2038 in the same call so rotation never
         // regresses below vc95.
@@ -190,7 +190,7 @@ object CoverRotateHostManager {
         return addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR)
     }
 
-    /** Sensor pulse: FULL_SENSOR for 220ms, then remove (9Flip's h()). */
+    /** Sensor pulse: FULL_SENSOR for 220ms, then remove (the reference app's h()). */
     fun pulse(appContext: Context, display: Display): Result<Unit> = runCatching {
         val r = addHost(appContext, display, ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR, force = true)
         handler.postDelayed({ remove() }, 220L)

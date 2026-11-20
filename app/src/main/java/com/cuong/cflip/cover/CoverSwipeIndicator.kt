@@ -18,10 +18,10 @@ import com.cuong.cflip.service.MyAccessibilityService
 
 /**
  * vc120 SWIPE INDICATOR ("Thanh Vuốt") - clean-room
- * equivalent of 9Flip's swipe_indicator open mode
+ * equivalent of the reference app's swipe_indicator open mode
  * (NOT a copy of its code or assets).
  *
- * 9Flip decompile, 28/10: the cover control has
+ * the reference app decompile, 28/10: the cover control has
  * exactly two open modes, pref "open_mode"
  * (enum gb): swipe_indicator (the default) vs
  * assistive_touch. The indicator itself (d4/pj)
@@ -49,7 +49,7 @@ import com.cuong.cflip.service.MyAccessibilityService
  * bubble: never on lock, never during mirror,
  * never when the opener is turned off).
  *
- * vc133: drawn ^ chevron + dark halo pill (9Flip mechanism, own drawing)
+ * vc133: drawn ^ chevron + dark halo pill (the reference app mechanism, own drawing)
  * so the bar reads on light wallpapers, and FLAG_NOT_TOUCH_MODAL so
  * touches outside the bar still reach the cover UI.
  *
@@ -109,8 +109,17 @@ object CoverSwipeIndicatorManager {
         val coverSettings = runCatching { com.cuong.cflip.data.SettingsStore(appContext).load() }.getOrNull()
         val sizeScale = when (coverSettings?.assistiveTouchSize) { 0 -> 0.8f; 2 -> 1.2f; else -> 1.0f }
         val autoDimEnabled = coverSettings?.assistiveTouchAutoDim ?: true
-        val barW = (dp(40) * sizeScale).toInt()
-        val barH = (dp(128) * sizeScale).toInt()
+        // Touch-area fix (user, 2026-11-20): the window used to be
+        // 40x128dp while the visible bar is only ~14x84dp — a large
+        // INVISIBLE touch area along the screen edge that swallowed
+        // taps meant for on-screen items near the bar (worse after
+        // the bar dimmed to 25% and became hard to see). The window
+        // now hugs the visible bar (halo 14dp + a 2dp margin each
+        // side; content 84dp + margin). Gestures are unaffected:
+        // once a DOWN lands on the bar, the whole drag stream keeps
+        // coming to this window wherever the finger moves.
+        val barW = (dp(18) * sizeScale).toInt()
+        val barH = (dp(88) * sizeScale).toInt()
         val dispW = displayContext.resources.displayMetrics.widthPixels
         val dispH = displayContext.resources.displayMetrics.heightPixels
         val edgeMargin = dp(8)
@@ -127,8 +136,8 @@ object CoverSwipeIndicatorManager {
         val savedH = barPrefs.getInt("h", 0)
         val startY = (if (savedY >= 0 && savedH > 0) savedY * dispH / savedH else (dispH - barH) / 2)
             .coerceIn(edgeMargin, maxOf(edgeMargin, dispH - barH - edgeMargin))
-        // vc133 VISIBILITY (user, 29/10: bar never seen; 9Flip mechanism):
-        // 9Flip's indicator draws a chevron affordance (^) over a pill
+        // vc133 VISIBILITY (user, 29/10: bar never seen; the reference app mechanism):
+        // the reference app's indicator draws a chevron affordance (^) over a pill
         // with contrast layers, so it reads on light wallpapers too.
         // CFlip's old bar was a lone white pill with no chevron and no
         // edge - white-on-white on a light cover wallpaper. Own drawing:
@@ -327,10 +336,9 @@ object CoverSwipeIndicatorManager {
             }
         }
 
-        // Window size IS the touch area (40x128dp at default size):
-        // WRAP_CONTENT would shrink it to the
-        // pill + padding (20x84dp) and make the
-        // swipe hard to land on a small cover.
+        // Window size IS the touch area — kept equal to the
+        // visible bar on purpose (see barW/barH above): anything
+        // larger steals taps from the UI underneath.
         val params = WindowManager.LayoutParams(
             barW,
             barH,
@@ -358,7 +366,7 @@ object CoverSwipeIndicatorManager {
         runCatching { CoverBrightnessHolder.show(appContext, display) }
             .onFailure { Log.w(TAG, "Brightness holder failed", it) }
         armDim()
-        // 9Flip pj.a(): keep system gestures from
+        // the reference app pj.a(): keep system gestures from
         // stealing the bar's touches. Posted so
         // the view is laid out and has a size.
         container.post {

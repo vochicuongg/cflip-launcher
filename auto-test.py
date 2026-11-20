@@ -111,13 +111,13 @@ for p in SRC.rglob("*.kt"):
 check("No Good Lock / MultiStar mention in Kotlin sources",
       "Good Lock" not in all_kt and "MultiStar" not in all_kt)
 
-# --- Widget lag fix (2026-11-20, REA comparison vs 9 Flip / Cover Power) ---
+# --- Widget lag fix (2026-11-20, REA comparison vs the reference app / the reference app) ---
 _w = read("widget/AppGridWidgetProvider.kt")
 check("Widget icon cache exists (LruCache, package@sizePx keys)",
       "object WidgetIconCache" in read("widget/WidgetIconCache.kt") and "LruCache<String, Bitmap>" in read("widget/WidgetIconCache.kt"))
 check("Icon bitmap cache is 24 MiB and Drawables are cached per package (scroll fix)",
       "24 * 1024" in read("widget/WidgetIconCache.kt") and "ConcurrentHashMap<String, Drawable>" in read("widget/WidgetIconCache.kt"))
-check("9 Flip architecture: snapshot store + builder exist, factory only reads the snapshot",
+check("the reference app architecture: snapshot store + builder exist, factory only reads the snapshot",
       "object AppGridSnapshotStore" in read("widget/AppGridSnapshot.kt") and "object AppGridSnapshotBuilder" in read("widget/AppGridSnapshot.kt") and "AppGridSnapshotBuilder.snapshot(context, cellPx)" in _w and "iconBitmapFor" not in _w)
 check("Snapshot builder renders icons through WidgetIconCache (factory never renders)",
       "WidgetIconCache.render" in read("widget/AppGridSnapshot.kt") and "createBitmap" not in _w)
@@ -141,9 +141,13 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Quick Panel openers only touch their VISIBLE shape (bar window hugs the bar, bubble corners fall through)",
+      "dp(18)" in read("cover/CoverSwipeIndicator.kt") and "dp(88)" in read("cover/CoverSwipeIndicator.kt") and "FLAG_NOT_TOUCH_MODAL" in read("cover/CoverAssistiveTouch.kt") and "dx * dx + dy * dy > cx * cx" in read("cover/CoverAssistiveTouch.kt"))
+check("App list version persists in prefs (snapshot signature stable across processes)",
+      "VERSION_PREFS" in read("data/AppRepository.kt") and "appListVersion(context)" in read("widget/AppGridSnapshot.kt"))
 check("Accessibility ON re-shows the Quick Panel opener at once when the feature is enabled",
       "ACTION_A11Y_CONNECTED" in read("service/CoverForegroundService.kt") and "settings.assistiveTouchEnabled" in read("service/MyAccessibilityService.kt") and "ACTION_A11Y_CONNECTED" in read("service/MyAccessibilityService.kt"))
-check("Snapshot persists to disk and reloads in a fresh process (9 Flip apps_snapshot pattern)",
+check("Snapshot persists to disk and reloads in a fresh process (the reference app apps_snapshot pattern)",
       "loadFromDisk" in read("widget/AppGridSnapshot.kt") and "persistAsync" in read("widget/AppGridSnapshot.kt") and "snapshot.json" in read("widget/AppGridSnapshot.kt"))
 check("Widget drawer preview shows the REAL snapshot apps, not only a static mock",
       "previewSnapshot" in read("ui/WidgetDrawerScreen.kt") and "iconBitmap()" in read("ui/WidgetDrawerScreen.kt"))
@@ -239,7 +243,7 @@ check("Widget add buttons exist on cover panel, not only on main",
       "Thêm Widget Đồng hồ" in cc2 and "Thêm Widget Lưới app" in cc2)
 check("Widget add on cover refreshes panel in place, no main jump",
       "CoverControlCenterManager.show(ctx.applicationContext, display, 0)" in cc2)
-check("Samsung cover widget settings ComponentName from 9Flip decompile",
+check("Samsung cover widget settings ComponentName from the reference app decompile",
       "com.samsung.android.app.aodservice" in cc2 and "SubLauncherMultiWidgetSettingsActivity" in cc2)
 check("Rotate has only FOLLOW and LOCK modes, no 0/90/180/270 cycle in panel",
       "Xoay theo hướng lật" in cc2 and "Khóa xoay" in cc2 and "coverRotation" not in cc2)
@@ -248,8 +252,8 @@ check("Rotate LOCK uses lock()", "CoverRotateHostManager.lock" in cc2)
 check("SettingsStore has rotateMode", "rotateMode" in ss)
 check("Panel brightness uses panel window, not system Settings",
       "panelBrightnessManual" in cc2 and "applyPanelBrightness" in cc2 and "QuickControls.setBrightness" not in cc2)
-check("Panel brightness clamp 0.05-1.0 like 9Flip", "coerceIn(0.05f, 1.0f)" in cc2)
-check("Panel brightness slider alpha 0.42 when not manual, like 9Flip p6",
+check("Panel brightness clamp 0.05-1.0 like the reference app", "coerceIn(0.05f, 1.0f)" in cc2)
+check("Panel brightness slider alpha 0.42 when not manual, like the reference app p6",
       "0.42f" in cc2)
 check("Volume uses flag 0, no Samsung popup",
       "setStreamVolume(AudioManager.STREAM_MUSIC, value, 0)" in read("control/QuickControls.kt"))
@@ -260,7 +264,7 @@ check("Rotate FOLLOW keeps FULL_SENSOR host alive, not pulse-remove",
       "fun follow" in rh and "FULL_SENSOR" in rh)
 check("Rotate LOCK is explicit fixed-orientation host, not remove-only",
       "fun lock" in rh and "display.rotation" in rh)
-check("Rotate host tries AccessibilityService display context first (9Flip l())",
+check("Rotate host tries AccessibilityService display context first (the reference app l())",
       "MyAccessibilityService.instance" in rh)
 check("Panel FOLLOW button uses follow(), not pulse()",
       "CoverRotateHostManager.follow" in cc2)
@@ -294,7 +298,7 @@ check("Panel widget card offers Samsung status check from cover",
       "SamsungCoverWidgetHelper.statusText" in cc2)
 
 # --- 16. Widget clicks (3.5.0) ---
-check("AppGrid template is MUTABLE, not IMMUTABLE (9Flip t5.h.i)",
+check("AppGrid template is MUTABLE, not IMMUTABLE (the reference app t5.h.i)",
       "FLAG_MUTABLE" in read("widget/AppGridWidgetProvider.kt") and "10000 + id" in read("widget/AppGridWidgetProvider.kt"))
 check("AppGrid template is NOT IMMUTABLE",
       "setPendingIntentTemplate" in read("widget/AppGridWidgetProvider.kt") and "FLAG_IMMUTABLE" not in read("widget/AppGridWidgetProvider.kt").split("setPendingIntentTemplate")[1].split(")")[0])
@@ -304,7 +308,7 @@ check("AppGrid onReceive accepts package_name as well as pkg",
       'getStringExtra("package_name")' in read("widget/AppGridWidgetProvider.kt"))
 check("AppGrid factory receives widget id from service intent",
       "EXTRA_APPWIDGET_ID" in read("widget/AppGridWidgetProvider.kt") and "widgetId" in read("widget/AppGridWidgetProvider.kt"))
-check("RemoteViewsService exported=true like 9Flip",
+check("RemoteViewsService exported=true like the reference app",
       'android:exported="true"' in (ROOT / "app/src/main/AndroidManifest.xml").read_text().split("AppGridRemoteViewsService")[1].split("/>")[0])
 check("Clock/Music/Cover getActivity use distinct per-id requestCodes, not shared 0",
       "1000 + id" in read("widget/ClockWidgetProvider.kt") and "2000 + id" in read("widget/MusicWidgetProvider.kt") and "3000 + widgetId" in read("widget/CoverWidgetProvider.kt"))

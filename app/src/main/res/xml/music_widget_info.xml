@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 3.4.0: cover widget, not home widget. 9Flip decompile (aapt2):
+<!-- 3.4.0: cover widget, not home widget. the reference app decompile (aapt2):
      minWidth=352dp minHeight=339dp updatePeriodMillis=0
      widgetCategory=keyguard (0x2) previewLayout=initialLayout.
      home_screen was the bug: Samsung's cover host only lists

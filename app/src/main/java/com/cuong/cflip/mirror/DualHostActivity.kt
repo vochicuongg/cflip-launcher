@@ -155,7 +155,7 @@ class DualHostActivity : Activity() {
             return
         }
         // Do NOT finish here: this host must stay alive on its display
-        // (it may reparent to main after dual, like 9Flip's host) while
+        // (it may reparent to main after dual, like the reference app's host) while
         // permission dialogs and the mirror service runs. Polling below
         // finishes it once service cleanup disables dual.
         startPolling()

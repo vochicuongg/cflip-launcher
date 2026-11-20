@@ -43,7 +43,7 @@
         </activity>
 
         <!-- vc32: MediaProjection permission activity for the panel Mirror
-             tile (like 9Flip's MirrorPermissionActivity in architecture).
+             tile (like the reference app's MirrorPermissionActivity in architecture).
              Translucent, no UI of its own — only the system capture dialog
              shows, on the main display. Not exported. -->
         <!-- vc34: separate task affinity + excludeFromRecents, so the
@@ -69,13 +69,13 @@
                  marks it as a legitimate cover activity
                  so the consent shows as a real dialog on
                  the cover without dual mode, like
-                 PowerFlip's cover activities. -->
+                 the reference app's cover activities. -->
             <meta-data
                 android:name="com.samsung.android.multiwindow.show_on_cover"
                 android:value="true" />
         </activity>
 
-        <!-- vc83: dedicated dual host (9Flip host-first flow, own code).
+        <!-- vc83: dedicated dual host (the reference app host-first flow, own code).
              Tile opens this on the cover; it enables dual only when
              top-resumed, then launches MirrorPermissionActivity on the
              cover. It never shows a dialog and never disables dual
@@ -89,7 +89,7 @@
             android:resizeableActivity="true"
             android:taskAffinity="com.cuong.cflip.dualhost"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
-            <!-- vc186 SAMSUNG COVER FLAG (PowerFlip
+            <!-- vc186 SAMSUNG COVER FLAG (the reference app
                  CoverMirrorActivity parity, manifest only):
                  marks this cover host as a legitimate
                  cover-screen activity. Hypothesis: Samsung
@@ -101,11 +101,11 @@
                 android:value="true" />
         </activity>
 
-        <!-- vc187 ACTIVITY PORT (PowerFlip CoverMirrorActivity parity,
+        <!-- vc187 ACTIVITY PORT (the reference app CoverMirrorActivity parity,
              own code): the mirror feed is now a real Activity on
              display 1 instead of a Presentation window. singleInstance
              with its own affinity so nothing else lands in its task;
-             showWhenLocked + turnScreenOn like PowerFlip; the
+             showWhenLocked + turnScreenOn like the reference app; the
              Samsung cover flag like vc186's DualHost entry. -->
         <!-- vc212 REPLY CARD (LiveBridge-style Now Bar card on the
              cover): a real Activity so the keyboard can appear on
@@ -145,7 +145,7 @@
                 android:value="true" />
         </activity>
 
-        <!-- vc95: lock bubble activity (9Flip UnlockActivity pattern,
+        <!-- vc95: lock bubble activity (the reference app UnlockActivity pattern,
              own code). An Activity window with setShowWhenLocked,
              so it is visible over the secure keyguard where the
              overlay bubble is hidden. Launched on the cover by
@@ -163,7 +163,7 @@
             android:taskAffinity="com.cuong.cflip.unlock"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- vc86: main-side host for mirror (9Flip host-on-main pattern).
+        <!-- vc86: main-side host for mirror (the reference app host-on-main pattern).
              Launched by MirrorPermissionActivity on display 0 right
              after grant; keeps the folded main display awake for
              AUTO_MIRROR capture. 1x1 transparent, never disables dual
@@ -255,7 +255,7 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/cover_widget_info" />
-            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+            <!-- Samsung cover widget (3.3.0, decompiled from the reference app v149):
                  without this, Samsung's cover widget picker never lists
                  this provider. With it, the widget can be added from the
                  folded cover, without opening the main screen. -->
@@ -277,7 +277,7 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appgrid_widget_info" />
-            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+            <!-- Samsung cover widget (3.3.0, decompiled from the reference app v149):
                  without this, Samsung's cover widget picker never lists
                  this provider. With it, the widget can be added from the
                  folded cover, without opening the main screen. -->
@@ -286,7 +286,7 @@
                 android:resource="@xml/samsung_appgrid_widget_info" />
         </receiver>
 
-        <!-- 3.5.0: exported=true, like 9Flip's RemoteViewsService.
+        <!-- 3.5.0: exported=true, like the reference app's RemoteViewsService.
              BIND_REMOTEVIEWS still restricts binding to system hosts,
              but exported=false can stop Samsung's cover host from
              binding the grid service at all. -->
@@ -308,7 +308,7 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/music_widget_info" />
-            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+            <!-- Samsung cover widget (3.3.0, decompiled from the reference app v149):
                  without this, Samsung's cover widget picker never lists
                  this provider. With it, the widget can be added from the
                  folded cover, without opening the main screen. -->
@@ -317,7 +317,7 @@
                 android:resource="@xml/samsung_music_widget_info" />
         </receiver>
 
-        <!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music
+        <!-- vc246 CASSETTE SMALL (the reference app: Cassette Small) — compact music
              widget, subclass of MusicWidgetProvider (same code path, only
              the layout differs). Same Samsung sub_screen registration. -->
         <!-- vc247: exported=true, like the AppGrid receiver (same
@@ -350,7 +350,7 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/clock_widget_info" />
-            <!-- Samsung cover widget (3.3.0, decompiled from 9Flip v149):
+            <!-- Samsung cover widget (3.3.0, decompiled from the reference app v149):
                  without this, Samsung's cover widget picker never lists
                  this provider. With it, the widget can be added from the
                  folded cover, without opening the main screen. -->

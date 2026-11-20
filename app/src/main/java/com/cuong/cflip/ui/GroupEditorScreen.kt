@@ -67,7 +67,7 @@ import com.cuong.cflip.widget.AppGridWidgetProvider
 
 /**
  * vc152 CUSTOM GROUP EDITOR (user, 29/10): the section in the CFlip
- * app where users build their own app groups, like 9Flip's
+ * app where users build their own app groups, like the reference app's
  * user-defined groups (id + title + package list). A custom group
  * shows first, in both the Quick Panel widget card and the Samsung
  * widget, and its apps leave their auto groups. Deleting a group

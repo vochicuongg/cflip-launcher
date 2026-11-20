@@ -2,7 +2,7 @@
 <resources>
     <!-- vc185: non-floating full-screen mirror window theme, own
          definition using only standard framework attributes (the
-         same attribute set 9Flip's CoverFloatingMenuTheme uses,
+         same attribute set the reference app's CoverFloatingMenuTheme uses,
          verified via aapt2 from its APK: parent is a non-dialog
          translucent theme, so windowIsFloating defaults to false
          and is set explicitly here for clarity). A floating dialog

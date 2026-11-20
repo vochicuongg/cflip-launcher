@@ -33,14 +33,14 @@ import com.cuong.cflip.service.NotificationState
 /**
  * CFlip's own Control Center panel on the cover display (new in 2.6.0).
  *
- * Clean-room functional parity with the 9Flip panel's *functions*, not its
+ * Clean-room functional parity with the the reference app panel's *functions*, not its
  * layout, icons or text: a full-screen overlay on the secondary display's
  * WindowManager (same route as CoverOverlay, no external host), with:
  * - a notification banner (latest active notification; tap opens it,
  *   X only hides it from this panel — it does NOT cancel the system
- *   notification, because that link was never verified for 9Flip either);
+ *   notification, because that link was never verified for the reference app either);
  * - media controls (Prev / Play-Pause / Next) from the active session;
- * - brightness slider (manual, clamped to 0.05–1.0 like 9Flip's, i.e. 13–255)
+ * - brightness slider (manual, clamped to 0.05–1.0 like the reference app's, i.e. 13–255)
  *   and music-volume slider, applied on release, not on every step;
  * - a 5-column tile grid: torch, Wi-Fi panel, Bluetooth settings, Internet
  *   panel, NFC panel, Lock, Recents, Notifications shade, Quick Settings,
@@ -191,7 +191,7 @@ object CoverControlCenterManager {
     private var shotFeedbackView: View? = null
     private var shotFeedbackWm: WindowManager? = null
 
-    /** Apply the panel's own brightness (3.2.0, 9Flip p6/t6 model). */
+    /** Apply the panel's own brightness (3.2.0, the reference app p6/t6 model). */
     fun applyPanelBrightness(appContext: Context) {
         val params = panelParams; val v = view; val manager = wm
         if (params == null || v == null || manager == null) return
@@ -573,7 +573,7 @@ object CoverControlCenterManager {
     }
 
     // 2.8.0: AssistiveTouch panel is now 4 tabs at the top, in CFlip's
-    // own layout (not 9Flip's): Điều khiển / Thông báo / Ứng dụng / CFlip.
+    // own layout (not the reference app's): Điều khiển / Thông báo / Ứng dụng / CFlip.
     // - Điều khiển: media, brightness, volume, 5-column tiles (as before).
     // - Thông báo: full active-notification list (tap opens, Xóa cancels
     //   the system notification — labelled honestly, unlike the old
@@ -632,7 +632,7 @@ object CoverControlCenterManager {
         }
         // Modern design system 2.9.0 (CFlip's own palette, same as MainScreen):
         // near-black background, dark cards, mint accent, rounded corners.
-        // No copied 9Flip layout, icon or text — only the tab/function list.
+        // No copied the reference app layout, icon or text — only the tab/function list.
         val mint = 0xFF7FE3C0.toInt()
         val cardColor = 0xFF16181C.toInt()
         val muted = 0xFF9AA0A6.toInt()
@@ -881,7 +881,7 @@ object CoverControlCenterManager {
         selectTab(initialTab.coerceIn(0, 3))
 
         // ---- User-added Widgets (3.1.0, NOT forced) ----
-        // Decompile truth: 9Flip's widgets are standard AppWidgetProviders
+        // Decompile truth: the reference app's widgets are standard AppWidgetProviders
         // (NineCoverAppGridWidgetProvider + RemoteViewsService, and the
         // Cassette family) — the system/user places them, the app never
         // forces them onto the cover. CFlip follows that: this section
@@ -948,7 +948,7 @@ object CoverControlCenterManager {
                 widgetCard.addView(modernButton("Thêm Widget Lưới app").apply {
                     setOnClickListener { addWidgetOnCover("appgrid", "Lưới app") }
                 })
-                // 9Flip decompile (o6/n0 openCoverWidgetSettings): the
+                // the reference app decompile (o6/n0 openCoverWidgetSettings): the
                 // correct Samsung cover-widget flow is NOT pinning to
                 // main home. It opens Samsung's own cover widget settings
                 // (aodservice SubLauncherMultiWidgetSettingsActivity),
@@ -956,7 +956,7 @@ object CoverControlCenterManager {
                 // That page lives on the main display by Samsung's
                 // design — it is labelled as such, so it is not a
                 // mistaken jump to main home. If the activity does not
-                // exist, show 9Flip's unsupported toast equivalent.
+                // exist, show the reference app's unsupported toast equivalent.
                 widgetCard.addView(modernButton("Mở Cài đặt Widget màn hình ngoài Samsung").apply {
                     setOnClickListener {
                         val intent = Intent().apply {
@@ -1047,7 +1047,7 @@ object CoverControlCenterManager {
         // play/pause from the panel is reflected on the widget too.
         runCatching { com.cuong.cflip.widget.MusicWidgetProvider.requestUpdate(ctx) }
         val mediaInfo = MediaState.current.value
-        // vc36 9Flip media view (e4.g / a9.setMediaVisible): the bar
+        // vc36 the reference app media view (e4.g / a9.setMediaVisible): the bar
         // exists ONLY while media is active, and appears with
         // alpha 0->1, translationY -10dp->0, scale 0.985->1 in 190ms.
         // Previously CFlip always showed "Chưa có nhạc" with no artist,
@@ -1057,7 +1057,7 @@ object CoverControlCenterManager {
         // play/pause icon that actually reflects isPlaying.
         // vc37 media card: FrameLayout so album art can be a full-bleed
         // background (Spotify/Samsung cover card in Cường's screenshot),
-        // with a dark overlay on top, like 9Flip e4.g (art alpha 0.96
+        // with a dark overlay on top, like the reference app e4.g (art alpha 0.96
         // + argb(116,0,0,0) overlay). Content lives in mediaContent.
         val mediaCard = FrameLayout(ctx).apply {
             background = rounded(cardColor, 16)
@@ -1171,7 +1171,7 @@ object CoverControlCenterManager {
         // vc107: small 4-bar wave next to the
         // Âm thanh title (vc44) DELETED at Cường's
         // request 27/10 - the timeline wave below
-        // (MediaProgressBar, 9Flip e4/i) is now the
+        // (MediaProgressBar, the reference app e4/i) is now the
         // only wave in the media card.
         // vc236: sound bars next to the "Âm thanh" title (Samsung-style
         // equalizer). Animates while playing, static when paused, hidden
@@ -1232,7 +1232,7 @@ object CoverControlCenterManager {
         val mediaElapsed = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()); layoutParams = LinearLayout.LayoutParams(dp(56), LinearLayout.LayoutParams.WRAP_CONTENT) }
         val mediaTotal = TextView(ctx).apply { textSize = 11f; setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.END; layoutParams = LinearLayout.LayoutParams(dp(56), LinearLayout.LayoutParams.WRAP_CONTENT) }
         val mediaProgress = MediaProgressBar(ctx).apply {
-            // vc113: back to 28dp (9Flip height).
+            // vc113: back to 28dp (the reference app height).
             // vc112's 36dp was for the symmetric
             // wave above AND below the centre;
             // vc113's wave is above the timeline
@@ -1523,20 +1523,20 @@ object CoverControlCenterManager {
         controlContent.addView(playLastPill)
 
         // 3.2.0 brightness: PANEL window brightness, not system.
-        // 9Flip decompile (p6/t6): own manual value clamp 0.05–1.0,
+        // the reference app decompile (p6/t6): own manual value clamp 0.05–1.0,
         // applied as panel window screenBrightness, or -1 (system)
         // when manual is off (slider alpha 0.42 when off, 1.0 when on).
         // The old system-brightness slider never moved the cover
         // because Samsung's cover brightness is not Settings.System.
-        // vc35 9Flip slider (p6/e): custom bar, not a SeekBar.
+        // vc35 the reference app slider (p6/e): custom bar, not a SeekBar.
         // Left icon dark on the white fill, translucent pill track,
         // fill = thumb + (width-thumb)*value, alpha 1.0 manual / 0.42 auto.
-        // Dragging once switches to manual, like 9Flip p6.d().
+        // Dragging once switches to manual, like the reference app p6.d().
         // vc38 horizontal sliders in the SAME row as the Âm thanh card:
         // vc37's vertical sliders took a whole tall card below media.
         // Now the row is: [Âm thanh card | brightness slider + volume
         // slider stacked], so the panel saves ~200dp of vertical space.
-        // Sliders are horizontal NineFlipSliders again (vc35, 9Flip p6/e
+        // Sliders are horizontal PanelSliders again (vc35, the reference app p6/e
         // logic), with the same value logic as before: brightness
         // manual clamp 0.05-1.0, alpha 1.0 manual / 0.42 auto, volume
         // mute restores saved volume else ~45% of max.
@@ -1552,7 +1552,7 @@ object CoverControlCenterManager {
         // for vertical bars whenever media is there,
         // not only while it plays. No session at all
         // = horizontal, as before. Vertical = two
-        // vertical NineFlip sliders side by side in
+        // vertical the reference app sliders side by side in
         // a horizontal column, matching the media
         // card's height.
         val slidersVertical = mediaInfo != null
@@ -1563,8 +1563,8 @@ object CoverControlCenterManager {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        var brightSlider2: NineFlipSlider? = null
-        var volSlider2: NineFlipSlider? = null
+        var brightSlider2: PanelSlider? = null
+        var volSlider2: PanelSlider? = null
         // vc140: the slider shows the EFFECTIVE brightness - the stored
         // CFlip value when manual, the live system value when auto (the
         // window follows system in auto, so showing the stored default
@@ -1595,7 +1595,7 @@ object CoverControlCenterManager {
         // failed (no WRITE_SETTINGS permission) so onDragEnd can toast
         // once instead of spamming on every drag step.
         var brightnessSyncFailed = false
-        brightSlider2 = NineFlipSlider(ctx).apply {
+        brightSlider2 = PanelSlider(ctx).apply {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
@@ -1679,7 +1679,7 @@ object CoverControlCenterManager {
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(dp(8), LinearLayout.LayoutParams.MATCH_PARENT)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12))
         })
-        volSlider2 = NineFlipSlider(ctx).apply {
+        volSlider2 = PanelSlider(ctx).apply {
             if (slidersVertical) setVertical(true)
             layoutParams = if (slidersVertical) LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 else LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48))
@@ -1975,7 +1975,7 @@ object CoverControlCenterManager {
                 1 -> R.drawable.ic_qp_rotate_lock
                 else -> R.drawable.ic_qp_rotate_auto
             }
-            // vc33: 9Flip toggle tiles re-render in place and do NOT close
+            // vc33: the reference app toggle tiles re-render in place and do NOT close
             // the panel. Previously CFlip closed the panel and hid+re-showed
             // the bubble here, so the bubble could disappear entirely if
             // re-show failed or assistiveTouchEnabled was off.
@@ -2137,7 +2137,7 @@ object CoverControlCenterManager {
                 // so dual was never even attempted in the exact
                 // situation where the user taps the tile on the
                 // cover panel - and the tap looked like "nothing
-                // happens". 9Flip does NOT check main ON first; it
+                // happens". the reference app does NOT check main ON first; it
                 // toggles dual first, then checks dual state. vc53
                 // follows that order: try dual first regardless of
                 // folded/open, then let the service gates decide
@@ -2168,7 +2168,7 @@ object CoverControlCenterManager {
                 // vc83 HOST-FIRST: tile no longer opens the permission
                 // activity directly. It opens DualHostActivity on the
                 // cover (fresh task, CLEAR_TASK); the host enables dual
-                // only when top-resumed (9Flip order), then opens the
+                // only when top-resumed (the reference app order), then opens the
                 // dialog-only permission on the cover. Permission never
                 // enables dual itself any more.
                 val hostIntent = Intent(ctx.applicationContext, com.cuong.cflip.mirror.DualHostActivity::class.java)
@@ -2190,11 +2190,11 @@ object CoverControlCenterManager {
                 }
             }
         }
-        // vc35 missing system tiles from 9Flip (f0/u list).
+        // vc35 missing system tiles from the reference app (f0/u list).
         // Android does not let a third-party app toggle mobile data,
         // hotspot, airplane, location or battery saver directly, so
         // those tiles open the system settings page for that feature
-        // (the supported route, like 9Flip's Settings-opening tiles),
+        // (the supported route, like the reference app's Settings-opening tiles),
         // with an honest toast. DND CAN toggle when CFlip has
         // Notification Policy Access, otherwise it opens that grant page.
         tileRow("Dữ liệu", R.drawable.ic_qp_data) {

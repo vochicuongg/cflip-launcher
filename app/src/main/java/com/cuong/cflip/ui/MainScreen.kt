@@ -205,7 +205,7 @@ private fun MainScreenContent(
     }
 
     // vc152 CUSTOM GROUP EDITOR (user, 29/10): a section in the
-    // app where users build their own app groups, like 9Flip.
+    // app where users build their own app groups, like the reference app.
     if (showGroupEditor) {
         BackHandler { showGroupEditor = false }
         GroupEditorScreen(onBack = { showGroupEditor = false })
@@ -324,7 +324,7 @@ private fun MainScreenContent(
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
-    // vc126 PERMISSION DEEP LINKS (9Flip pattern, clean-room):
+    // vc126 PERMISSION DEEP LINKS (the reference app pattern, clean-room):
     // for each special permission, try the most specific settings
     // page first and fall back to the generic page; if no candidate
     // resolves on this OEM build, toast instead of crashing.
@@ -411,7 +411,7 @@ private fun MainScreenContent(
             }
             }
 
-            // vc254 GROUPS (Cover Power fragment_settings pattern):
+            // vc254 GROUPS (the reference app fragment_settings pattern):
             // the hub reads as two groups now — TRẠNG THÁI (is the
             // phone OK? fix what is not) and MÀN HÌNH NGOÀI (cover
             // features), with "Mở gần đây" between them as a quick
@@ -440,14 +440,14 @@ private fun MainScreenContent(
                 }
 
                 EnterSection(index = 3, entered = entered, reduced = reducedMotion) {
-                // vc126 PERMISSIONS (9Flip pattern, clean-room):
+                // vc126 PERMISSIONS (the reference app pattern, clean-room):
                 // deep-link page first, generic page as fallback, toast if
                 // none resolves; the "Cấp quyền còn thiếu" button jumps to
                 // the first missing permission in row order, and the vc115
                 // ON_RESUME refresh makes each return land on the next one.
                 // (Warning now sits above this island, vc126.)
                 // Permissions: compact rows, chevron only, plus that button.
-                // vc127 REQUIRED SET (9Flip evidence, user, 29/10): 9Flip declares
+                // vc127 REQUIRED SET (the reference app evidence, user, 29/10): the reference app declares
                 // no Usage Stats and no Write Settings - its recents come from its
                 // own launch history (like CFlip's LaunchHistoryStore fallback) and
                 // it never writes system brightness. So CFlip's required set is now
@@ -509,7 +509,7 @@ private fun MainScreenContent(
                 }
             }
 
-            // vc254 RECENTS (9Flip "recently opened", clean-room): the
+            // vc254 RECENTS (the reference app "recently opened", clean-room): the
             // apps actually opened lately, as a quick launcher from
             // the big screen. The screen itself is RecentAppsScreen.
             EnterSection(index = 4, entered = entered, reduced = reducedMotion) {
@@ -583,7 +583,7 @@ private fun MainScreenContent(
                 }
                 }
 
-                // vc254 GROUPS ISLAND (9Flip "Group manager" + Cover
+                // vc254 GROUPS ISLAND (the reference app "Group manager" + Cover
                 // Power "APP FOLDERS"): groups decide the cover grid's
                 // folders, but their editor was buried 2 taps deep
                 // inside the Widget drawer — this island puts it on
@@ -614,8 +614,8 @@ private fun MainScreenContent(
                 }
                 }
 
-                // vc254 STYLE ISLAND (Cover Power "Wallpaper & Style"
-                // + 9Flip "Cover Wallpaper"): personalisation is the
+                // vc254 STYLE ISLAND (the reference app "Wallpaper & Style"
+                // + the reference app "Cover Wallpaper"): personalisation is the
                 // most-touched setting after install, but it lived
                 // inside the STYLE tab. Opens the existing
                 // SettingsScreen on the big screen.
@@ -650,12 +650,12 @@ private fun MainScreenContent(
                 EnterSection(index = 8, entered = entered, reduced = reducedMotion) {
                 // vc121 ISLANDS (user, 28/10: group the
                 // main settings into separate feature
-                // islands, neat like 9Flip). The old
+                // islands, neat like the reference app). The old
                 // "Cai dat cover" box crammed unrelated
                 // features - display, AssistiveTouch,
                 // Quick Panel, touch actions - into one
                 // card. Each group is now its own island
-                // (9Flip pattern: grouped sections, one
+                // (the reference app pattern: grouped sections, one
                 // feature per rounded card, same card
                 // style as the existing Widget /
                 // Permissions / Service islands). Nothing
@@ -721,7 +721,7 @@ private fun MainScreenContent(
                                 // vc120 QUICK PANEL OPEN MODE (user,
                                 // 28/10): Quick Panel is NOT a bubble
                                 // action anymore - it is a feature
-                                // with two open modes (9Flip gb):
+                                // with two open modes (the reference app gb):
                                 // AssistiveTouch bubble or Swipe
                                 // indicator bar.
                                 OpenModeRow("Mở panel bằng", settings.panelOpenMode,

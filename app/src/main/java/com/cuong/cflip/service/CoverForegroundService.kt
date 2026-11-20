@@ -135,9 +135,9 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         Log.i(TAG, "Displays now: ${DisplayRepository(this).listDisplays()}")
         when (intent?.action) {
             ACTION_HIDE_COVER -> {
-                // vc78 DECOUPLE (user principle, 9Flip Application
+                // vc78 DECOUPLE (user principle, the reference app Application
                 // pattern): hiding the bubble must NOT kill features.
-                // RotateHost is a feature (like 9Flip's Application
+                // RotateHost is a feature (like the reference app's Application
                 // singleton, independent of floating menu visibility),
                 // not part of the bubble. Hide bubble + panel ONLY,
                 // keep RotateHost so rotation still works with the
@@ -235,7 +235,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // vc83 MIRROR OVERRIDE of vc78 (deliberate, mirror only):
         // when mirror is active, do NOT rebuild the RotateHost here.
         // User confirmed 27/10: 180-degree cover rotation during a
-        // mirror attempt is NORMAL 9Flip behaviour, not a bug, and
+        // mirror attempt is NORMAL the reference app behaviour, not a bug, and
         // the foreground FOLLOW host (FULL_SENSOR) fighting the
         // mirror session is not wanted during mirror. Rotation in
         // normal (non-mirror) mode is untouched — vc81 fix intact.
@@ -246,7 +246,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
             return
         }
         if (!isRetry) hostRetryAttempts = 0
-        // vc78 DECOUPLE (user principle, 9Flip Application pattern):
+        // vc78 DECOUPLE (user principle, the reference app Application pattern):
         // RotateHost is ensured ALWAYS, even when mirror is active
         // or bubble is hidden. Previously, mirror active returned
         // early here, so if dual detached the host view, it was
@@ -388,7 +388,7 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         // never showed it): the old guard returned early whenever ANY
         // opener was shown, so switching bubble -> bar with the bubble
         // still up left the bubble in place and the bar never appeared.
-        // 9Flip re-applies its indicator layout on every show instead of
+        // the reference app re-applies its indicator layout on every show instead of
         // early-returning. Same idea here: hide the opener that does NOT
         // match the current mode, then show the right one unless it is
         // already up on this display.

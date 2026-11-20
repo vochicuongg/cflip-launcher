@@ -95,7 +95,7 @@ fun WidgetDrawerScreen(
     // preview used to be a static mock of coloured squares. It now
     // shows the actual first entries of the App Grid snapshot —
     // the same items, with the same pre-rendered icons, that the
-    // cover widget displays (9 Flip's preview does the same).
+    // cover widget displays (the reference app's preview does the same).
     var previewSnapshot by remember {
         mutableStateOf<com.cuong.cflip.widget.AppGridSnapshotStore.Snapshot?>(null)
     }

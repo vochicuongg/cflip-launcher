@@ -39,7 +39,7 @@ object QuickControls {
 
     fun setVolume(context: Context, value: Int) {
         val am = context.getSystemService(AudioManager::class.java) ?: return
-        // 3.2.0: flag 0, like 9Flip's ve.java setStreamVolume(3, v, 0).
+        // 3.2.0: flag 0, like the reference app's ve.java setStreamVolume(3, v, 0).
         // FLAG_SHOW_UI used to pop Samsung's own volume panel on the
         // main display over the cover — that was the "Samsung sound bar"
         // the user saw. CFlip's own slider is the bar now, no popup.
@@ -76,7 +76,7 @@ object QuickControls {
     // vc32: Panel.ACTION_INTERNET_CONNECTIVITY from a cover-display
     // context fails silently on Samsung (panel tries to open on the
     // folded cover, or is rejected, and runCatching swallows it).
-    // 9Flip instead opens Settings activities with fallbacks, so do
+    // the reference app instead opens Settings activities with fallbacks, so do
     // the same from the application context (main display): Wi-Fi
     // settings first, then data-usage, then wireless settings.
     fun openInternetSettings(context: Context) {

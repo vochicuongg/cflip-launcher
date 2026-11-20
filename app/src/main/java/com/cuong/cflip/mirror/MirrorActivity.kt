@@ -29,9 +29,9 @@ class MirrorActivity : ComponentActivity() {
     lateinit var textureView: TextureView
         private set
 
-    // vc58 9FLIP SOURCE SIZE: old vc45-vc46 Presentation used
+    // vc58 the reference app SOURCE SIZE: old vc45-vc46 Presentation used
     // COVER display size as buffer, so the virtual display was
-    // cover-sized, not source-sized. 9Flip session sizes its
+    // cover-sized, not source-sized. the reference app session sizes its
     // virtual display to MAIN (source) size and lets TextureView
     // scale down. Service sets these before show(); if unset,
     // bufferSize() falls back to cover size (old behavior).
@@ -64,7 +64,7 @@ class MirrorActivity : ComponentActivity() {
         }
     }
 
-    // vc89 MIRROR CONTROLS (9Flip h5, own code): zoom = crop-to-fill
+    // vc89 MIRROR CONTROLS (the reference app h5, own code): zoom = crop-to-fill
     // toggle (i4.d: crop flag + pan 0.5, fit = min scale centred),
     // rotate follow/lock = whether cover-rotation changes re-apply
     // content rotation (service listener) or freeze it.
@@ -75,7 +75,7 @@ class MirrorActivity : ComponentActivity() {
     // vc90 ZOOM LEVELS (user: zoom in/out was "delay rat nang"):
     // vc89 zoom was a toggle, so a second tap on Phogn to did
     // NOTHING (already cropped) and looked like a hang. Now
-    // every tap steps: 0 = fit, 1 = crop-to-fill (9Flip i4.d),
+    // every tap steps: 0 = fit, 1 = crop-to-fill (the reference app i4.d),
     // 2 = crop x1.3, 3 = crop x1.6, clamped. Each tap changes
     // the transform immediately (no virtual-display recreate),
     // so the response is visible on that tap.
@@ -142,7 +142,7 @@ class MirrorActivity : ComponentActivity() {
         if (vw <= 0f || vh <= 0f || sw <= 0 || sh <= 0) return null
         val f10 = vw / sw
         val f12 = vh / sh
-        // 9Flip i4.a: fit = min, crop = f10 if source portrait else f12.
+        // the reference app i4.a: fit = min, crop = f10 if source portrait else f12.
         // vc90 levels: 0 = fit, 1 = crop fill, 2/3 = crop x1.3/x1.6.
         val cropBase = if (sw <= sh) f10 else f12
         val fMin = when (zoomLevel) {
@@ -165,17 +165,17 @@ class MirrorActivity : ComponentActivity() {
     var onSurfaceReady: ((Surface) -> Unit)? = null
     /** Called when the surface goes away; the service must release the virtual display. */
     var onSurfaceGone: (() -> Unit)? = null
-    // vc184 9FLIP SELF-HEAL: fired from onStop() so the
+    // vc184 the reference app SELF-HEAL: fired from onStop() so the
     // service can re-show an unintentionally stopped
-    // Presentation instead of only cleaning up (9Flip p4
+    // Presentation instead of only cleaning up (the reference app p4
     // onStop -> l4.d(), own code, same structure).
     var onStopped: (() -> Unit)? = null
 
     var rotationDeg: Int = 0
         private set
 
-    // vc88 TOUCH: live streaming, 9Flip-style (own code, not a copy).
-    // 9Flip (decompiled f4/g5, 27/10) does NOT wait for finger-up:
+    // vc88 TOUCH: live streaming, reference-style (own code, not a copy).
+    // the reference app (decompiled f4/g5, 27/10) does NOT wait for finger-up:
     // it maps each cover point through the inverse fit matrix
     // (g5 case 0: rectF.contains guard, inverse matrix, then
     // clamp to source size), then streams stroke segments through
@@ -192,7 +192,7 @@ class MirrorActivity : ComponentActivity() {
     // vc88 streams instead: DOWN sends the first segment
     // immediately (willContinue=true, so main sees a held down
     // and long-press fires naturally while the user still holds),
-    // each MOVE queues the latest point (coalesced, like 9Flip
+    // each MOVE queues the latest point (coalesced, like the reference app
     // chunking), each segment completion sends the next queued
     // point, and UP sends the final segment (willContinue=false).
     // Pinch: second finger starts pinch tracking and ends the
@@ -218,14 +218,14 @@ class MirrorActivity : ComponentActivity() {
     private var streamPendingFinal = false
     // vc98 CHUNKED LIVE TOUCH - SUPERSEDED BY vc103
     // (kept for history; vc103 latest-only below)
-    // vc98 was based on 9Flip f4.c + u2, decompiled
+    // vc98 was based on the reference app f4.c + u2, decompiled
     // 27/10): vc88-vc97 dispatched ONE segment per MOVE
     // point and waited for its callback before the next
     // point. Each dispatch has system + callback overhead,
     // so between segments main saw the finger STOP, then
     // JUMP to the next point - scroll momentum broke and
     // the feed felt "delay, khong theo tuong tac" even
-    // though each segment was only 16ms. 9Flip batches
+    // though each segment was only 16ms. the reference app batches
     // MOVE points into ONE Path (c(): up to 8 points,
     // duration clamp(n*22,120,220)ms) so the system plays
     // a continuous path with no gaps, and only the
@@ -237,12 +237,12 @@ class MirrorActivity : ComponentActivity() {
     // A chunk of 1 point keeps 16ms/1ms (no 120ms stall
     // for a slow drag), a chunk of 8 plays at ~22ms per
     // point, matching finger speed. Points <1px from the
-    // last queued point are dropped as noise (9Flip d()
+    // last queued point are dropped as noise (the reference app d()
     // 1px threshold), they never become segments.
     private val moveChunkPoints = ArrayDeque<Pair<Float, Float>>()
     private val gestureHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    // vc101 TOUCH LOOP (PowerFlip GestureDispatcher
-    // f4.d, decompiled 27/10): PowerFlip does NOT
+    // vc101 TOUCH LOOP (the reference app GestureDispatcher
+    // f4.d, decompiled 27/10): the reference app does NOT
     // chain chunks on dispatch callbacks. It runs a
     // Handler loop every 25ms (postDelayed 25L) that
     // drains the accumulated point list into one
@@ -254,7 +254,7 @@ class MirrorActivity : ComponentActivity() {
     // forever waiting for a callback that never came
     // - "khong theo tuong tac" and "vang khoi phan
     // chieu nhung van hoat dong". vc101 keeps the
-    // callback chain as primary, and adds PowerFlip's
+    // callback chain as primary, and adds the reference app's
     // loop as a watchdog: every 25ms while touch is
     // active, if points are queued and no segment is
     // in flight, dispatch the next chunk. It cannot
@@ -313,7 +313,7 @@ class MirrorActivity : ComponentActivity() {
         touchLoopRunning = false
         gestureHandler.removeCallbacks(touchLoopRunnable)
     }
-    // vc99 TOUCH (9Flip u2, decompiled with --show-bad-code
+    // vc99 TOUCH (the reference app u2, decompiled with --show-bad-code
     // 27/10, now readable): u2 does NOT only live-stream.
     // It keeps a full point list (cap 96, remove index 1
     // when full so index 0 - the DOWN point - is never
@@ -340,7 +340,7 @@ class MirrorActivity : ComponentActivity() {
     private var touchTotalViewMove = 0f
     private var touchLiveStarted = false
     private var touchLastUpMs = 0L
-    // vc104 9FLIP-EXACT TOUCH (u2/f4, user chose 9Flip
+    // vc104 the reference app-EXACT TOUCH (u2/f4, user chose the reference app
     // 27/10, decompiled again for this build):
     // u2 fields, own names: slop = scaledTouchSlop
     // (view px), doubleTapTimeout, longPressTimeout
@@ -368,10 +368,10 @@ class MirrorActivity : ComponentActivity() {
     // flag alone drops a drag after long-press.
     // vc104 keeps u2 for that case (no drag
     // replay after a timeout long-press), because
-    // the user asked for 9Flip exactly, and a
+    // the user asked for the reference app exactly, and a
     // replay after lift would not be a live
     // long-press drag anyway. Long-press drag
-    // that works in 9Flip is the double-tap drag
+    // that works in the reference app is the double-tap drag
     // replay (k4), which vc104 implements below.
     // vc180: press-drag now works live via the open hold stroke in
     // touchLongPressRunnable; the drop case remains only when that hold
@@ -381,7 +381,7 @@ class MirrorActivity : ComponentActivity() {
     private var touchLongPressFlag = false
     private var touchMultiFlag = false
     private var touchReplayMode = false
-    // vc104 GLOBAL PREPARED QUEUE (9Flip f4.m/i):
+    // vc104 GLOBAL PREPARED QUEUE (the reference app f4.m/i):
     // prepared gestures (tap, drag, long-press,
     // k4 hold is NOT queued, it is multi-segment)
     // must never overlap a live stream or another
@@ -494,7 +494,7 @@ class MirrorActivity : ComponentActivity() {
         val next = touchPreparedQueue.removeFirstOrNull() ?: return
         dispatchPreparedGesture(next)
     }
-    // vc104 k4 REPLAY (9Flip k4.a, for double-tap
+    // vc104 k4 REPLAY (the reference app k4.a, for double-tap
     // drag on UP): hold stroke first, then chunks.
     // Hold: moveTo first, duration timeout+80,
     // willContinue=true. Chunks: remaining list
@@ -546,14 +546,14 @@ class MirrorActivity : ComponentActivity() {
     // order, each 52ms + callback, so a fast swipe lagged
     // behind the finger by up to ~1s - exactly the
     // "delay, khong theo tuong tac" in the vc96 test.
-    // 9Flip's LIVE touch (f4.d/o/n, decompiled 27/10) does
+    // the reference app's LIVE touch (f4.d/o/n, decompiled 27/10) does
     // the opposite: it keeps only the LATEST pending point
     // (a4Var.f1239c), and if a segment is already in flight
     // it just updates that pending point, it does NOT queue
     // a new segment. The 12-deep queue in f4.m is for
     // pre-built gestures, not for live finger movement.
     // So vc97 goes back to latest-only coalescing, with
-    // 9Flip d() durations: 16ms for a new/moved segment,
+    // the reference app d() durations: 16ms for a new/moved segment,
     // 1ms for an unmoved/final continuation. No history
     // points as separate segments (history is already old
     // by delivery time; dispatching it in order only adds
@@ -580,7 +580,7 @@ class MirrorActivity : ComponentActivity() {
     // 0° is unchanged (exact old behavior); other angles fall
     // back to unrotated mapping (should not happen: service only
     // sets 0/90/180/270).
-    // vc174 DIRECTION A (9Flip g5 model, own code): map through
+    // vc174 DIRECTION A (the reference app g5 model, own code): map through
     // the INVERSE of the TextureView's actually-drawn transform
     // instead of recomputing fit params. The old code rebuilt
     // the fit from current size/zoom/rotation and inverted it
@@ -713,7 +713,7 @@ class MirrorActivity : ComponentActivity() {
         }.coerceIn(1L, 220L)
         val path = Path()
         path.moveTo(streamLastX, streamLastY)
-        // vc175: 9Flip f4.c lineTos EVERY point
+        // vc175: the reference app f4.c lineTos EVERY point
         // unconditionally. CFlip skipped lineTo when
         // the point equalled streamLast, so a hold
         // segment or a stop-then-release final
@@ -742,9 +742,9 @@ class MirrorActivity : ComponentActivity() {
         android.util.Log.i("CFlipMirror", "PRES CHUNK willContinue=" + willContinue + " n=" + effPoints.size + " first=" + effPoints.first())
         val isFinalSegment = !willContinue
         val gesture = GestureDescription.Builder().setDisplayId(0).addStroke(stroke).build()
-        // vc98: 9Flip f4.i() passes an explicit main-looper
+        // vc98: the reference app f4.i() passes an explicit main-looper
         // handler to dispatchGesture; CFlip passed null.
-        // Explicit handler matches 9Flip and avoids the
+        // Explicit handler matches the reference app and avoids the
         // callback landing on an arbitrary thread.
         val ok = acc.dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             override fun onCompleted(g: GestureDescription?) {
@@ -800,11 +800,11 @@ class MirrorActivity : ComponentActivity() {
 
     // vc103 LATEST-ONLY LIVE (decompile both apps,
     // 27/10): vc98 chunking was the lag source.
-    // 9Flip live (f4.d/o/n) never replays old points:
+    // the reference app live (f4.d/o/n) never replays old points:
     // it keeps ONE pending point (a4.f1239c), and on
     // completion builds the next segment from that
     // LATEST point only, duration 16ms if moved >=1px,
-    // 1ms if not moved / final. PowerFlip loop (f4.d)
+    // 1ms if not moved / final. the reference app loop (f4.d)
     // is the same idea at tick level: each 25ms tick
     // drains ONLY points since the last tick, never
     // a backlog. CFlip vc98 did the opposite: up to
@@ -817,7 +817,7 @@ class MirrorActivity : ComponentActivity() {
     // LAST queued point only and discards older
     // queued points. A single point chunk gives
     // dispatchStreamChunk duration 16/1ms, exactly
-    // 9Flip d(). Prepared gestures (tap 50ms,
+    // the reference app d(). Prepared gestures (tap 50ms,
     // drag path, long-press) do NOT go through here
     // - they dispatch directly, so they keep their
     // full point lists.
@@ -864,8 +864,8 @@ class MirrorActivity : ComponentActivity() {
             // completion (or by the vc101 watchdog
             // loop if the callback is lost). Older
             // queued points are discarded, not
-            // replayed - that is 9Flip f4.o and
-            // PowerFlip tick-drain, and it is what
+            // replayed - that is the reference app f4.o and
+            // the reference app tick-drain, and it is what
             // makes main follow the finger instead
             // of replaying where it was 200ms ago.
             // vc178: a latest point moving <1px from
@@ -901,8 +901,8 @@ class MirrorActivity : ComponentActivity() {
             val gesture = GestureDescription.Builder().setDisplayId(0)
                 .addStroke(GestureDescription.StrokeDescription(path, 0L, 42L))
                 .build()
-            // vc104: 9Flip tap is 42ms (f4.v), not
-            // PowerFlip 50ms (vc101). Via prepared
+            // vc104: the reference app tap is 42ms (f4.v), not
+            // the reference app 50ms (vc101). Via prepared
             // queue so it never overlaps a live stream.
             dispatchPreparedGesture(gesture)
             return
@@ -965,24 +965,24 @@ class MirrorActivity : ComponentActivity() {
         onSurfaceReady = MirrorSurfaceRelay.onSurfaceReady
         onSurfaceGone = MirrorSurfaceRelay.onSurfaceGone
         onControl = MirrorSurfaceRelay.onControl
-        // vc184 9FLIP PARITY (p4 onCreate): a mirror
+        // vc184 the reference app PARITY (p4 onCreate): a mirror
         // window must never be cancelable - BACK or an
         // outside touch must not dismiss the feed.
         onBackPressedDispatcher.addCallback(object : androidx.activity.OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { /* vc187: BACK must never close the mirror feed */ }
         })
-        // vc185 THEME PORT (9Flip p4 parity): a
+        // vc185 THEME PORT (the reference app p4 parity): a
         // non-floating full-screen window must fill
         // the display like p4's setLayout(-1,-1),
         // and must not dim behind itself (p4
         // clearFlags(2) = FLAG_DIM_BEHIND).
         window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
         window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        // vc85 LOCK FIX (PowerFlip lesson, own code): vc84 test showed
+        // vc85 LOCK FIX (the reference app lesson, own code): vc84 test showed
         // the dialog fine, then the screen LOCKED immediately after
         // agree — the feed window never got to stay visible. A
         // Presentation on the cover must be allowed to show over the
-        // keyguard and to turn the cover on, exactly like PowerFlip's
+        // keyguard and to turn the cover on, exactly like the reference app's
         // mirror Activity (setShowWhenLocked + setTurnScreenOn +
         // KEEP_SCREEN_ON). Without these flags the cover falls back
         // to its lock screen the moment the system dialog dismisses,
@@ -1014,9 +1014,9 @@ class MirrorActivity : ComponentActivity() {
         // The root FrameLayout above is already black, so the
         // TextureView needs no background of its own.
         textureView = TextureView(this).apply {
-            // vc169 9Flip i4 parity: the mirror surface is opaque
+            // vc169 the reference app i4 parity: the mirror surface is opaque
             // content (black root behind it). An opaque surface
-            // lets the compositor skip blending, which 9Flip gets
+            // lets the compositor skip blending, which the reference app gets
             // from setOpaque(true) and CFlip was missing.
             setOpaque(true)
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -1157,9 +1157,9 @@ class MirrorActivity : ComponentActivity() {
                         // vc104 u2 POINTER_DOWN: cancel
                         // long-press, set multi flag,
                         // finalize live if running.
-                        // Pinch itself is NOT a 9Flip
+                        // Pinch itself is NOT a the reference app
                         // feed feature (feed u2 is
-                        // single-pointer; 9Flip multi
+                        // single-pointer; the reference app multi
                         // is trackpad y4, not feed) -
                         // CFlip keeps its prepared
                         // pinch as an extra, after
@@ -1314,7 +1314,7 @@ class MirrorActivity : ComponentActivity() {
                         touchActive = false
                         touchPanMode = false
                         stopTouchLoop()
-                        val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
+                        val durationMs = 180L // vc96: the reference app y4 pinch is fixed 180ms, not the actual hold time
                         endPinch(durationMs)
                         true
                     }
@@ -1360,7 +1360,7 @@ class MirrorActivity : ComponentActivity() {
                             pinchActive = false
                             touchActive = false
                             stopTouchLoop()
-                            val durationMs = 180L // vc96: 9Flip y4 pinch is fixed 180ms, not the actual hold time
+                            val durationMs = 180L // vc96: the reference app y4 pinch is fixed 180ms, not the actual hold time
                             endPinch(durationMs)
                         } else {
                             // vc104 u2 UP, exact order:
@@ -1602,12 +1602,12 @@ class MirrorActivity : ComponentActivity() {
         }
     }
 
-    // vc62 DISPLAY LAYER (9Flip i4.a fit mode, own code):
+    // vc62 DISPLAY LAYER (the reference app i4.a fit mode, own code):
     // Old vc45-vc61 Presentation only rotated (identity at
     // 0 deg), so TextureView stretched the tall main buffer
     // (1080x2640) into the near-square cover (720x748) -
     // feed looked vertically squished, the "display layer
-    // error" in the vc61 report. 9Flip i4.a fit mode does:
+    // error" in the vc61 report. the reference app i4.a fit mode does:
     // scale = min(viewW/sourceW, viewH/sourceH), then center
     // with (viewW-scaledW)/2, (viewH-scaledH)/2, black bars
     // from the black TextureView background. Same math here,
@@ -1626,8 +1626,8 @@ class MirrorActivity : ComponentActivity() {
             val m0 = Matrix()
             m0.postRotate(rotationDeg.toFloat(), cx, cy)
             tv.setTransform(m0)
-            // vc94 DELAY FIX (9Flip i4.a, decompiled 27/10):
-            // 9Flip calls postInvalidateOnAnimation() right
+            // vc94 DELAY FIX (the reference app i4.a, decompiled 27/10):
+            // the reference app calls postInvalidateOnAnimation() right
             // after setTransform, so the new matrix draws on
             // the next animation frame even if the main screen
             // is static and MediaProjection sends no new frame.
@@ -1646,7 +1646,7 @@ class MirrorActivity : ComponentActivity() {
         // fill stretch (viewW/sourceW, viewH/sourceH). Total
         // scale became 0.667*0.283=0.189 by 0.283*0.283=0.080,
         // so the feed came out 204x211 at the top - exactly the
-        // vc62 "very small at top" report. 9Flip i4.a uses
+        // vc62 "very small at top" report. the reference app i4.a uses
         // view-space scale: f10=viewW/sourceW, f12=viewH/sourceH,
         // fMin=min(f10,f12), sx=fMin/f10, sy=fMin/f12, then
         // scaledW=viewW*sx, scaledH=viewH*sy, centered. Total
@@ -1668,7 +1668,7 @@ class MirrorActivity : ComponentActivity() {
         tv.postInvalidateOnAnimation()
     }
 
-    // vc184 9FLIP SELF-HEAL: log the Dialog lifecycle so a
+    // vc184 the reference app SELF-HEAL: log the Dialog lifecycle so a
     // freeze test shows whether the system actually stops
     // this Presentation (heal path) or only hides it (no
     // onStop, heal cannot trigger - that itself is data).

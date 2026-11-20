@@ -13,7 +13,7 @@ import android.content.Intent
 import android.content.IntentFilter
 
 /**
- * vc86 MAIN-SIDE HOST (9Flip host-on-main pattern, own code).
+ * vc86 MAIN-SIDE HOST (the reference app host-on-main pattern, own code).
  * vc85 test: device was UNLOCKED before tapping mirror, dialog
  * showed on the cover, yet the screen LOCKED immediately after
  * agree and no feed appeared. vc85's show-over-lock flags on the
@@ -25,7 +25,7 @@ import android.content.IntentFilter
  * goes to sleep and locks, and then there is no live main UI
  * for AUTO_MIRROR to capture — the mirror dies at the lock.
  *
- * 9Flip solves this by keeping its 1x1 host top-resumed on MAIN
+ * the reference app solves this by keeping its 1x1 host top-resumed on MAIN
  * for the whole mirror (its host reparents to main after dual
  * and stays there). This activity is CFlip's equivalent, launched
  * by MirrorPermissionActivity right after grant, explicitly on
@@ -87,7 +87,7 @@ class MainHostActivity : Activity() {
     // CFlip holds on MAIN with KEEP_SCREEN_ON + TurnScreenOn
     // (vc86, to stop the main locking during mirror). It used
     // to finish only on its 1s poll after MirrorState went
-    // false, and 9Flip has no force-off either - it simply
+    // false, and the reference app has no force-off either - it simply
     // stops keeping main awake, so main then follows the
     // normal screen timeout. To make CFlip release main
     // deterministically at stop time (not on poll luck),
@@ -95,7 +95,7 @@ class MainHostActivity : Activity() {
     // finishes at once, releasing KEEP_SCREEN_ON. After
     // that, main follows the user's own timeout - it is
     // NOT instantly locked (instant lock needs device-admin
-    // lockNow, which neither CFlip nor 9Flip uses).
+    // lockNow, which neither CFlip nor the reference app uses).
     private val stopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_MIRROR_STOP) {

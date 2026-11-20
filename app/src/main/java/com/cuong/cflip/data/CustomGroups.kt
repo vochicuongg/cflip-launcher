@@ -7,13 +7,13 @@ import org.json.JSONObject
 /**
  * vc152 CUSTOM GROUPS (user, 29/10).
  *
- * Mechanism modelled on 9Flip's CoverFloatingMenuGroupDetail, learned
+ * Mechanism modelled on the reference app's CoverFloatingMenuGroupDetail, learned
  * from the v149 decompile: a user-defined group is an id + a title +
  * a list of package names, stored persistently and shown as a folder
- * in the app grid (9Flip also has a built-in "special:favorites"
+ * in the app grid (the reference app also has a built-in "special:favorites"
  * group and per-widget open state). This is CFlip's own clean-room
  * version: its own store, its own editor screen, its own merge rules.
- * No 9Flip code, strings, or UI is copied here.
+ * No the reference app code, strings, or UI is copied here.
  *
  * Merge rules (sections()): custom groups first, in creation order,
  * then the auto groups (AppGroups) for the apps that are left, then

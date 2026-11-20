@@ -32,7 +32,7 @@ import com.cuong.cflip.data.RecentAppsRepository
 import com.cuong.cflip.display.AppLauncher
 
 /**
- * vc254 MỞ GẦN ĐÂY (9Flip "recently opened" pattern, clean-room):
+ * vc254 MỞ GẦN ĐÂY (the reference app "recently opened" pattern, clean-room):
  * the apps the user actually opened lately, newest first — tap to
  * launch from the big screen without opening the cover or digging
  * through a drawer. Loads once per open (the screen is recreated

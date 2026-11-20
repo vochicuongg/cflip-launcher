@@ -9,7 +9,7 @@ import android.content.pm.ApplicationInfo
  * group: it stays reachable from the full app list ("Xem tất cả ứng
  * dụng" / the Apps tab) and never lands in a catch-all group.
  *
- * 9Flip decompile note (checked 29/10, v149): 9Flip's app grid has
+ * the reference app decompile note (checked 29/10, v149): the reference app's app grid has
  * NO grouping at all - its grid is flat (NineCoverAppGridWidgetProvider
  * + RemoteViewsService, no category/folder logic found), so there was
  * no grouping model to borrow. This file is CFlip's own design on the

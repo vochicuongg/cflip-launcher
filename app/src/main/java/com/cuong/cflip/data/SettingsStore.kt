@@ -4,7 +4,7 @@ import android.content.Context
 
 /** All personalisation for the cover launcher. No paywall - everything applies instantly. */
 // vc115 BUBBLE ACTIONS (user, 27/10: custom
-// AssistiveTouch touches, like 9Flip's floating
+// AssistiveTouch touches, like the reference app's floating
 // menu customisation, clean-room version):
 // tap / double-tap / long-press each pick one
 // action. Defaults preserve the old behaviour
@@ -36,8 +36,8 @@ object BubbleActions {
     val all = listOf(HOME, RECENTS, FULL_PANEL, LOCK, NONE)
 }
 
-// vc120 PANEL OPEN MODE (9Flip decompile,
-// 28/10: 9Flip's cover control has exactly two
+// vc120 PANEL OPEN MODE (the reference app decompile,
+// 28/10: the reference app's cover control has exactly two
 // open modes, stored as pref "open_mode" with
 // default "swipe_indicator" - enum gb:
 // swipe_indicator vs assistive_touch, shown in
@@ -45,7 +45,7 @@ object BubbleActions {
 // CFlip's clean-room equivalent, same two modes:
 // ASSISTIVE_TOUCH = the floating C bubble,
 // SWIPE_INDICATOR = the bottom swipe bar.
-// CFlip default stays ASSISTIVE_TOUCH (not 9Flip's
+// CFlip default stays ASSISTIVE_TOUCH (not the reference app's
 // swipe default) so existing users keep their
 // bubble until they switch in MainScreen.
 object PanelOpenMode {
@@ -89,10 +89,10 @@ data class CoverSettings(
     val dualDisplay: Boolean = false,   // keep cover UI on while main screen is in use
     val sortMode: Int = 0,              // 0 = A-Z, 1 = recently opened, 2 = newly installed
     // 25/10/2026: AssistiveTouch lives ONLY on the secondary (cover) display.
-    // The main display is custom/settings only, like 9Flip's MainActivity -
+    // The main display is custom/settings only, like the reference app's MainActivity -
     // it never shows a bubble. Default true so the cover gets its button.
     val assistiveTouchEnabled: Boolean = true,
-    // AssistiveTouch redesign 2.7.0 (9Flip size pattern, own values):
+    // AssistiveTouch redesign 2.7.0 (the reference app size pattern, own values):
     // 0 = small 0.8, 1 = default 1.0, 2 = large 1.2; auto-dim default true.
     val assistiveTouchSize: Int = 1,
     val assistiveTouchAutoDim: Boolean = true,
@@ -102,7 +102,7 @@ data class CoverSettings(
     // (Music stays a Control tab control, not a widget, to avoid
     // duplicating it.) Stored as a comma-separated string.
     val coverWidgets: String = "",
-    // 3.2.0 rotate, simplified per user request (decompile: 9Flip's
+    // 3.2.0 rotate, simplified per user request (decompile: the reference app's
     // rotateMode is AUTO/MANUAL/OFF in code, but the user only wants
     // two: 0 = FOLLOW (follow the flip direction, sensor pulse),
     // 1 = LOCK (lock at the current orientation). coverRotation
@@ -110,7 +110,7 @@ data class CoverSettings(
     // vc31: 2 = SYSTEM (no rotate host, back to Samsung default).
     // The panel tile cycles 0 -> 1 -> 2 -> 0.
     val rotateMode: Int = 1,
-    // 3.2.0 panel brightness, per 9Flip decompile (p6/t6): 9Flip does
+    // 3.2.0 panel brightness, per the reference app decompile (p6/t6): the reference app does
     // NOT write Settings.System for its panel. It keeps its own manual
     // brightness value (clamp 0.05–1.0) and applies it as the panel
     // window's screenBrightness, or -1 (follow system) when manual is

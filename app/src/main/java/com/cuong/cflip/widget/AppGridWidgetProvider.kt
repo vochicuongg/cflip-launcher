@@ -56,7 +56,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         for (id in ids) updateWidget(context, manager, id)
         // Force the grid to reload its data (new installs, hidden changes).
         // HOTFIX (2026-11-20): the widget-lag fix removed this notify
-        // (and debounced refreshAll's), copying 9 Flip's delayed
+        // (and debounced refreshAll's), copying the reference app's delayed
         // refresh — but Samsung's cover host is NOT the stock host:
         // without an immediate notify after an app update it never
         // re-queries the factory, so the grid kept only its restored
@@ -66,7 +66,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         // (WidgetIconCache, lazy icons, prepared-items cache), which
         // make the reload this triggers cheap.
         for (id in ids) manager.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
-        // 9 Flip architecture: warm the render snapshot in the
+        // the reference app architecture: warm the render snapshot in the
         // background so the factory only ever reads it.
         AppGridSnapshotBuilder.rebuildAsync(context)
     }
@@ -76,7 +76,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_LAUNCH_APP -> {
                 // One template action, distinguished by the fill-in's
-                // click_action extra (9Flip t5.a style): the template
+                // click_action extra (the reference app t5.a style): the template
                 // PendingIntent is MUTABLE, so fill-in extras arrive.
                 when (intent.getStringExtra("click_action") ?: "open_package") {
                     "open_group" -> {
@@ -92,7 +92,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                         refreshAll(context)
                     }
                     else -> {
-                        // Accept both the old "pkg" key and 9Flip's "package_name",
+                        // Accept both the old "pkg" key and the reference app's "package_name",
                         // so a fill-in from either side launches.
                         val pkg = intent.getStringExtra(CoverWidgetProvider.EXTRA_PKG)
                             ?: intent.getStringExtra("package_name") ?: return
@@ -152,7 +152,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 updateWidget(context, mgr, id)
                 mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
             }
-            // 9 Flip architecture: warm the render snapshot in the
+            // the reference app architecture: warm the render snapshot in the
             // background so the factory only ever reads it.
             AppGridSnapshotBuilder.rebuildAsync(context)
         }
@@ -220,7 +220,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 .appendPath(if (st.showLabels) "1" else "0").build()
             views.setRemoteAdapter(R.id.app_grid, svc)
             views.setEmptyView(R.id.app_grid, R.id.app_grid_empty)
-            // 3.5.0 click fix, decompiled from 9Flip t5.h.i():
+            // 3.5.0 click fix, decompiled from the reference app t5.h.i():
             // the grid template MUST be MUTABLE (33554432) + UPDATE_CURRENT
             // (134217728), with requestCode = 10000 + appWidgetId.
             // CFlip used IMMUTABLE + requestCode 0, so Android 12+ dropped
@@ -270,7 +270,7 @@ class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
 private class AppGridFactory(private val context: Context, private val widgetId: Int = 0) :
     android.widget.RemoteViewsService.RemoteViewsFactory {
 
-    // 9 Flip architecture (2026-11-20): the factory holds only the
+    // the reference app architecture (2026-11-20): the factory holds only the
     // currently displayed list of snapshot items — all data work and
     // all icon rendering happen in AppGridSnapshotBuilder, ahead of
     // time. See AppGridSnapshot.kt.
@@ -302,7 +302,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     override fun onDestroy() { items = emptyList() }
     override fun getCount(): Int = items.size
 
-    // 9 Flip t5.a style: assemble the cell from the snapshot item's
+    // the reference app t5.a style: assemble the cell from the snapshot item's
     // pre-rendered fields only — no queries, no rendering, nothing
     // that can make a scrolling cell "load" again.
     override fun getViewAt(position: Int): RemoteViews? {
@@ -317,7 +317,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     override fun hasStableIds(): Boolean = true
 
     // HOTFIX (2026-11-20): back to null. The widget-lag fix returned
-    // an INVISIBLE item layout here (copied from 9 Flip / Cover
+    // an INVISIBLE item layout here (copied from the reference app / Cover
     // Power), but on Samsung's cover host — the same host that
     // refused plain Views in vc249 — app cells ended up represented
     // by that invisible placeholder and never swapped for the real
@@ -354,7 +354,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         } else {
             views.setViewVisibility(R.id.app_grid_item_label, View.GONE)
         }
-        // Fill-in, 9Flip t5.a style: app_widget_id + appWidgetId +
+        // Fill-in, the reference app t5.a style: app_widget_id + appWidgetId +
         // click_action + package_name, plus CFlip's own "pkg" key.
         // With a MUTABLE template above, these extras now actually arrive.
         val fill = Intent()
@@ -406,7 +406,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         return views
     }
 
-    // 9 Flip architecture (2026-11-20): load() no longer computes
+    // the reference app architecture (2026-11-20): load() no longer computes
     // anything. It asks the snapshot builder for the current
     // snapshot (built eagerly by the provider, or on first demand
     // here) and picks the list to display: the open group's members
@@ -441,7 +441,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     companion object {
         // The prepared-items and built-views caches that used to
         // live here were replaced by the AppGridSnapshot store
-        // (9 Flip architecture rework, 2026-11-20): the snapshot
+        // (the reference app architecture rework, 2026-11-20): the snapshot
         // holds the prepared items AND their pre-rendered icons,
         // process-wide, keyed by the dataset signature.
     }

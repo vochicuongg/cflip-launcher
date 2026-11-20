@@ -2,7 +2,7 @@
 
 ## Decompile đã làm (bản 149, static-only)
 
-Giao diện app chính của 9 Flip là Flutter, nên không có layout XML
+Giao diện app chính của the reference app là Flutter, nên không có layout XML
 native để đọc. Những gì đọc được từ chính APK:
 
 - `assets/flutter_assets/assets/translations/{en,vi}.json`: 570 khóa
@@ -23,7 +23,7 @@ native để đọc. Những gì đọc được từ chính APK:
   state `m8` với panel Control Center trên cover.
 
 **Không sao chép sang CFlip:** không lấy chữ, icon, ảnh, màu hay bố
-cục nguyên bản của 9 Flip; không có thẻ premium/paywall (CFlip không
+cục nguyên bản của the reference app; không có thẻ premium/paywall (CFlip không
 có premium); không có mục social (Reddit/X/Threads/Instagram) vì CFlip
 là app cá nhân.
 

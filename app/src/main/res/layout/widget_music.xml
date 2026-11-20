@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- vc246 CASSETTE (9Flip: CoverCassette) — the music widget as a tape:
+<!-- vc246 CASSETTE (the reference app: CoverCassette) — the music widget as a tape:
      state eyebrow + title/artist, a tape window (two reels + tape line),
      a progress bar with elapsed/total, and prev / big-mint play-pause /
      next / refresh. All ids kept (music_title/artist/prev/playpause/next/

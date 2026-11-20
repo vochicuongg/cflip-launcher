@@ -19,7 +19,7 @@ import com.cuong.cflip.media.MediaState
  * Controls go through MediaControllerRepository, so they need Notification
  * Access (the same permission as the cover Media tab). Tapping the title
  * opens CFlip at the Media tab.
- * vc246 CASSETTE (9Flip: CoverCassette): the layout is a tape — state
+ * vc246 CASSETTE (the reference app: CoverCassette): the layout is a tape — state
  * eyebrow, title/artist, a tape window (two reels + tape line), a
  * progress bar with elapsed/total, and a big mint play-pause button.
  * open layoutRes so MusicSmallWidgetProvider reuses this whole class

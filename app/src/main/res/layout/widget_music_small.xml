@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- vc246 CASSETTE SMALL (9Flip: Cassette Small) — compact music widget,
+<!-- vc246 CASSETTE SMALL (the reference app: Cassette Small) — compact music widget,
      same ids as widget_music so MusicWidgetProvider's onUpdate works
      unchanged (actions for ids absent here — refresh/state/progress —
      are no-ops in RemoteViews). Title + artist, tape window, 3 controls.

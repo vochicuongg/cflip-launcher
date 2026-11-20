@@ -33,7 +33,7 @@ import kotlin.math.abs
  *   tab, on the cover display, via MainActivity intent extras.
  * Dragging repositions the button; the position is saved with the display size
  * at save time and clamped when the display changes, like the pattern in the
- * 9Flip analysis. Auto-dim drops the button to 40% alpha after 2500ms idle and
+ * the reference app analysis. Auto-dim drops the button to 40% alpha after 2500ms idle and
  * restores it on touch.
  *
  * This manager never touches the default display: show() returns failure if the
@@ -55,7 +55,7 @@ object CoverAssistiveTouchManager {
     // 3.3.0 keep-awake: Samsung's cover idle timer does not count
     // touches on a NOT_FOCUSABLE overlay as cover activity, so the
     // cover slept while the user was still tapping/dragging the button.
-    // 9Flip's button also has no KEEP_SCREEN_ON flag — its cover UI is
+    // the reference app's button also has no KEEP_SCREEN_ON flag — its cover UI is
     // an Activity, which does count. CFlip's button is an overlay, so
     // it must do it explicitly with the public View.keepScreenOn API:
     // every touch re-arms keepScreenOn=true, and 30s after the last
@@ -92,7 +92,7 @@ object CoverAssistiveTouchManager {
             throw IllegalArgumentException("AssistiveTouch is cover-only, refusing default display")
         }
         hide()
-        // vc99 LOCK BUBBLE TYPE (9Flip ub.java: type =
+        // vc99 LOCK BUBBLE TYPE (the reference app ub.java: type =
         // a11y != null ? 2032 : fallback): CFlip's bubble
         // used 2038 (TYPE_APPLICATION_OVERLAY) + SHOW_WHEN
         // _LOCKED, which Samsung hides over a secure
@@ -144,6 +144,7 @@ object CoverAssistiveTouchManager {
             size, size,
             bubbleType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START; x = startX; y = startY }
@@ -192,6 +193,21 @@ object CoverAssistiveTouchManager {
         }
 
         btn.setOnTouchListener { v, e ->
+            // Touch-area fix (user, 2026-11-20): the window is a
+            // square but the visible button is the inscribed OVAL.
+            // Taps in the square's corners — invisible area right
+            // next to real on-screen items — used to be swallowed
+            // by the bubble and opened the panel. A DOWN outside
+            // the circle is now refused, and with
+            // FLAG_NOT_TOUCH_MODAL on the window it falls through
+            // to whatever is actually underneath.
+            if (e.action == MotionEvent.ACTION_DOWN) {
+                val cx = v.width / 2f; val cy = v.height / 2f
+                val dx = e.x - cx; val dy = e.y - cy
+                if (dx * dx + dy * dy > cx * cx) {
+                    return@setOnTouchListener false
+                }
+            }
             // vc112 PRESS ANIMATION (user, 27/10:
             // smooth interaction): shrink to 0.9
             // on DOWN, spring back to 1.0 on UP /
@@ -277,7 +293,7 @@ object CoverAssistiveTouchManager {
                             longPressRunnable = null
                         }
                     }
-                    // vc32: Euclidean distance (like 9Flip c1 hypot),
+                    // vc32: Euclidean distance (like the reference app c1 hypot),
                     // not Manhattan; keep float until the final round.
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (kotlin.math.hypot(dx, dy) > touchSlop) {
@@ -289,7 +305,7 @@ object CoverAssistiveTouchManager {
                         }
                         val newX = Math.round(paramsX + dx).coerceIn(0, maxOf(0, dispW - size))
                         val newY = Math.round(paramsY + dy).coerceIn(0, maxOf(0, dispH - size))
-                        // Skip redundant relayouts (9Flip b6 does the same).
+                        // Skip redundant relayouts (the reference app b6 does the same).
                         if (newX != params.x || newY != params.y) {
                             params.x = newX; params.y = newY
                             runCatching { manager.updateViewLayout(v, params) }
@@ -349,7 +365,7 @@ object CoverAssistiveTouchManager {
                     // Home/Menu (both blocked on lock).
                     // It asks the system to dismiss the
                     // keyguard via UnlockActivity, exactly
-                    // like 9Flip's transient unlock flow.
+                    // like the reference app's transient unlock flow.
                     if (isKeyguardLocked(appContext)) {
                         launchUnlockActivity(appContext, display.displayId)
                         scheduleDim()
@@ -383,7 +399,7 @@ object CoverAssistiveTouchManager {
             }
         }
 
-        // vc33: 9Flip sets gesture exclusion to the whole button rect,
+        // vc33: the reference app sets gesture exclusion to the whole button rect,
         // so edge swipes do not steal the drag. CFlip never set it, so a
         // bubble near the edge lost MOVE events to the system back/home
         // gesture (ACTION_CANCEL) — the "swipe does not move" symptom.

@@ -88,7 +88,7 @@ class CoverWidgetProvider : AppWidgetProvider() {
             if (QuickControls.torchOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
         views.setImageViewResource(R.id.btn_playpause,
             if (MediaState.current.value?.isPlaying == true) R.drawable.ic_w_pause else R.drawable.ic_w_play)
-        // vc246: now-playing line (9Flip cassette lesson) — GONE when
+        // vc246: now-playing line (the reference app cassette lesson) — GONE when
         // nothing plays, so the widget never shows a stale title.
         // vc247: the whole media row hides now (the title lives inside
         // the lifted row), so no empty strip is left behind.

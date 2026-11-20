@@ -39,18 +39,18 @@ import android.view.View
  *   follows the finger, session seeks once on finger-up).
  * This supersedes the vc107/vc112 HONEST LIMIT notes for the case
  * where capture works; the synthetic wave remains the fallback.
- * vc107 media timeline, following 9Flip e4/i (decompiled
+ * vc107 media timeline, following the reference app e4/i (decompiled
  * 27/10, clean-room re-implementation, NOT a copy):
  * - View height 28dp, timeline inset 8dp left/right.
  * - Track: thin pill, height 4dp, centred, white 128
  *   alpha, drawn ONLY for the unplayed segment
- *   (progressX..right), like 9Flip.
+ *   (progressX..right), like the reference app.
  * - Progress pill: same 4dp pill, primary colour at
  *   150 alpha, drawn ONLY for the played segment,
  *   fading out as the wave fades in (progress
  *   0.05..0.09, smoothstep). At normal progress the
  *   pill is gone and the wave is the timeline.
- * - Wave: NOT discrete bars (vc105 was wrong - 9Flip
+ * - Wave: NOT discrete bars (vc105 was wrong - the reference app
  *   has no bars). Two continuous smooth filled wave
  *   paths, top edge a sine wave with an envelope
  *   that is 0 at both ends of the played segment
@@ -59,24 +59,24 @@ import android.view.View
  *   Primary colour at 128 alpha * fadeIn, secondary
  *   colour (hue-shifted primary) at the same alpha.
  *   Wave phase animates slowly (68s loop, like
- *   9Flip's 68s ValueAnimator) while playing and
+ *   the reference app's 68s ValueAnimator) while playing and
  *   progress >= 0.05, via a 100ms invalidate tick.
  * - Palette: primary hue from the song title hash,
  *   secondary = primary hue + 140 degrees, like
- *   9Flip's hash palette + hue shift (own hue set,
- *   not 9Flip's 24-colour list).
+ *   the reference app's hash palette + hue shift (own hue set,
+ *   not the reference app's 24-colour list).
  * - Thumb: white solid circle radius 7dp at
  *   progressX, with a soft black 32 alpha shadow
- *   circle radius 8dp under it, like 9Flip's
+ *   circle radius 8dp under it, like the reference app's
  *   seekable thumb (shadow gradient + white fill).
  * - Seek: touch x maps through the 8dp inset, so
  *   the seek point matches the drawn progressX.
  * HONEST LIMIT (unchanged from vc105): the wave
  * shape is a synthetic sine wave, not the song's
- * real analysed waveform - 9Flip's wave is also
+ * real analysed waveform - the reference app's wave is also
  * synthetic (its shape comes from sine functions
  * and the metadata hash, not from audio data).
- * What vc107 copies from 9Flip is the SHAPE and
+ * What vc107 copies from the reference app is the SHAPE and
  * BEHAVIOUR (smooth filled wave, pill track,
  * palette, fade-in, slow animation), not real
  * audio analysis, which neither app does here.
@@ -111,7 +111,7 @@ import android.view.View
  *   of the whole wave pumping at once. That is
  *   what makes it feel natural but still cyclic:
  *   the beat order and period are fixed, never
- *   random. The slow 68s shape morph (9Flip)
+ *   random. The slow 68s shape morph (the reference app)
  *   stays underneath, so shape and beat are two
  *   separate, definite cycles.
  * - BRIGHTER GAMUT: same dominant hue family
@@ -149,13 +149,13 @@ import android.view.View
  *   is flat at the pill bottom, never below it
  *   (vc112's symmetric ribbon below the centre
  *   is gone). View height back to 28dp (CC).
- * - GENTLER, SMOOTHER, 9Flip tempo: phase is
- *   a 68s linear ValueAnimator (exactly 9Flip
+ * - GENTLER, SMOOTHER, the reference app tempo: phase is
+ *   a 68s linear ValueAnimator (exactly the reference app
  *   e4/i: ofFloat(0, 50), 68000ms, Linear,
  *   repeat), updating at frame rate instead of
  *   a 100ms tick (10fps was part of the jerk).
  *   The 2Hz beat pulse from vc112 is REMOVED,
- *   and the height factor is back to 9Flip's
+ *   and the height factor is back to the reference app's
  *   gentle 0.14..0.76 (was vc112's full 0..1).
  * - NO SCALE CHANGE with progress: amplitude
  *   is constant (no progress factor, no pulse),
@@ -167,10 +167,10 @@ import android.view.View
  *   COUNT changes. Edge taper is also fixed:
  *   16dp smoothstep at each end, not a
  *   sin(pi*t) taper over the whole segment.
- *   This is a deliberate deviation from 9Flip's
+ *   This is a deliberate deviation from the reference app's
  *   segment-relative shape, to fix the
  *   small-scale complaint; tempo (68s linear)
- *   and fade-in (0.05..0.09) still follow 9Flip.
+ *   and fade-in (0.05..0.09) still follow the reference app.
  * - SEEK SMOOTHNESS (see onTouchEvent): drag
  *   updates the UI locally only, and seeks the
  *   session ONCE on finger-up. Previously every
@@ -202,7 +202,7 @@ import android.view.View
  *   beat pulse is a synthetic tempo, not real
  *   audio amplitude - MediaSession here gives
  *   position / duration / art only, no waveform
- *   data, so neither CFlip nor a 9Flip-style
+ *   data, so neither CFlip nor a reference-style
  *   synthetic wave can beat to the real music.
  * vc108 CHANGES (user, 27/10):
  * - Wave colour: dominant colour of the album
@@ -564,8 +564,8 @@ class MediaProgressBar(context: Context) : View(context) {
         }
     }
 
-    // vc113 9Flip TEMPO, frame-rate smooth:
-    // 9Flip e4/i runs ValueAnimator.ofFloat(0,
+    // vc113 the reference app TEMPO, frame-rate smooth:
+    // the reference app e4/i runs ValueAnimator.ofFloat(0,
     // 50) over 68000ms, Linear, repeat forever,
     // invalidating on every animator update
     // (i.e. at display refresh rate). CFlip's
@@ -573,10 +573,10 @@ class MediaProgressBar(context: Context) : View(context) {
     // wave stepped visibly. This animator is
     // the same tempo, at frame rate, and it
     // only runs while playing, progress >=
-    // 0.05 and attached - the same gate 9Flip
+    // 0.05 and attached - the same gate the reference app
     // uses (its j() stops the animator below
     // 0.05). Phase jumps back every 68s, exactly
-    // as 9Flip's repeat does (50 rad is not a
+    // as the reference app's repeat does (50 rad is not a
     // multiple of 2pi, so the jump is small
     // but real - same as the original).
     private var wavePhase: Float = 0f
@@ -623,7 +623,7 @@ class MediaProgressBar(context: Context) : View(context) {
     // - Wavelength is 32dp in ABSOLUTE x, not
     //   1 cycle across the played segment, so
     //   peak size never scales with progress.
-    // - Height factor is 9Flip-gentle 0.14..0.76
+    // - Height factor is the reference app-gentle 0.14..0.76
     //   (main sine + small 2nd harmonic), not
     //   vc112's full 0..1 beat.
     // - Edge taper is a 16dp smoothstep at each
@@ -778,7 +778,7 @@ class MediaProgressBar(context: Context) : View(context) {
         // spread across layers, not pumped into
         // all layers at once, so the wave rolls
         // instead of thumping. Opaque (255),
-        // 9Flip phase from the animator above.
+        // the reference app phase from the animator above.
         // vc142: sine is the fallback only - when
         // real capture is alive the bars above
         // are drawn instead.

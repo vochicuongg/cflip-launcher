@@ -41,8 +41,8 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   brighten mint (`#337FE3C0`); all text uses the token hexes above.
   Never rename/remove an `@+id` a provider references, never change
   a widget's declared size, never rename a provider.
-- vc246 CASSETTE (9Flip lesson, from REA static evidence only — no
-  copied assets/code): 9Flip's cover music is a Cassette family —
+- vc246 CASSETTE (the reference app lesson, from REA static evidence only — no
+  copied assets/code): the reference app's cover music is a Cassette family —
   full + small + small-tape cover variants (+ 3 home variants), each
   a separate provider sharing the Samsung `sub_screen` meta-data,
   plus an AppGrid that is a full launcher surface via
@@ -62,8 +62,8 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   widget gains a now-playing line (GONE when nothing plays) + a
   "YÊU THÍCH" label; AppGrid shares the mint card bg, 44dp icons,
   11sp labels with ellipsis, 10dp grid spacing, round mint refresh.
-  What CFlip did NOT learn: 9Flip has no dedicated clock widget to
-  copy; Cover Power's PRO banner / paywall and 9Flip's premium quotas
+  What CFlip did NOT learn: the reference app has no dedicated clock widget to
+  copy; the reference app's PRO banner / paywall and the reference app's premium quotas
   are not adopted (no paywall by principle); no animated/live
   wallpaper, no floating-menu activity. The skill's 4th web palette
   (purple/pink, Righteous/Poppins) was REJECTED again; the ux search
@@ -83,13 +83,13 @@ the 4 Samsung cover widgets (RemoteViews XML layouts).
   (3) ClockWidgetProvider.requestUpdate() existed but had ZERO
   call-sites anywhere in the repo; (4) MusicWidgetProvider had NO
   requestUpdate at all; (5) AppGridWidgetProvider.refreshAll() is
-  called from GroupEditorScreen + its own actions. 9Flip's evidence
+  called from GroupEditorScreen + its own actions. the reference app's evidence
   CUTS AGAINST exported as the sole cause: all 6 of its cassette
-  providers are exported=false and they work — 9Flip refreshes its
+  providers are exported=false and they work — the reference app refreshes its
   widgets from inside the app (CoverFloatingMenuReceiver
   SHOW/HIDE/REFRESH). CFlip's Samsung meta-data has NO deviation:
   all 5 samsung_*_info.xml share display="sub_screen", 352dp sizes,
-  keyguard category (9Flip shares one samsung info XML across its
+  keyguard category (the reference app shares one samsung info XML across its
   cassettes; CFlip keeps one per widget — equivalent). Fix, both
   directions covered: (a) exported=false → true for exactly Music /
   MusicSmall / Clock (AppGrid/Cover untouched); (b) new
