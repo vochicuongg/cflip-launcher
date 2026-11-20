@@ -119,8 +119,10 @@ check("Factory renders icons through WidgetIconCache, not per-cell createBitmap"
       "WidgetIconCache.render" in _w and "iconBitmapFor" in _w and "createBitmap" not in _w)
 check("Factory loads apps WITHOUT icons (lazy per-cell icon load)",
       "includeIcons = false" in _w and "includeIcons: Boolean = true" in read("data/AppRepository.kt"))
-check("Icon-less app list is never cached by AppRepository",
-      "includeIcons" in read("data/AppRepository.kt") and "receiverOk && includeIcons" in read("data/AppRepository.kt"))
+check("Icon-less app list is never cached in the FULL AppRepository cache",
+      "if (includeIcons) cachedUnfiltered = apps" in read("data/AppRepository.kt") and "else cachedUnfilteredNoIcons = apps" in read("data/AppRepository.kt"))
+check("Icon-less app list has its OWN AppRepository cache (scroll-reload fix)",
+      "cachedUnfilteredNoIcons" in read("data/AppRepository.kt"))
 check("getLoadingView is null again (hotfix: INVISIBLE placeholder broke Samsung host cells)",
       "getLoadingView(): RemoteViews? = null" in _w)
 check("onUpdate notifies immediately (hotfix: Samsung host needs it to re-query the factory)",
@@ -131,8 +133,10 @@ check("Provider header title comes from stored prefs, no provider-side app load"
       "AppRepository(context).loadLaunchableApps" not in _w.split("private fun updateWidget")[1].split("AppGridRemoteViewsService")[0] and "openGroupTitle" in _w)
 check("Folder fill-in carries group_title for the header",
       '"group_title"' in _w)
-check("Factory reuses prepared items on unchanged signature (15 s TTL)",
-      "PREPARED_TTL_MS = 15_000L" in _w and "preparedItems" in _w)
+check("Factory reuses prepared items on unchanged signature (10 min TTL safety net)",
+      "PREPARED_TTL_MS = 600_000L" in _w and "preparedItems" in _w)
+check("Prepared-items key includes launch-history hash (recent order invalidates at once)",
+      "LaunchHistoryStore(context).lastLaunched().hashCode()" in _w)
 check("Prepared cache never publishes an empty grid (hotfix)",
       "if (items.isNotEmpty())" in _w)
 

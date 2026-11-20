@@ -54,6 +54,18 @@ class AppRepository(private val context: Context) {
         // from the cached unfiltered list, so
         // hiding / unhiding takes effect at once.
         @Volatile private var cachedUnfiltered: List<AppInfo>? = null
+        // Scroll-reload fix (2026-11-20): SEPARATE cache for the
+        // icon-less variant (widget factory). The first lag fix made
+        // icon-less results uncacheable so the Compose UI could never
+        // inherit missing icons — but that also meant every widget
+        // reload re-ran the full PackageManager query whenever the
+        // widget process had not opened the app UI first, which the
+        // user felt as the grid "reloading apps" on every scroll /
+        // rebind. Icon-less results now cache HERE instead: the full
+        // cache above always wins when present, this one only serves
+        // includeIcons = false callers, and the same package
+        // broadcasts clear both.
+        @Volatile private var cachedUnfilteredNoIcons: List<AppInfo>? = null
         @Volatile private var cacheVersionValue: Int = 0
         @Volatile private var receiverRegistered: Boolean = false
         private val cacheLock = Any()
@@ -61,6 +73,7 @@ class AppRepository(private val context: Context) {
         fun clearAppListCache() {
             synchronized(cacheLock) {
                 cachedUnfiltered = null
+                cachedUnfilteredNoIcons = null
                 cacheVersionValue++
             }
         }
@@ -101,6 +114,11 @@ class AppRepository(private val context: Context) {
                 cachedUnfiltered?.let { cached ->
                     return if (includeHidden) cached.toList() else filterHidden(cached).toList()
                 }
+                if (!includeIcons) {
+                    cachedUnfilteredNoIcons?.let { cached ->
+                        return if (includeHidden) cached.toList() else filterHidden(cached).toList()
+                    }
+                }
             }
         }
         val pm = context.packageManager
@@ -124,8 +142,9 @@ class AppRepository(private val context: Context) {
                     // includeIcons = false so a cold query does not
                     // loadIcon() every installed app up front; the icon
                     // is fetched per visible cell instead. An icon-less
-                    // result is NEVER put into the shared cache below,
-                    // or other surfaces would inherit the missing icons.
+                    // result is NEVER put into the FULL shared cache
+                    // below (it has its own cache), or other surfaces
+                    // would inherit the missing icons.
                     icon = if (includeIcons) runCatching { ri.loadIcon(pm) }.getOrNull() else null,
                     // vc149 APP GROUPS: declared category for the
                     // grouper (UNDEFINED when the app declares none).
@@ -138,10 +157,14 @@ class AppRepository(private val context: Context) {
         // vc111: cache only non-empty results,
         // and only when the package receiver is
         // alive to invalidate them (see companion).
-        // Widget-lag fix: icon-less results are not cached either
-        // (see includeIcons above).
-        if (apps.isNotEmpty() && receiverOk && includeIcons) {
-            synchronized(cacheLock) { cachedUnfiltered = apps }
+        // Scroll-reload fix: icon-less results go to their own
+        // cache (see cachedUnfilteredNoIcons above), never into
+        // the full cache.
+        if (apps.isNotEmpty() && receiverOk) {
+            synchronized(cacheLock) {
+                if (includeIcons) cachedUnfiltered = apps
+                else cachedUnfilteredNoIcons = apps
+            }
         }
         if (includeHidden) return apps
         return filterHidden(apps)

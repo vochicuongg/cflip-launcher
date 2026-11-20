@@ -424,10 +424,17 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // whole pipeline below — UsageStats query, group sections,
         // sorting — even when nothing had changed. The prepared
         // items are now reused while the configuration signature is
-        // unchanged and the entry is fresh (15 s TTL bounds how stale
-        // the "recently used" order can get). This mirrors 9 Flip's
-        // design, whose factory only reads a prebuilt render
-        // snapshot (t5.a.f()) instead of recomputing it.
+        // unchanged. This mirrors 9 Flip's design, whose factory
+        // only reads a prebuilt render snapshot (t5.a.f()) instead
+        // of recomputing it.
+        // Scroll-reload fix (2026-11-20): the TTL was 15 s, so any
+        // scroll/rebind after 15 s re-ran the full pipeline and the
+        // user saw the grid "reload the apps" while scrolling.
+        // Invalidation is signature-driven (package changes bump
+        // AppRepository.appListVersion, group edits change the
+        // group signature, and the launch-history hash below covers
+        // the recently-used order), so the TTL is now just a 10 min
+        // safety net, not the mechanism.
         val st0 = com.cuong.cflip.data.SettingsStore(context).load()
         val customGroups = CustomGroupStore.load(context)
         val hiddenAuto = CustomGroupStore.loadHiddenAuto(context)
@@ -442,6 +449,10 @@ private class AppGridFactory(private val context: Context, private val widgetId:
                 customGroups, hiddenAuto, overrides,
                 autoOrder, unifiedOrder, deletedSections),
             com.cuong.cflip.data.HiddenAppsStore(context).getHidden().hashCode().toString(),
+            // Launch order affects only the recent sort, but keeping
+            // its hash in the key makes a launch invalidate the
+            // prepared items immediately instead of at TTL expiry.
+            com.cuong.cflip.data.LaunchHistoryStore(context).lastLaunched().hashCode().toString(),
             openId0,
             st0.sortMode.toString(), st0.iconSizeDp.toString(),
             st0.showLabels.toString(), st0.favoritesFirst.toString(),
@@ -534,7 +545,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // instance (the host may create several). Static state is
         // exactly what lets Cover Power's factory stay cheap across
         // rebinds (its label cache is a static ConcurrentHashMap).
-        private const val PREPARED_TTL_MS = 15_000L
+        private const val PREPARED_TTL_MS = 600_000L
         private val preparedLock = Any()
         @Volatile private var preparedKey: String? = null
         @Volatile private var preparedAtMs: Long = 0L
