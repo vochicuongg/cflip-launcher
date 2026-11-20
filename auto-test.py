@@ -111,6 +111,29 @@ for p in SRC.rglob("*.kt"):
 check("No Good Lock / MultiStar mention in Kotlin sources",
       "Good Lock" not in all_kt and "MultiStar" not in all_kt)
 
+# --- Widget lag fix (2026-11-20, REA comparison vs 9 Flip / Cover Power) ---
+_w = read("widget/AppGridWidgetProvider.kt")
+check("Widget icon cache exists (LruCache, package@sizePx keys)",
+      "object WidgetIconCache" in read("widget/WidgetIconCache.kt") and "LruCache<String, Bitmap>" in read("widget/WidgetIconCache.kt"))
+check("Factory renders icons through WidgetIconCache, not per-cell createBitmap",
+      "WidgetIconCache.render" in _w and "iconBitmapFor" in _w and "createBitmap" not in _w)
+check("Factory loads apps WITHOUT icons (lazy per-cell icon load)",
+      "includeIcons = false" in _w and "includeIcons: Boolean = true" in read("data/AppRepository.kt"))
+check("Icon-less app list is never cached by AppRepository",
+      "includeIcons" in read("data/AppRepository.kt") and "receiverOk && includeIcons" in read("data/AppRepository.kt"))
+check("getLoadingView returns a placeholder, not null",
+      "getLoadingView(): RemoteViews" in _w and "View.INVISIBLE" in _w)
+check("onUpdate does not force notifyAppWidgetViewDataChanged",
+      "manager.notifyAppWidgetViewDataChanged(id" not in _w.split("override fun onUpdate")[1].split("override fun onReceive")[0])
+check("refreshAll debounces the data-changed notify (250 ms)",
+      "postDelayed(task, 250L)" in _w)
+check("Provider header title comes from stored prefs, no provider-side app load",
+      "AppRepository(context).loadLaunchableApps" not in _w.split("private fun updateWidget")[1].split("AppGridRemoteViewsService")[0] and "openGroupTitle" in _w)
+check("Folder fill-in carries group_title for the header",
+      '"group_title"' in _w)
+check("Factory reuses prepared items on unchanged signature (15 s TTL)",
+      "PREPARED_TTL_MS = 15_000L" in _w and "preparedItems" in _w)
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} check(s): {', '.join(failures)}")

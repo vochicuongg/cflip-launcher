@@ -6,10 +6,9 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
-import android.graphics.Canvas
-import android.graphics.drawable.Drawable
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
@@ -44,8 +43,10 @@ import com.cuong.cflip.display.DisplayRepository
  * CustomGroupStore.sections() — user-built groups first, then
  * the auto groups for the remaining apps. A folder tile carries
  * a stable section id ("custom:<uuid>" or "auto:<GROUP>") and
- * a title, so the open-group state survives renames and the
- * header always resolves its title from live sections.
+ * a title, so the open-group state survives renames. (Widget-lag
+ * fix, 2026-11-20: the header now reads the title stored at open
+ * time — refreshed by the factory on every load — instead of
+ * resolving it from live sections inside updateWidget.)
  *
  * vc153 (user, 29/10): no Back grid cell anymore — back lives in
  * the header as an icon-only button sitting exactly where the
@@ -57,8 +58,15 @@ class AppGridWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         for (id in ids) updateWidget(context, manager, id)
-        // Force the grid to reload its data (new installs, hidden changes).
-        for (id in ids) manager.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
+        // Widget-lag fix (2026-11-20): NO forced
+        // notifyAppWidgetViewDataChanged() here anymore. REA showed
+        // 9 Flip's onUpdate only updates the widget and posts DELAYED
+        // refreshes (350/1200 ms); CFlip used to force a full factory
+        // reload on every system update / host rebind, so unfolding
+        // or rotating re-ran the whole app query + icon render before
+        // the grid answered a single touch. Setting the adapter is
+        // enough: a fresh factory loads once in onCreate, and real
+        // data changes go through refreshAll() (debounced notify).
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -71,7 +79,10 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 when (intent.getStringExtra("click_action") ?: "open_package") {
                     "open_group" -> {
                         val name = intent.getStringExtra("group") ?: return
-                        setOpenGroup(context, name)
+                        // Widget-lag fix: the fill-in now also carries
+                        // the group title, so the header never needs a
+                        // full app load just to label itself.
+                        setOpenGroup(context, name, intent.getStringExtra("group_title") ?: "")
                         refreshAll(context)
                     }
                     "close_group" -> {
@@ -108,50 +119,60 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         const val ACTION_BACK = "com.cuong.cflip.widget.APPGRID_BACK"
         private const val PREFS = "appgrid_widget"
         private const val KEY_OPEN_GROUP = "open_group"
+        private const val KEY_OPEN_TITLE = "open_title"
 
         fun openGroupName(context: Context): String =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(KEY_OPEN_GROUP, "") ?: ""
 
-        fun setOpenGroup(context: Context, name: String) {
+        fun openGroupTitle(context: Context): String =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putString(KEY_OPEN_GROUP, name).apply()
+                .getString(KEY_OPEN_TITLE, "") ?: ""
+
+        fun setOpenGroup(context: Context, name: String, title: String = "") {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_OPEN_GROUP, name)
+                .putString(KEY_OPEN_TITLE, title).apply()
         }
 
+        // Widget-lag fix: notify is debounced (250 ms trailing), the
+        // same shape as 9 Flip's delayed onUpdate refreshes and Cover
+        // Power's throttled refreshWidgetUI. Rapid open/back/refresh
+        // taps used to each trigger a full factory reload; now they
+        // coalesce into one.
+        private val notifyHandler = Handler(Looper.getMainLooper())
+        private var pendingNotify: Runnable? = null
+
         fun refreshAll(context: Context) {
-            val mgr = AppWidgetManager.getInstance(context)
+            val appContext = context.applicationContext
+            val mgr = AppWidgetManager.getInstance(appContext)
             val ids = mgr.getAppWidgetIds(
-                ComponentName(context, AppGridWidgetProvider::class.java))
-            for (id in ids) {
-                updateWidget(context, mgr, id)
-                mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
+                ComponentName(appContext, AppGridWidgetProvider::class.java))
+            for (id in ids) updateWidget(appContext, mgr, id)
+            pendingNotify?.let { notifyHandler.removeCallbacks(it) }
+            val task = Runnable {
+                for (id in ids) mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
             }
+            pendingNotify = task
+            notifyHandler.postDelayed(task, 250L)
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, id: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_appgrid)
             // Header follows the drill-down: top view keeps the old
-            // title, an open group shows its name, resolved from LIVE
-            // sections so a rename is reflected immediately. A stale
-            // open id (group deleted) falls back to the top view.
+            // title, an open group shows its name. Widget-lag fix
+            // (2026-11-20): the title is the one stored when the group
+            // was opened (the folder fill-in carries it, and the
+            // factory re-stores the live title on every load, so a
+            // rename still lands on the next load). This method used
+            // to run a FULL loadLaunchableApps() + sections() just to
+            // resolve the title — a second complete app query inside
+            // every widget update, on the broadcast thread. A stale
+            // open id is now reset by the factory's load() instead.
             val openId = openGroupName(context)
-            val openSection = if (openId.isNotEmpty()) {
-                val apps = runCatching { AppRepository(context).loadLaunchableApps() }
-                    .getOrDefault(emptyList())
-                val (sections, _) = CustomGroupStore.sections(
-                    apps, CustomGroupStore.load(context),
-                    CustomGroupStore.loadHiddenAuto(context),
-                    CustomGroupStore.loadOverrides(context),
-                    CustomGroupStore.loadAutoOrder(context),
-                    CustomGroupStore.loadUnifiedOrder(context),
-                    CustomGroupStore.loadDeletedSections(context))
-                sections.firstOrNull { it.id == openId }
-                    .also { if (it == null) setOpenGroup(context, "") }
-            } else {
-                null
-            }
-            val title = if (openSection != null) {
-                openSection.title
+            val isOpen = openId.isNotEmpty()
+            val title = if (isOpen) {
+                openGroupTitle(context).ifEmpty { "Ứng dụng" }
             } else {
                 "Ứng dụng"
             }
@@ -217,7 +238,7 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 Intent(context, AppGridWidgetProvider::class.java).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            if (openSection != null) {
+            if (isOpen) {
                 // vc153 BACK IN HEADER: while a group is open, the
                 // header button becomes BACK — icon only, no "Tất cả"
                 // text — sitting exactly where refresh sits. Top view
@@ -301,13 +322,36 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         is GridItem.Group -> item.id.hashCode().toLong()
     }
     override fun hasStableIds(): Boolean = true
-    override fun getLoadingView(): RemoteViews? = null
+
+    // Widget-lag fix: a real loading view (item layout, root
+    // INVISIBLE) instead of null — the same shape as both reference
+    // apps (9 Flip t5.a.d(), Cover Power g4.c.getLoadingView()).
+    // With null, the Samsung cover host had nothing to draw while the
+    // factory was busy, which read to the user as a frozen widget.
+    override fun getLoadingView(): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
+        views.setViewVisibility(R.id.app_grid_item_root, View.INVISIBLE)
+        return views
+    }
+
+    // Widget-lag fix: icon bitmaps come from the shared
+    // WidgetIconCache — rendered once per package+size, then pure
+    // memory reads. The Drawable is loaded lazily here (only for
+    // cells the host actually asks for) because load() no longer
+    // loads every app's icon up front.
+    private fun iconBitmapFor(app: AppInfo, sizePx: Int): android.graphics.Bitmap? {
+        WidgetIconCache.get(app.packageName, sizePx)?.let { return it }
+        val drawable = app.icon ?: runCatching {
+            context.packageManager.getApplicationIcon(app.packageName)
+        }.getOrNull() ?: return null
+        return WidgetIconCache.render(app.packageName, drawable, sizePx)
+    }
 
     private fun appViews(app: AppInfo): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
-        app.icon?.let { icon ->
+        iconBitmapFor(app, dpPx(iconDp) * 2)?.let { bmp ->
             // vc255: bitmap at 2x the view size for sharpness.
-            views.setImageViewBitmap(R.id.app_grid_item_icon, iconBitmap(icon, dpPx(iconDp) * 2))
+            views.setImageViewBitmap(R.id.app_grid_item_icon, bmp)
         }
         // vc255 ICON SIZE: the icon view was a fixed 44dp and the
         // bitmap a fixed 96px, so the slider did nothing here.
@@ -353,8 +397,8 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         for (i in 0 until 9) {
             val id = groupIconIds[i]
             if (i < preview.size) {
-                preview[i].icon?.let { icon ->
-                    views.setImageViewBitmap(id, iconBitmap(icon, 32))
+                iconBitmapFor(preview[i], 32)?.let { bmp ->
+                    views.setImageViewBitmap(id, bmp)
                 }
             } else {
                 views.setViewVisibility(id, View.INVISIBLE)
@@ -372,22 +416,60 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             .putExtra("appWidgetId", widgetId)
             .putExtra("click_action", "open_group")
             .putExtra("group", id)
+            // Widget-lag fix: title rides along so opening the group
+            // never needs a full app load to label the header.
+            .putExtra("group_title", title)
         views.setOnClickFillInIntent(R.id.app_grid_group_root, fill)
         return views
     }
 
-    private fun iconBitmap(icon: Drawable, size: Int): Bitmap {
-        val copy = icon.constantState?.newDrawable()?.mutate() ?: icon
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        copy.setBounds(0, 0, size, size)
-        copy.draw(canvas)
-        return bmp
-    }
-
     private fun load() {
-        val apps = runCatching { AppRepository(context).loadLaunchableApps() }
-            .getOrDefault(emptyList())
+        // Widget-lag fix (2026-11-20): prepared-items cache. The
+        // host rebinds this factory constantly (fold/unfold, options
+        // changes, notify storms); each rebind used to re-run the
+        // whole pipeline below — UsageStats query, group sections,
+        // sorting — even when nothing had changed. The prepared
+        // items are now reused while the configuration signature is
+        // unchanged and the entry is fresh (15 s TTL bounds how stale
+        // the "recently used" order can get). This mirrors 9 Flip's
+        // design, whose factory only reads a prebuilt render
+        // snapshot (t5.a.f()) instead of recomputing it.
+        val st0 = com.cuong.cflip.data.SettingsStore(context).load()
+        val customGroups = CustomGroupStore.load(context)
+        val hiddenAuto = CustomGroupStore.loadHiddenAuto(context)
+        val overrides = CustomGroupStore.loadOverrides(context)
+        val autoOrder = CustomGroupStore.loadAutoOrder(context)
+        val unifiedOrder = CustomGroupStore.loadUnifiedOrder(context)
+        val deletedSections = CustomGroupStore.loadDeletedSections(context)
+        val openId0 = AppGridWidgetProvider.openGroupName(context)
+        val cacheKey = listOf(
+            AppRepository.appListVersion().toString(),
+            CustomGroupStore.signature(
+                customGroups, hiddenAuto, overrides,
+                autoOrder, unifiedOrder, deletedSections),
+            com.cuong.cflip.data.HiddenAppsStore(context).getHidden().hashCode().toString(),
+            openId0,
+            st0.sortMode.toString(), st0.iconSizeDp.toString(),
+            st0.showLabels.toString(), st0.favoritesFirst.toString(),
+        ).joinToString("|")
+        val nowMs = System.currentTimeMillis()
+        synchronized(preparedLock) {
+            if (preparedKey == cacheKey && nowMs - preparedAtMs < PREPARED_TTL_MS) {
+                items = preparedItems
+                iconDp = preparedIconDp
+                showLabels = preparedShowLabels
+                sortMode = st0.sortMode
+                return
+            }
+        }
+        // Icons are NOT loaded here anymore (includeIcons = false):
+        // a cold query used to loadIcon() all ~200 apps on the
+        // factory's binder thread before the first cell could be
+        // served. Icons load lazily per visible cell via
+        // WidgetIconCache (see iconBitmapFor).
+        val apps = runCatching {
+            AppRepository(context).loadLaunchableApps(includeIcons = false)
+        }.getOrDefault(emptyList())
         // vc255 SORT + ICON + LABELS: the factory used to ignore
         // sortMode entirely (groups in section order, ungrouped
         // apps always A-Z) and hardcode a 44dp icon with labels
@@ -398,7 +480,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // Recent order works without Usage Access too (the
         // launch-history fallback in RecentAppsRepository); it is
         // just shorter then, and the rest stay A-Z.
-        val st = com.cuong.cflip.data.SettingsStore(context).load()
+        val st = st0
         // Icon clamp for the widget band: widget cells are ~50-100dp
         // wide, so the slider's 84dp top would overflow them — 64dp
         // is the most that still fits with the label underneath.
@@ -416,15 +498,17 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // then ungrouped apps — the same merge as the panel card.
         // vc153: no Back cell anymore — back lives in the header.
         val (sections, ungrouped) = CustomGroupStore.sections(
-            apps, CustomGroupStore.load(context),
-            CustomGroupStore.loadHiddenAuto(context),
-            CustomGroupStore.loadOverrides(context),
-            CustomGroupStore.loadAutoOrder(context),
-            CustomGroupStore.loadUnifiedOrder(context),
-            CustomGroupStore.loadDeletedSections(context))
+            apps, customGroups, hiddenAuto, overrides,
+            autoOrder, unifiedOrder, deletedSections)
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
         items = if (openSection != null) {
+            // Widget-lag fix: keep the stored header title in sync
+            // with the live section (renames land here), without the
+            // provider ever loading apps itself.
+            if (AppGridWidgetProvider.openGroupTitle(context) != openSection.title) {
+                AppGridWidgetProvider.setOpenGroup(context, openId, openSection.title)
+            }
             // Inside a folder: just its members, in the user's order.
             sorted(openSection.members).map { GridItem.App(it) }
         } else {
@@ -434,5 +518,28 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             sections.map { GridItem.Group(it.id, it.title, sorted(it.members)) } +
                 sorted(ungrouped).map { GridItem.App(it) }
         }
+        // Widget-lag fix: publish the prepared items for the next
+        // rebind (see the cache check at the top of load()).
+        synchronized(preparedLock) {
+            preparedKey = cacheKey
+            preparedAtMs = System.currentTimeMillis()
+            preparedItems = items
+            preparedIconDp = iconDp
+            preparedShowLabels = showLabels
+        }
+    }
+
+    companion object {
+        // Process-wide prepared-items cache, shared by every factory
+        // instance (the host may create several). Static state is
+        // exactly what lets Cover Power's factory stay cheap across
+        // rebinds (its label cache is a static ConcurrentHashMap).
+        private const val PREPARED_TTL_MS = 15_000L
+        private val preparedLock = Any()
+        @Volatile private var preparedKey: String? = null
+        @Volatile private var preparedAtMs: Long = 0L
+        @Volatile private var preparedItems: List<GridItem> = emptyList()
+        @Volatile private var preparedIconDp: Int = 44
+        @Volatile private var preparedShowLabels: Boolean = true
     }
 }

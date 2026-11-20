@@ -93,7 +93,7 @@ class AppRepository(private val context: Context) {
         return apps.filterNot { it.packageName in hidden }
     }
 
-    fun loadLaunchableApps(includeHidden: Boolean = false): List<AppInfo> {
+    fun loadLaunchableApps(includeHidden: Boolean = false, includeIcons: Boolean = true): List<AppInfo> {
         val appContext = context.applicationContext
         val receiverOk = ensurePackageReceiver(appContext)
         if (receiverOk) {
@@ -119,7 +119,14 @@ class AppRepository(private val context: Context) {
                 AppInfo(
                     packageName = pkg,
                     label = runCatching { ri.loadLabel(pm).toString() }.getOrDefault(pkg),
-                    icon = runCatching { ri.loadIcon(pm) }.getOrNull(),
+                    // Widget-lag fix (2026-11-20): callers that render
+                    // icons lazily (the app-grid widget factory) pass
+                    // includeIcons = false so a cold query does not
+                    // loadIcon() every installed app up front; the icon
+                    // is fetched per visible cell instead. An icon-less
+                    // result is NEVER put into the shared cache below,
+                    // or other surfaces would inherit the missing icons.
+                    icon = if (includeIcons) runCatching { ri.loadIcon(pm) }.getOrNull() else null,
                     // vc149 APP GROUPS: declared category for the
                     // grouper (UNDEFINED when the app declares none).
                     category = runCatching { ri.activityInfo.applicationInfo.category }
@@ -131,7 +138,9 @@ class AppRepository(private val context: Context) {
         // vc111: cache only non-empty results,
         // and only when the package receiver is
         // alive to invalidate them (see companion).
-        if (apps.isNotEmpty() && receiverOk) {
+        // Widget-lag fix: icon-less results are not cached either
+        // (see includeIcons above).
+        if (apps.isNotEmpty() && receiverOk && includeIcons) {
             synchronized(cacheLock) { cachedUnfiltered = apps }
         }
         if (includeHidden) return apps
