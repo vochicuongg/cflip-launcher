@@ -117,12 +117,12 @@ check("Widget icon cache exists (LruCache, package@sizePx keys)",
       "object WidgetIconCache" in read("widget/WidgetIconCache.kt") and "LruCache<String, Bitmap>" in read("widget/WidgetIconCache.kt"))
 check("Icon bitmap cache is 24 MiB and Drawables are cached per package (scroll fix)",
       "24 * 1024" in read("widget/WidgetIconCache.kt") and "ConcurrentHashMap<String, Drawable>" in read("widget/WidgetIconCache.kt"))
-check("Factory returns already-built cell views on scroll (process-wide view cache keyed by dataset)",
-      "builtViews[key]" in _w and "private val builtViews" in _w and "dataKey = cacheKey" in _w)
-check("Factory renders icons through WidgetIconCache, not per-cell createBitmap",
-      "WidgetIconCache.render" in _w and "iconBitmapFor" in _w and "createBitmap" not in _w)
-check("Factory loads apps WITHOUT icons (lazy per-cell icon load)",
-      "includeIcons = false" in _w and "includeIcons: Boolean = true" in read("data/AppRepository.kt"))
+check("9 Flip architecture: snapshot store + builder exist, factory only reads the snapshot",
+      "object AppGridSnapshotStore" in read("widget/AppGridSnapshot.kt") and "object AppGridSnapshotBuilder" in read("widget/AppGridSnapshot.kt") and "AppGridSnapshotBuilder.snapshot(context, cellPx)" in _w and "iconBitmapFor" not in _w)
+check("Snapshot builder renders icons through WidgetIconCache (factory never renders)",
+      "WidgetIconCache.render" in read("widget/AppGridSnapshot.kt") and "createBitmap" not in _w)
+check("Snapshot builder loads apps WITHOUT icons (icons rendered once, into the snapshot)",
+      "includeIcons = false" in read("widget/AppGridSnapshot.kt") and "includeIcons: Boolean = true" in read("data/AppRepository.kt"))
 check("Icon-less app list is never cached in the FULL AppRepository cache",
       "if (includeIcons) cachedUnfiltered = apps" in read("data/AppRepository.kt") and "else cachedUnfilteredNoIcons = apps" in read("data/AppRepository.kt"))
 check("Icon-less app list has its OWN AppRepository cache (scroll-reload fix)",
@@ -137,12 +137,12 @@ check("Provider header title comes from stored prefs, no provider-side app load"
       "AppRepository(context).loadLaunchableApps" not in _w.split("private fun updateWidget")[1].split("AppGridRemoteViewsService")[0] and "openGroupTitle" in _w)
 check("Folder fill-in carries group_title for the header",
       '"group_title"' in _w)
-check("Factory reuses prepared items on unchanged signature (10 min TTL safety net)",
-      "PREPARED_TTL_MS = 600_000L" in _w and "preparedItems" in _w)
-check("Prepared-items key includes launch-history hash (recent order invalidates at once)",
-      "LaunchHistoryStore(context).lastLaunched().hashCode()" in _w)
-check("Prepared cache never publishes an empty grid (hotfix)",
-      "if (items.isNotEmpty())" in _w)
+check("Snapshot holds top view AND every group (open/back never rebuilds)",
+      "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
+check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
+      "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Snapshot builder never publishes an empty snapshot over a good one (hotfix)",
+      "Never publish an empty snapshot" in read("widget/AppGridSnapshot.kt"))
 
 print()
 if failures:

@@ -12,8 +12,6 @@ import android.view.View
 import android.widget.RemoteViews
 import com.cuong.cflip.R
 import com.cuong.cflip.data.CustomGroupStore
-import com.cuong.cflip.data.AppInfo
-import com.cuong.cflip.data.AppRepository
 import com.cuong.cflip.display.AppLauncher
 import com.cuong.cflip.display.DisplayRepository
 
@@ -68,6 +66,9 @@ class AppGridWidgetProvider : AppWidgetProvider() {
         // (WidgetIconCache, lazy icons, prepared-items cache), which
         // make the reload this triggers cheap.
         for (id in ids) manager.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
+        // 9 Flip architecture: warm the render snapshot in the
+        // background so the factory only ever reads it.
+        AppGridSnapshotBuilder.rebuildAsync(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -151,6 +152,9 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 updateWidget(context, mgr, id)
                 mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
             }
+            // 9 Flip architecture: warm the render snapshot in the
+            // background so the factory only ever reads it.
+            AppGridSnapshotBuilder.rebuildAsync(context)
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, id: Int) {
@@ -263,20 +267,15 @@ class AppGridRemoteViewsService : android.widget.RemoteViewsService() {
     }
 }
 
-private sealed class GridItem {
-    data class App(val app: AppInfo) : GridItem()
-    data class Group(val id: String, val title: String, val members: List<AppInfo>) : GridItem()
-}
-
 private class AppGridFactory(private val context: Context, private val widgetId: Int = 0) :
     android.widget.RemoteViewsService.RemoteViewsFactory {
 
-    private var items: List<GridItem> = emptyList()
-    // vc255: grid settings, re-read from the store on every load()
-    // (the provider also puts them in the adapter URI so a settings
-    // change binds a fresh factory — belt and suspenders).
+    // 9 Flip architecture (2026-11-20): the factory holds only the
+    // currently displayed list of snapshot items — all data work and
+    // all icon rendering happen in AppGridSnapshotBuilder, ahead of
+    // time. See AppGridSnapshot.kt.
+    private var items: List<AppGridSnapshotStore.Item> = emptyList()
     private var iconDp: Int = 44
-    private var sortMode: Int = 0
     private var showLabels: Boolean = true
 
     // vc255: RemoteViews sizes are pixels on the HOST display (the
@@ -298,58 +297,23 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         R.id.app_grid_group_icon_6, R.id.app_grid_group_icon_7, R.id.app_grid_group_icon_8,
     )
 
-    // Scroll fix (2026-11-20): built cell views are kept per item
-    // id. The cover host re-asks getViewAt() for a cell every time
-    // it scrolls back into view; rebuilding the RemoteViews (and
-    // re-rendering its icon) each time read as the grid "reloading
-    // the apps" while scrolling. A cell that has been built once is
-    // now returned as the SAME RemoteViews — nothing re-renders.
-    //
-    // Scroll fix 2 (same day, after on-device test still showed a
-    // few-ms reload): the cache now lives in the COMPANION, not in
-    // the factory instance — Samsung's host destroys and recreates
-    // the factory on adapter re-sets and rebinds, which wiped the
-    // per-instance cache every time. This mirrors 9 Flip's design
-    // (REA: t5.a reads its snapshot from a store outside the
-    // factory, v5.c via h.k(), so factory lifecycle is irrelevant
-    // there; its getViewAt is a pure field read + setImageViewBitmap
-    // of the pre-rendered snapshot bitmap). Keys carry the dataset
-    // signature (dataKey), so a real data change simply misses and
-    // rebuilds; group open/exit therefore behave as before.
-    private var dataKey: String = ""
-
     override fun onCreate() { load() }
     override fun onDataSetChanged() { load() }
     override fun onDestroy() { items = emptyList() }
     override fun getCount(): Int = items.size
 
+    // 9 Flip t5.a style: assemble the cell from the snapshot item's
+    // pre-rendered fields only — no queries, no rendering, nothing
+    // that can make a scrolling cell "load" again.
     override fun getViewAt(position: Int): RemoteViews? {
         if (position !in items.indices) return null
         val item = items[position]
-        // getItemId() values can collide across the 2 view types,
-        // so the type is folded into the cache key.
-        val itemKey = getItemId(position) * 2 + if (item is GridItem.Group) 1 else 0
-        val key = "$widgetId|$dataKey|$itemKey"
-        synchronized(builtViewsLock) { builtViews[key] }?.let { return it }
-        val built = when (item) {
-            is GridItem.App -> appViews(item.app)
-            is GridItem.Group -> groupViews(item.id, item.title, item.members)
-        }
-        synchronized(builtViewsLock) {
-            // Prune: a few hundred entries cover the whole grid in
-            // both views; beyond that, old datasets are dropped.
-            if (builtViews.size > 800) builtViews.clear()
-            builtViews[key] = built
-        }
-        return built
+        return if (item.isGroup) groupViews(item) else appViews(item)
     }
 
     // 2 view types: app cell, folder tile.
     override fun getViewTypeCount(): Int = 2
-    override fun getItemId(position: Int): Long = when (val item = items[position]) {
-        is GridItem.App -> item.app.packageName.hashCode().toLong()
-        is GridItem.Group -> item.id.hashCode().toLong()
-    }
+    override fun getItemId(position: Int): Long = items[position].id.hashCode().toLong()
     override fun hasStableIds(): Boolean = true
 
     // HOTFIX (2026-11-20): back to null. The widget-lag fix returned
@@ -366,20 +330,11 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     // memory reads. The Drawable is loaded lazily here (only for
     // cells the host actually asks for) because load() no longer
     // loads every app's icon up front.
-    private fun iconBitmapFor(app: AppInfo, sizePx: Int): android.graphics.Bitmap? {
-        WidgetIconCache.get(app.packageName, sizePx)?.let { return it }
-        // Scroll fix: the Drawable comes from WidgetIconCache's own
-        // per-package cache, so a bitmap miss re-draws from memory
-        // instead of going back to PackageManager on scroll.
-        val drawable = app.icon ?: WidgetIconCache.drawable(
-            app.packageName, context.packageManager) ?: return null
-        return WidgetIconCache.render(app.packageName, drawable, sizePx)
-    }
-
-    private fun appViews(app: AppInfo): RemoteViews {
+    private fun appViews(item: AppGridSnapshotStore.Item): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
-        iconBitmapFor(app, dpPx(iconDp) * 2)?.let { bmp ->
-            // vc255: bitmap at 2x the view size for sharpness.
+        // The snapshot's bitmap is pre-rendered at exactly the
+        // view's host-pixel size (see AppGridSnapshotBuilder).
+        item.icon?.let { bmp ->
             views.setImageViewBitmap(R.id.app_grid_item_icon, bmp)
         }
         // vc255 ICON SIZE: the icon view was a fixed 44dp and the
@@ -394,7 +349,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         views.setViewLayoutWidth(R.id.app_grid_item_icon, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
         views.setViewLayoutHeight(R.id.app_grid_item_icon, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
         if (showLabels) {
-            views.setTextViewText(R.id.app_grid_item_label, app.label)
+            views.setTextViewText(R.id.app_grid_item_label, item.label)
             views.setViewVisibility(R.id.app_grid_item_label, View.VISIBLE)
         } else {
             views.setViewVisibility(R.id.app_grid_item_label, View.GONE)
@@ -407,34 +362,33 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             .putExtra("app_widget_id", widgetId)
             .putExtra("appWidgetId", widgetId)
             .putExtra("click_action", "open_package")
-            .putExtra("package_name", app.packageName)
-            .putExtra(CoverWidgetProvider.EXTRA_PKG, app.packageName)
+            .putExtra("package_name", item.id)
+            .putExtra(CoverWidgetProvider.EXTRA_PKG, item.id)
         views.setOnClickFillInIntent(R.id.app_grid_item_root, fill)
         return views
     }
 
-    private fun groupViews(id: String, title: String, members: List<AppInfo>): RemoteViews {
+    private fun groupViews(item: AppGridSnapshotStore.Item): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_appgrid_group)
         // vc255: the folder preview box follows the icon size like
         // an app cell (the 9 mini icons scale with it via weight).
         views.setViewLayoutWidth(R.id.app_grid_group_icon_box, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
         views.setViewLayoutHeight(R.id.app_grid_group_icon_box, dpPx(iconDp).toFloat(), TypedValue.COMPLEX_UNIT_PX)
-        // SystemUI-style folder preview: first 9 members (A-Z) in a
-        // 3x3 mini-grid; missing slots stay INVISIBLE so the 3x3
-        // shape holds for small groups.
-        val preview = members.take(9)
+        // SystemUI-style folder preview: first 9 members in a 3x3
+        // mini-grid, icons pre-rendered in the snapshot; missing
+        // slots stay INVISIBLE so the 3x3 shape holds.
         for (i in 0 until 9) {
-            val id = groupIconIds[i]
-            if (i < preview.size) {
-                iconBitmapFor(preview[i], 32)?.let { bmp ->
-                    views.setImageViewBitmap(id, bmp)
+            val slotId = groupIconIds[i]
+            if (i < item.memberCount) {
+                item.memberIcons.getOrNull(i)?.let { bmp ->
+                    views.setImageViewBitmap(slotId, bmp)
                 }
             } else {
-                views.setViewVisibility(id, View.INVISIBLE)
+                views.setViewVisibility(slotId, View.INVISIBLE)
             }
         }
         if (showLabels) {
-            views.setTextViewText(R.id.app_grid_group_label, title)
+            views.setTextViewText(R.id.app_grid_group_label, item.label)
             views.setViewVisibility(R.id.app_grid_group_label, View.VISIBLE)
         } else {
             views.setViewVisibility(R.id.app_grid_group_label, View.GONE)
@@ -444,157 +398,51 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             .putExtra("app_widget_id", widgetId)
             .putExtra("appWidgetId", widgetId)
             .putExtra("click_action", "open_group")
-            .putExtra("group", id)
+            .putExtra("group", item.id)
             // Widget-lag fix: title rides along so opening the group
             // never needs a full app load to label the header.
-            .putExtra("group_title", title)
+            .putExtra("group_title", item.label)
         views.setOnClickFillInIntent(R.id.app_grid_group_root, fill)
         return views
     }
 
+    // 9 Flip architecture (2026-11-20): load() no longer computes
+    // anything. It asks the snapshot builder for the current
+    // snapshot (built eagerly by the provider, or on first demand
+    // here) and picks the list to display: the open group's members
+    // or the top view. Everything else — queries, sections,
+    // sorting, icon rendering — already happened in the builder.
     private fun load() {
-        // Widget-lag fix (2026-11-20): prepared-items cache. The
-        // host rebinds this factory constantly (fold/unfold, options
-        // changes, notify storms); each rebind used to re-run the
-        // whole pipeline below — UsageStats query, group sections,
-        // sorting — even when nothing had changed. The prepared
-        // items are now reused while the configuration signature is
-        // unchanged. This mirrors 9 Flip's design, whose factory
-        // only reads a prebuilt render snapshot (t5.a.f()) instead
-        // of recomputing it.
-        // Scroll-reload fix (2026-11-20): the TTL was 15 s, so any
-        // scroll/rebind after 15 s re-ran the full pipeline and the
-        // user saw the grid "reload the apps" while scrolling.
-        // Invalidation is signature-driven (package changes bump
-        // AppRepository.appListVersion, group edits change the
-        // group signature, and the launch-history hash below covers
-        // the recently-used order), so the TTL is now just a 10 min
-        // safety net, not the mechanism.
-        val st0 = com.cuong.cflip.data.SettingsStore(context).load()
-        val customGroups = CustomGroupStore.load(context)
-        val hiddenAuto = CustomGroupStore.loadHiddenAuto(context)
-        val overrides = CustomGroupStore.loadOverrides(context)
-        val autoOrder = CustomGroupStore.loadAutoOrder(context)
-        val unifiedOrder = CustomGroupStore.loadUnifiedOrder(context)
-        val deletedSections = CustomGroupStore.loadDeletedSections(context)
-        val openId0 = AppGridWidgetProvider.openGroupName(context)
-        val cacheKey = listOf(
-            AppRepository.appListVersion().toString(),
-            CustomGroupStore.signature(
-                customGroups, hiddenAuto, overrides,
-                autoOrder, unifiedOrder, deletedSections),
-            com.cuong.cflip.data.HiddenAppsStore(context).getHidden().hashCode().toString(),
-            // Launch order affects only the recent sort, but keeping
-            // its hash in the key makes a launch invalidate the
-            // prepared items immediately instead of at TTL expiry.
-            com.cuong.cflip.data.LaunchHistoryStore(context).lastLaunched().hashCode().toString(),
-            openId0,
-            st0.sortMode.toString(), st0.iconSizeDp.toString(),
-            st0.showLabels.toString(), st0.favoritesFirst.toString(),
-        ).joinToString("|")
-        val nowMs = System.currentTimeMillis()
-        synchronized(preparedLock) {
-            if (preparedKey == cacheKey && nowMs - preparedAtMs < PREPARED_TTL_MS) {
-                items = preparedItems
-                iconDp = preparedIconDp
-                showLabels = preparedShowLabels
-                dataKey = cacheKey
-                sortMode = st0.sortMode
-                return
-            }
-        }
-        // Icons are NOT loaded here anymore (includeIcons = false):
-        // a cold query used to loadIcon() all ~200 apps on the
-        // factory's binder thread before the first cell could be
-        // served. Icons load lazily per visible cell via
-        // WidgetIconCache (see iconBitmapFor).
-        val apps = runCatching {
-            AppRepository(context).loadLaunchableApps(includeIcons = false)
-        }.getOrDefault(emptyList())
-        // vc255 SORT + ICON + LABELS: the factory used to ignore
-        // sortMode entirely (groups in section order, ungrouped
-        // apps always A-Z) and hardcode a 44dp icon with labels
-        // always on. Now it reads the store on every load: the
-        // sort applies to the app lists — ungrouped apps and the
-        // members inside each folder / open group — while the
-        // folder tiles themselves keep their section order.
-        // Recent order works without Usage Access too (the
-        // launch-history fallback in RecentAppsRepository); it is
-        // just shorter then, and the rest stay A-Z.
-        val st = st0
-        // Icon clamp for the widget band: widget cells are ~50-100dp
-        // wide, so the slider's 84dp top would overflow them — 64dp
-        // is the most that still fits with the label underneath.
-        // (The provider applies the same band when it builds the
-        // adapter URI; the column count itself is set on the GridView
-        // in updateWidget, not here.)
-        iconDp = st.iconSizeDp.coerceIn(24, 64)
-        sortMode = st.sortMode
-        showLabels = st.showLabels
-        val recentOrder = com.cuong.cflip.data.RecentAppsRepository(context).recentPackages(100)
-        val installTimes = if (sortMode == 2) AppRepository(context).installTimes(apps.map { it.packageName }) else emptyMap()
-        fun sorted(list: List<AppInfo>) =
-            com.cuong.cflip.data.AppSort.sort(list, sortMode, recentOrder, installTimes)
-        // vc152: custom groups first, then auto groups for the rest,
-        // then ungrouped apps — the same merge as the panel card.
-        // vc153: no Back cell anymore — back lives in the header.
-        val (sections, ungrouped) = CustomGroupStore.sections(
-            apps, customGroups, hiddenAuto, overrides,
-            autoOrder, unifiedOrder, deletedSections)
+        val st = com.cuong.cflip.data.SettingsStore(context).load()
+        val cellPx = dpPx(st.iconSizeDp.coerceIn(24, 64))
+        val snap = AppGridSnapshotBuilder.snapshot(context, cellPx)
+        iconDp = snap.iconDp
+        showLabels = snap.showLabels
         val openId = AppGridWidgetProvider.openGroupName(context)
-        val openSection = sections.firstOrNull { it.id == openId }
-        // Scroll fix 2: items are being recomputed under a NEW
-        // dataset signature — built views keyed by the old dataKey
-        // become unreachable on their own, no explicit clear needed.
-        dataKey = cacheKey
-        items = if (openSection != null) {
-            // Widget-lag fix: keep the stored header title in sync
-            // with the live section (renames land here), without the
-            // provider ever loading apps itself.
-            if (AppGridWidgetProvider.openGroupTitle(context) != openSection.title) {
-                AppGridWidgetProvider.setOpenGroup(context, openId, openSection.title)
+        val groupItems = if (openId.isNotEmpty()) snap.groups[openId] else null
+        if (groupItems != null) {
+            // Keep the stored header title in sync with the live
+            // section (renames land here), without the provider
+            // ever loading apps itself.
+            val title = snap.top.firstOrNull { it.isGroup && it.id == openId }?.label
+            if (title != null &&
+                AppGridWidgetProvider.openGroupTitle(context) != title) {
+                AppGridWidgetProvider.setOpenGroup(context, openId, title)
             }
-            // Inside a folder: just its members, in the user's order.
-            sorted(openSection.members).map { GridItem.App(it) }
+            items = groupItems
         } else {
-            // Top view: folder tiles + ungrouped apps (A-Z).
-            // A stale open id (group deleted/emptied) resets to top view.
+            // A stale open id (group deleted/emptied) resets to top.
             if (openId.isNotEmpty()) AppGridWidgetProvider.setOpenGroup(context, "")
-            sections.map { GridItem.Group(it.id, it.title, sorted(it.members)) } +
-                sorted(ungrouped).map { GridItem.App(it) }
-        }
-        // Widget-lag fix: publish the prepared items for the next
-        // rebind (see the cache check at the top of load()).
-        // HOTFIX (2026-11-20): an EMPTY result is never published —
-        // the same rule AppRepository's vc111 cache follows — so a
-        // transient-empty query (vc59/vc71) can never be served to
-        // the next rebind as if it were the real grid.
-        if (items.isNotEmpty()) {
-            synchronized(preparedLock) {
-                preparedKey = cacheKey
-                preparedAtMs = System.currentTimeMillis()
-                preparedItems = items
-                preparedIconDp = iconDp
-                preparedShowLabels = showLabels
-            }
+            items = snap.top
         }
     }
 
+
     companion object {
-        // Process-wide prepared-items cache, shared by every factory
-        // instance (the host may create several). Static state is
-        // exactly what lets Cover Power's factory stay cheap across
-        // rebinds (its label cache is a static ConcurrentHashMap).
-        private const val PREPARED_TTL_MS = 600_000L
-        private val preparedLock = Any()
-        // Process-wide built-views cache (scroll fix 2): survives
-        // factory destruction, keyed by widgetId|datasetKey|item.
-        private val builtViewsLock = Any()
-        private val builtViews = LinkedHashMap<String, RemoteViews>()
-        @Volatile private var preparedKey: String? = null
-        @Volatile private var preparedAtMs: Long = 0L
-        @Volatile private var preparedItems: List<GridItem> = emptyList()
-        @Volatile private var preparedIconDp: Int = 44
-        @Volatile private var preparedShowLabels: Boolean = true
+        // The prepared-items and built-views caches that used to
+        // live here were replaced by the AppGridSnapshot store
+        // (9 Flip architecture rework, 2026-11-20): the snapshot
+        // holds the prepared items AND their pre-rendered icons,
+        // process-wide, keyed by the dataset signature.
     }
 }
