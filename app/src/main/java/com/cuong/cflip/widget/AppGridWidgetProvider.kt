@@ -7,8 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
@@ -58,15 +56,18 @@ class AppGridWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         for (id in ids) updateWidget(context, manager, id)
-        // Widget-lag fix (2026-11-20): NO forced
-        // notifyAppWidgetViewDataChanged() here anymore. REA showed
-        // 9 Flip's onUpdate only updates the widget and posts DELAYED
-        // refreshes (350/1200 ms); CFlip used to force a full factory
-        // reload on every system update / host rebind, so unfolding
-        // or rotating re-ran the whole app query + icon render before
-        // the grid answered a single touch. Setting the adapter is
-        // enough: a fresh factory loads once in onCreate, and real
-        // data changes go through refreshAll() (debounced notify).
+        // Force the grid to reload its data (new installs, hidden changes).
+        // HOTFIX (2026-11-20): the widget-lag fix removed this notify
+        // (and debounced refreshAll's), copying 9 Flip's delayed
+        // refresh — but Samsung's cover host is NOT the stock host:
+        // without an immediate notify after an app update it never
+        // re-queries the factory, so the grid kept only its restored
+        // folder tiles and every app cell (top view AND inside
+        // groups) stayed empty on the vc258+lagfix build. Restored
+        // verbatim; the lag win is kept through the caches instead
+        // (WidgetIconCache, lazy icons, prepared-items cache), which
+        // make the reload this triggers cheap.
+        for (id in ids) manager.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -135,26 +136,21 @@ class AppGridWidgetProvider : AppWidgetProvider() {
                 .putString(KEY_OPEN_TITLE, title).apply()
         }
 
-        // Widget-lag fix: notify is debounced (250 ms trailing), the
-        // same shape as 9 Flip's delayed onUpdate refreshes and Cover
-        // Power's throttled refreshWidgetUI. Rapid open/back/refresh
-        // taps used to each trigger a full factory reload; now they
-        // coalesce into one.
-        private val notifyHandler = Handler(Looper.getMainLooper())
-        private var pendingNotify: Runnable? = null
-
         fun refreshAll(context: Context) {
-            val appContext = context.applicationContext
-            val mgr = AppWidgetManager.getInstance(appContext)
+            // HOTFIX (2026-11-20): immediate notify restored — the
+            // 250 ms debounce from the widget-lag fix is removed.
+            // vc158's design relies on this notify to make the
+            // factory reload for open/back/refresh (the adapter data
+            // is unchanged in those flows), and on Samsung's cover
+            // host the delayed notify raced the adapter re-set in
+            // updateWidget, leaving the group view empty.
+            val mgr = AppWidgetManager.getInstance(context)
             val ids = mgr.getAppWidgetIds(
-                ComponentName(appContext, AppGridWidgetProvider::class.java))
-            for (id in ids) updateWidget(appContext, mgr, id)
-            pendingNotify?.let { notifyHandler.removeCallbacks(it) }
-            val task = Runnable {
-                for (id in ids) mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
+                ComponentName(context, AppGridWidgetProvider::class.java))
+            for (id in ids) {
+                updateWidget(context, mgr, id)
+                mgr.notifyAppWidgetViewDataChanged(id, R.id.app_grid)
             }
-            pendingNotify = task
-            notifyHandler.postDelayed(task, 250L)
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, id: Int) {
@@ -323,16 +319,14 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     }
     override fun hasStableIds(): Boolean = true
 
-    // Widget-lag fix: a real loading view (item layout, root
-    // INVISIBLE) instead of null — the same shape as both reference
-    // apps (9 Flip t5.a.d(), Cover Power g4.c.getLoadingView()).
-    // With null, the Samsung cover host had nothing to draw while the
-    // factory was busy, which read to the user as a frozen widget.
-    override fun getLoadingView(): RemoteViews {
-        val views = RemoteViews(context.packageName, R.layout.widget_appgrid_item)
-        views.setViewVisibility(R.id.app_grid_item_root, View.INVISIBLE)
-        return views
-    }
+    // HOTFIX (2026-11-20): back to null. The widget-lag fix returned
+    // an INVISIBLE item layout here (copied from 9 Flip / Cover
+    // Power), but on Samsung's cover host — the same host that
+    // refused plain Views in vc249 — app cells ended up represented
+    // by that invisible placeholder and never swapped for the real
+    // cell views, so no app cell was visible anywhere in the grid.
+    // null is what every working CFlip build shipped with.
+    override fun getLoadingView(): RemoteViews? = null
 
     // Widget-lag fix: icon bitmaps come from the shared
     // WidgetIconCache — rendered once per package+size, then pure
@@ -520,12 +514,18 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         }
         // Widget-lag fix: publish the prepared items for the next
         // rebind (see the cache check at the top of load()).
-        synchronized(preparedLock) {
-            preparedKey = cacheKey
-            preparedAtMs = System.currentTimeMillis()
-            preparedItems = items
-            preparedIconDp = iconDp
-            preparedShowLabels = showLabels
+        // HOTFIX (2026-11-20): an EMPTY result is never published —
+        // the same rule AppRepository's vc111 cache follows — so a
+        // transient-empty query (vc59/vc71) can never be served to
+        // the next rebind as if it were the real grid.
+        if (items.isNotEmpty()) {
+            synchronized(preparedLock) {
+                preparedKey = cacheKey
+                preparedAtMs = System.currentTimeMillis()
+                preparedItems = items
+                preparedIconDp = iconDp
+                preparedShowLabels = showLabels
+            }
         }
     }
 
