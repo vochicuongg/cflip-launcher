@@ -141,6 +141,8 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Accessibility ON re-shows the Quick Panel opener at once when the feature is enabled",
+      "ACTION_A11Y_CONNECTED" in read("service/CoverForegroundService.kt") and "settings.assistiveTouchEnabled" in read("service/MyAccessibilityService.kt") and "ACTION_A11Y_CONNECTED" in read("service/MyAccessibilityService.kt"))
 check("Snapshot persists to disk and reloads in a fresh process (9 Flip apps_snapshot pattern)",
       "loadFromDisk" in read("widget/AppGridSnapshot.kt") and "persistAsync" in read("widget/AppGridSnapshot.kt") and "snapshot.json" in read("widget/AppGridSnapshot.kt"))
 check("Widget drawer preview shows the REAL snapshot apps, not only a static mock",

@@ -28,6 +28,21 @@ class MyAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "Connected")
+        // User requirement (2026-11-20): if the user has already
+        // enabled the Quick Panel feature in CFlip (the
+        // assistive-touch opener), switching Accessibility ON must
+        // bring the Quick Panel up right away. If the feature is
+        // off, nothing happens here at all.
+        runCatching {
+            val settings = com.cuong.cflip.data.SettingsStore(this).load()
+            if (settings.assistiveTouchEnabled) {
+                startForegroundService(
+                    android.content.Intent(this, CoverForegroundService::class.java)
+                        .setAction(CoverForegroundService.ACTION_A11Y_CONNECTED)
+                )
+                Log.i(TAG, "Quick Panel enabled in CFlip settings - cover opener re-show requested")
+            }
+        }.onFailure { Log.w(TAG, "Quick Panel re-show on connect failed", it) }
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {

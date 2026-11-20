@@ -152,6 +152,20 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
                 com.cuong.cflip.cover.CoverSwipeIndicatorManager.hide()
                 Log.i(TAG, "Cover AssistiveTouch hidden on request (RotateHost kept)")
             }
+            ACTION_A11Y_CONNECTED -> {
+                // User requirement (2026-11-20): when Accessibility
+                // is switched ON and the user has already enabled
+                // the Quick Panel feature in CFlip, the cover opener
+                // must appear right away — not at the next fold /
+                // display event. Resetting the shown-display marker
+                // forces tryShow to re-apply the opener (this also
+                // upgrades it to the accessibility overlay type,
+                // which only exists once the service is connected).
+                // tryShow itself re-checks assistiveTouchEnabled,
+                // so with the feature off this stays a no-op.
+                assistiveTouchDisplayId = -1
+                tryShowOnSecondary()
+            }
             ACTION_ROTATION_CHANGED -> {
                 // vc92 BUBBLE-RESTORE FIX (log 04:06-04:13 27/10:
                 // mirror stops cleanly, bubble lost, only
@@ -401,5 +415,6 @@ class CoverForegroundService : Service(), DisplayManager.DisplayListener,
         private const val TAG = "CFlipFG"
         const val ACTION_HIDE_COVER = "com.cuong.cflip.cover.HIDE"
         const val ACTION_ROTATION_CHANGED = "com.cuong.cflip.cover.ROTATION_CHANGED"
+        const val ACTION_A11Y_CONNECTED = "com.cuong.cflip.cover.A11Y_CONNECTED"
     }
 }
