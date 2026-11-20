@@ -304,15 +304,23 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     // re-rendering its icon) each time read as the grid "reloading
     // the apps" while scrolling. A cell that has been built once is
     // now returned as the SAME RemoteViews — nothing re-renders.
-    // The cache is dropped whenever load() recomputes the items
-    // (group open/exit, installs, settings changes all recompute),
-    // and kept across prepared-cache hits, where items are by
-    // definition unchanged.
-    private val viewCache = LinkedHashMap<Long, RemoteViews>()
+    //
+    // Scroll fix 2 (same day, after on-device test still showed a
+    // few-ms reload): the cache now lives in the COMPANION, not in
+    // the factory instance — Samsung's host destroys and recreates
+    // the factory on adapter re-sets and rebinds, which wiped the
+    // per-instance cache every time. This mirrors 9 Flip's design
+    // (REA: t5.a reads its snapshot from a store outside the
+    // factory, v5.c via h.k(), so factory lifecycle is irrelevant
+    // there; its getViewAt is a pure field read + setImageViewBitmap
+    // of the pre-rendered snapshot bitmap). Keys carry the dataset
+    // signature (dataKey), so a real data change simply misses and
+    // rebuilds; group open/exit therefore behave as before.
+    private var dataKey: String = ""
 
     override fun onCreate() { load() }
     override fun onDataSetChanged() { load() }
-    override fun onDestroy() { items = emptyList(); viewCache.clear() }
+    override fun onDestroy() { items = emptyList() }
     override fun getCount(): Int = items.size
 
     override fun getViewAt(position: Int): RemoteViews? {
@@ -320,13 +328,19 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         val item = items[position]
         // getItemId() values can collide across the 2 view types,
         // so the type is folded into the cache key.
-        val key = getItemId(position) * 2 + if (item is GridItem.Group) 1 else 0
-        viewCache[key]?.let { return it }
+        val itemKey = getItemId(position) * 2 + if (item is GridItem.Group) 1 else 0
+        val key = "$widgetId|$dataKey|$itemKey"
+        synchronized(builtViewsLock) { builtViews[key] }?.let { return it }
         val built = when (item) {
             is GridItem.App -> appViews(item.app)
             is GridItem.Group -> groupViews(item.id, item.title, item.members)
         }
-        viewCache[key] = built
+        synchronized(builtViewsLock) {
+            // Prune: a few hundred entries cover the whole grid in
+            // both views; beyond that, old datasets are dropped.
+            if (builtViews.size > 800) builtViews.clear()
+            builtViews[key] = built
+        }
         return built
     }
 
@@ -484,6 +498,7 @@ private class AppGridFactory(private val context: Context, private val widgetId:
                 items = preparedItems
                 iconDp = preparedIconDp
                 showLabels = preparedShowLabels
+                dataKey = cacheKey
                 sortMode = st0.sortMode
                 return
             }
@@ -528,11 +543,10 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             autoOrder, unifiedOrder, deletedSections)
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
-        // Scroll fix: items are being recomputed, so previously
-        // built cell views no longer match positions — drop them.
-        // (The prepared-cache hit path above returns earlier and
-        // keeps both items and built views untouched.)
-        viewCache.clear()
+        // Scroll fix 2: items are being recomputed under a NEW
+        // dataset signature — built views keyed by the old dataKey
+        // become unreachable on their own, no explicit clear needed.
+        dataKey = cacheKey
         items = if (openSection != null) {
             // Widget-lag fix: keep the stored header title in sync
             // with the live section (renames land here), without the
@@ -573,6 +587,10 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         // rebinds (its label cache is a static ConcurrentHashMap).
         private const val PREPARED_TTL_MS = 600_000L
         private val preparedLock = Any()
+        // Process-wide built-views cache (scroll fix 2): survives
+        // factory destruction, keyed by widgetId|datasetKey|item.
+        private val builtViewsLock = Any()
+        private val builtViews = LinkedHashMap<String, RemoteViews>()
         @Volatile private var preparedKey: String? = null
         @Volatile private var preparedAtMs: Long = 0L
         @Volatile private var preparedItems: List<GridItem> = emptyList()

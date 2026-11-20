@@ -117,8 +117,8 @@ check("Widget icon cache exists (LruCache, package@sizePx keys)",
       "object WidgetIconCache" in read("widget/WidgetIconCache.kt") and "LruCache<String, Bitmap>" in read("widget/WidgetIconCache.kt"))
 check("Icon bitmap cache is 24 MiB and Drawables are cached per package (scroll fix)",
       "24 * 1024" in read("widget/WidgetIconCache.kt") and "ConcurrentHashMap<String, Drawable>" in read("widget/WidgetIconCache.kt"))
-check("Factory returns already-built cell views on scroll (view cache, cleared on recompute)",
-      "viewCache[key]?.let { return it }" in _w and "viewCache.clear()" in _w)
+check("Factory returns already-built cell views on scroll (process-wide view cache keyed by dataset)",
+      "builtViews[key]" in _w and "private val builtViews" in _w and "dataKey = cacheKey" in _w)
 check("Factory renders icons through WidgetIconCache, not per-cell createBitmap",
       "WidgetIconCache.render" in _w and "iconBitmapFor" in _w and "createBitmap" not in _w)
 check("Factory loads apps WITHOUT icons (lazy per-cell icon load)",
