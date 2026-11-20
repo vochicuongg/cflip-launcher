@@ -62,6 +62,13 @@ object CoverAssistiveTouchManager {
     // touch it turns back off, so the cover can sleep normally when
     // the user really stops. No WAKE_LOCK permission, no forever-on.
     private var keepAwakeRunnable: Runnable? = null
+    // Tap-burst state lives at OBJECT level, not in show(): the
+    // bubble is hidden and re-shown around panel use, display
+    // changes and service restarts, and a re-show must not reset
+    // an in-progress tap burst (user report, 2026-11-20:
+    // double-tap from the idle state only "activated" the
+    // opener and opened the panel instead of locking).
+    private var lastTapUpAt: Long = 0L
     private fun pokeKeepAwake() {
         val b = button ?: return
         b.keepScreenOn = true
@@ -184,16 +191,17 @@ object CoverAssistiveTouchManager {
         var downX = 0f; var downY = 0f; var paramsX = 0; var paramsY = 0
         var moved = false; var longPressed = false; var pendingSingleTap = false
         var doubleTapOpened = false
-        // Tap-burst tracking (user, 2026-11-20): when the opener
-        // is idle/dimmed and the user taps slowly (case on the
+        // Tap bursts (user, 2026-11-20): when the opener is
+        // idle/dimmed and the user taps slowly (case on the
         // phone), the gap between taps can exceed the double-tap
         // window — the first tap's single action then fires and
         // the second tap starts over. A tap landing within
-        // TAP_BURST_WINDOW_MS of the previous tap's UP continues
-        // the burst and fires the double-tap action instead, so
-        // a slow double-tap — and even a triple-tap — still
-        // performs it (e.g. double-tap = Lock screen).
-        var lastTapUpAt = 0L
+        // tapBurstWindowMs of the previous tap's UP continues the
+        // burst and fires the double-tap action instead, so a
+        // slow double-tap — and even a triple-tap — still
+        // performs it (e.g. double-tap = Lock screen). The burst
+        // timestamp itself is the object-level lastTapUpAt, so it
+        // survives this view being hidden and re-shown mid-burst.
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
 
@@ -280,6 +288,7 @@ object CoverAssistiveTouchManager {
                     // way and fires the double-tap action again.
                     val burstContinuation = !pendingSingleTap && lastTapUpAt > 0L &&
                         (e.eventTime - lastTapUpAt) <= tapBurstWindowMs
+                    android.util.Log.i("CFlipGesture", "bubble DOWN pending=$pendingSingleTap burst=$burstContinuation lastUp=$lastTapUpAt t=${e.eventTime}")
                     if (pendingSingleTap || burstContinuation) {
                         pendingSingleTap = false
                         singleTapRunnable?.let { handler.removeCallbacks(it) }
@@ -436,6 +445,18 @@ object CoverAssistiveTouchManager {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    // A CANCELLED clean press still counts as a
+                    // tap for burst purposes: on the idle cover
+                    // screen the system can eat the first tap's UP
+                    // while waking the cover UI (the tap only
+                    // "activates" the opener) — without this, the
+                    // next tap starts a fresh single-tap sequence
+                    // and opens the panel instead of completing
+                    // the double-tap (user report, 2026-11-20).
+                    val cleanPress = !moved && !longPressed && !doubleTapOpened &&
+                        (e.eventTime - e.downTime) <= 400L
+                    android.util.Log.i("CFlipGesture", "bubble CANCEL cleanPress=$cleanPress moved=$moved long=$longPressed dt=${e.eventTime - e.downTime}")
+                    if (cleanPress) lastTapUpAt = e.eventTime
                     doubleTapOpened = false
                     cancelTapRunnables(); pendingSingleTap = false
                     v.elevation = dp(8).toFloat()
@@ -565,6 +586,7 @@ object CoverAssistiveTouchManager {
     // vc138: shared with the swipe bar - the bar is only a style,
     // so it performs gestures through this same dispatcher, not its own.
     fun performBubbleAction(action: Int, context: Context, displayId: Int) {
+        android.util.Log.i("CFlipGesture", "performBubbleAction action=$action (${com.cuong.cflip.data.BubbleActions.label(action)})")
         when (action) {
             com.cuong.cflip.data.BubbleActions.HOME -> doHome(context, displayId)
             com.cuong.cflip.data.BubbleActions.RECENTS -> doRecents(context)
@@ -582,6 +604,7 @@ object CoverAssistiveTouchManager {
         // the keyguard.
         if (CoverControlCenterManager.isShown()) CoverControlCenterManager.hide()
         val a11y = MyAccessibilityService.instance
+        android.util.Log.i("CFlipGesture", "doLock: a11y instance ${if (a11y == null) "NULL" else "present"}")
         if (a11y?.lockScreen() != true) {
             Log.w(TAG, "Lock failed: no AccessibilityService")
             android.widget.Toast.makeText(

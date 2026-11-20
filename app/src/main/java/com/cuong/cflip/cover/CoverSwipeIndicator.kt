@@ -81,6 +81,9 @@ object CoverSwipeIndicatorManager {
     private var barParams: WindowManager.LayoutParams? = null
     private val dimHandler = Handler(Looper.getMainLooper())
     private var dimRunnable: Runnable? = null
+    // Object-level tap-burst state, same reasoning as the
+    // bubble: survives the bar being hidden and re-shown.
+    private var lastTapUpAt: Long = 0L
 
     fun isShown(): Boolean = bar != null
 
@@ -195,12 +198,11 @@ object CoverSwipeIndicatorManager {
         var longPressed = false
         var pendingSingleTap = false
         var doubleTapOpened = false
-        // Tap-burst tracking, same as the bubble (user,
-        // 2026-11-20): a tap within TAP_BURST_WINDOW of the
-        // previous tap's UP continues the burst and fires the
-        // double-tap action — slow double-taps and triple-taps
-        // included.
-        var lastTapUpAt = 0L
+        // Tap bursts, same as the bubble (user, 2026-11-20): a
+        // tap within tapBurstWindowMs of the previous tap's UP
+        // continues the burst and fires the double-tap action —
+        // slow double-taps and triple-taps included. The
+        // timestamp is the object-level lastTapUpAt.
         var longPressRunnable: Runnable? = null
         var singleTapRunnable: Runnable? = null
         val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
@@ -240,6 +242,7 @@ object CoverSwipeIndicatorManager {
                     // DOWN, exactly like the bubble (vc41).
                     val burstContinuation = !pendingSingleTap && lastTapUpAt > 0L &&
                         (e.eventTime - lastTapUpAt) <= tapBurstWindowMs
+                    android.util.Log.i("CFlipGesture", "bar DOWN pending=$pendingSingleTap burst=$burstContinuation lastUp=$lastTapUpAt t=${e.eventTime}")
                     if (pendingSingleTap || burstContinuation) {
                         pendingSingleTap = false
                         singleTapRunnable?.let { dimHandler.removeCallbacks(it) }
@@ -355,6 +358,14 @@ object CoverSwipeIndicatorManager {
                     }
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    // A cancelled clean press still counts as a
+                    // tap for burst purposes (the idle cover screen
+                    // can eat the first tap's UP while waking —
+                    // see the bubble's ACTION_CANCEL note).
+                    val cleanPress = !dragH && !dragV && !longPressed && !doubleTapOpened &&
+                        (e.eventTime - e.downTime) <= 400L
+                    android.util.Log.i("CFlipGesture", "bar CANCEL cleanPress=$cleanPress dt=${e.eventTime - e.downTime}")
+                    if (cleanPress) lastTapUpAt = e.eventTime
                     doubleTapOpened = false
                     cancelTapRunnables(); pendingSingleTap = false
                     armDim(); true
