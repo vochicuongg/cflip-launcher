@@ -298,17 +298,36 @@ private class AppGridFactory(private val context: Context, private val widgetId:
         R.id.app_grid_group_icon_6, R.id.app_grid_group_icon_7, R.id.app_grid_group_icon_8,
     )
 
+    // Scroll fix (2026-11-20): built cell views are kept per item
+    // id. The cover host re-asks getViewAt() for a cell every time
+    // it scrolls back into view; rebuilding the RemoteViews (and
+    // re-rendering its icon) each time read as the grid "reloading
+    // the apps" while scrolling. A cell that has been built once is
+    // now returned as the SAME RemoteViews — nothing re-renders.
+    // The cache is dropped whenever load() recomputes the items
+    // (group open/exit, installs, settings changes all recompute),
+    // and kept across prepared-cache hits, where items are by
+    // definition unchanged.
+    private val viewCache = LinkedHashMap<Long, RemoteViews>()
+
     override fun onCreate() { load() }
     override fun onDataSetChanged() { load() }
-    override fun onDestroy() { items = emptyList() }
+    override fun onDestroy() { items = emptyList(); viewCache.clear() }
     override fun getCount(): Int = items.size
 
     override fun getViewAt(position: Int): RemoteViews? {
         if (position !in items.indices) return null
-        return when (val item = items[position]) {
+        val item = items[position]
+        // getItemId() values can collide across the 2 view types,
+        // so the type is folded into the cache key.
+        val key = getItemId(position) * 2 + if (item is GridItem.Group) 1 else 0
+        viewCache[key]?.let { return it }
+        val built = when (item) {
             is GridItem.App -> appViews(item.app)
             is GridItem.Group -> groupViews(item.id, item.title, item.members)
         }
+        viewCache[key] = built
+        return built
     }
 
     // 2 view types: app cell, folder tile.
@@ -335,9 +354,11 @@ private class AppGridFactory(private val context: Context, private val widgetId:
     // loads every app's icon up front.
     private fun iconBitmapFor(app: AppInfo, sizePx: Int): android.graphics.Bitmap? {
         WidgetIconCache.get(app.packageName, sizePx)?.let { return it }
-        val drawable = app.icon ?: runCatching {
-            context.packageManager.getApplicationIcon(app.packageName)
-        }.getOrNull() ?: return null
+        // Scroll fix: the Drawable comes from WidgetIconCache's own
+        // per-package cache, so a bitmap miss re-draws from memory
+        // instead of going back to PackageManager on scroll.
+        val drawable = app.icon ?: WidgetIconCache.drawable(
+            app.packageName, context.packageManager) ?: return null
         return WidgetIconCache.render(app.packageName, drawable, sizePx)
     }
 
@@ -507,6 +528,11 @@ private class AppGridFactory(private val context: Context, private val widgetId:
             autoOrder, unifiedOrder, deletedSections)
         val openId = AppGridWidgetProvider.openGroupName(context)
         val openSection = sections.firstOrNull { it.id == openId }
+        // Scroll fix: items are being recomputed, so previously
+        // built cell views no longer match positions — drop them.
+        // (The prepared-cache hit path above returns earlier and
+        // keeps both items and built views untouched.)
+        viewCache.clear()
         items = if (openSection != null) {
             // Widget-lag fix: keep the stored header title in sync
             // with the live section (renames land here), without the

@@ -1,9 +1,11 @@
 package com.cuong.cflip.widget
 
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.util.LruCache
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Widget icon bitmap cache (widget-lag fix, 2026-11-20).
@@ -27,22 +29,38 @@ import android.util.LruCache
  * process restarts, which matches the reference apps' trade-off and is
  * bounded by the LRU size.
  *
- * Sized in KiB like the platform LruCache examples: 8 MiB holds
- * roughly 200 icons at 96x96 ARGB_8888 (36 KiB each) — the whole
- * drawer at widget size, with room for the 32 px folder previews.
+ * Scroll fix (2026-11-20): the cache was 8 MiB, sized for 96 px icons —
+ * but app cells render at dpPx(iconDp) * 2 (about 294 px on the cover,
+ * ~338 KiB each), so only ~24 cell icons fit. Scrolling through the
+ * grid evicted icons faster than they were reused and every returning
+ * cell re-rendered (and re-asked PackageManager for its icon), which
+ * read as the grid "reloading apps" on scroll. Now:
+ *  - the bitmap cache is 24 MiB, and
+ *  - Drawables are cached per package too, so even a bitmap miss
+ *    never goes back to PackageManager — it just re-draws.
  */
 object WidgetIconCache {
 
-    private const val MAX_SIZE_KIB = 8 * 1024
+    private const val MAX_SIZE_KIB = 24 * 1024
 
     private val cache = object : LruCache<String, Bitmap>(MAX_SIZE_KIB) {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.byteCount / 1024).coerceAtLeast(1)
     }
 
+    private val drawables = ConcurrentHashMap<String, Drawable>()
+
     private fun key(packageName: String, sizePx: Int): String = "$packageName@$sizePx"
 
     fun get(packageName: String, sizePx: Int): Bitmap? = cache.get(key(packageName, sizePx))
+
+    /** The app's icon Drawable, loaded from PackageManager at most once per process. */
+    fun drawable(packageName: String, pm: PackageManager): Drawable? {
+        drawables[packageName]?.let { return it }
+        val loaded = runCatching { pm.getApplicationIcon(packageName) }.getOrNull() ?: return null
+        drawables[packageName] = loaded
+        return loaded
+    }
 
     /** Render [drawable] at [sizePx] once, cache it, and return it. */
     fun render(packageName: String, drawable: Drawable, sizePx: Int): Bitmap {
@@ -58,5 +76,6 @@ object WidgetIconCache {
 
     fun clear() {
         cache.evictAll()
+        drawables.clear()
     }
 }
