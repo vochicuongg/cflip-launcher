@@ -439,7 +439,20 @@ object CoverAssistiveTouchManager {
                             performBubbleAction(tapAction, appContext, display.displayId)
                         }
                         singleTapRunnable = r
-                        handler.postDelayed(r, doubleTapTimeout)
+                        // Burst-window delay (user-approved,
+                        // 2026-11-21): the single-tap action waits
+                        // out the full 900ms burst window, NOT the
+                        // 500ms double-tap timeout. With the old
+                        // 500ms delay, a slow second tap (case on
+                        // the phone) arrived after the single-tap
+                        // action had already fired — if that action
+                        // opens the panel, the panel hides the
+                        // opener and the second tap has nothing to
+                        // land on, so the burst never completes
+                        // (the 500-900ms dead zone). Trade-off,
+                        // stated to the user: a lone single tap now
+                        // waits 900ms before its action fires.
+                        handler.postDelayed(r, tapBurstWindowMs)
                     }
                     scheduleDim()
                     true

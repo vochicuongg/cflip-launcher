@@ -351,7 +351,14 @@ object CoverSwipeIndicatorManager {
                                 CoverAssistiveTouchManager.performBubbleAction(tapAction, appContext, display.displayId)
                             }
                             singleTapRunnable = r
-                            dimHandler.postDelayed(r, doubleTapTimeout)
+                            // Burst-window delay, same as the
+                            // bubble (user-approved, 2026-11-21):
+                            // the single-tap action waits the full
+                            // 900ms burst window so a slow second
+                            // tap can still complete the burst
+                            // instead of arriving after the panel
+                            // already opened and hid the opener.
+                            dimHandler.postDelayed(r, tapBurstWindowMs)
                         }
                         if (!switched) armDim()
                         true

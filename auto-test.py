@@ -141,6 +141,8 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Single-tap action waits the full burst window (no 500-900ms dead zone)",
+      "handler.postDelayed(r, tapBurstWindowMs)" in read("cover/CoverAssistiveTouch.kt") and "dimHandler.postDelayed(r, tapBurstWindowMs)" in read("cover/CoverSwipeIndicator.kt") and "postDelayed(r, doubleTapTimeout)" not in read("cover/CoverAssistiveTouch.kt") and "postDelayed(r, doubleTapTimeout)" not in read("cover/CoverSwipeIndicator.kt"))
 check("Burst state is object-level (survives re-show) and a cancelled clean press counts as a tap; gesture path is instrumented",
       "private var lastTapUpAt: Long = 0L" in read("cover/CoverAssistiveTouch.kt") and "private var lastTapUpAt: Long = 0L" in read("cover/CoverSwipeIndicator.kt") and "cleanPress" in read("cover/CoverAssistiveTouch.kt") and "cleanPress" in read("cover/CoverSwipeIndicator.kt") and "CFlipGesture" in read("cover/CoverAssistiveTouch.kt"))
 check("Tap bursts: a tap within 900ms of the previous tap fires the double-tap action (slow doubles and triples work from the dimmed state)",
