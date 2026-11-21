@@ -2056,6 +2056,15 @@ object CoverControlCenterManager {
         tileRowNoTint("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
+        // User request (2026-11-21): a button that pulls down
+        // Samsung's own notification shade. It goes through the
+        // Accessibility GLOBAL_ACTION_NOTIFICATIONS (not an edge
+        // gesture), so it also works when the cover UI is rotated
+        // to another orientation, where the physical top edge —
+        // and with it the shade gesture — is elsewhere. Distinct
+        // from the "Thông báo" row below, which opens this
+        // panel's own notifications tab.
+        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { a11yAction("Thanh thông báo") { it.openNotifications() } }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
         // Accessibility openQuickSettings() does not work, so the tile
