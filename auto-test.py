@@ -152,8 +152,8 @@ check("Quick Panel tiles are filled rounded cards (tileFill + press effect), not
       "fun tileFill(active: Boolean)" in read("cover/CoverControlCenter.kt") and "addTilePressEffect" in read("cover/CoverControlCenter.kt") and "cornerRadius = dp(18).toFloat()" in read("cover/CoverControlCenter.kt"))
 check("Widget cells have a shaped mint-glow pressed state and the grid cascades items in on (re)bind",
       "bg_widget_cell_pressed" in readres("drawable/widget_cell_selector.xml") and "layoutAnimation" in readres("layout/widget_appgrid.xml") and (ROOT / "app/src/main/res/anim/grid_item_in.xml").exists() and (ROOT / "app/src/main/res/anim/grid_layout_anim.xml").exists())
-check("Both shade tiles ('Mở thanh thông báo' + 'Thông báo') open Samsung's shade via openSamsungShade (gesture-first chain)",
-      "fun openSamsungShade()" in read("cover/CoverControlCenter.kt") and "goHome()" in read("cover/CoverControlCenter.kt") and "svc.openNotifications()" in read("cover/CoverControlCenter.kt") and "svc.openQuickSettings()" in read("cover/CoverControlCenter.kt") and "Mở thanh thông báo" in read("cover/CoverControlCenter.kt") and "swipeDownShade" in read("service/MyAccessibilityService.kt") and "dispatchGesture" in read("service/MyAccessibilityService.kt") and "ic_sec_notification) { selectTab(1) }" not in read("cover/CoverControlCenter.kt"))
+check("The 'Thông báo' tile opens CFlip's notifications tab; the Samsung-shade tile and diagnostic sequence are removed (no external shade trigger exists)",
+      "ic_sec_notification) { selectTab(1) }" in read("cover/CoverControlCenter.kt") and "openSamsungShade" not in read("cover/CoverControlCenter.kt") and "Mở thanh thông báo" not in read("cover/CoverControlCenter.kt") and "swipeDownShade" not in read("service/MyAccessibilityService.kt"))
 check("Tile proportions are the original ones (44dp icon zone, 10sp label) inside the filled cards",
       "LinearLayout.LayoutParams(dp(44), dp(44))" in read("cover/CoverControlCenter.kt") and "textSize = 10f" in read("cover/CoverControlCenter.kt"))
 check("Single-tap action waits the full burst window (no 500-900ms dead zone)",

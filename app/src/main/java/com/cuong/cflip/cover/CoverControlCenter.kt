@@ -2176,66 +2176,20 @@ object CoverControlCenterManager {
         }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
-        // Opening Samsung's shade (user, 2026-11-21): BOTH the
-        // "Mở thanh thông báo" tile and the "Thông báo" tile do
-        // this - "Thông báo" must show Samsung's notification
-        // panel, not this panel's own notifications tab (which
-        // stays available in the tab bar). Two programmatic
-        // routes no-op on the cover (GLOBAL_ACTION_NOTIFICATIONS
-        // and the status-bar service's expand call both address
-        // the sleeping main display), so the chain is: inject
-        // the actual pull-down gesture (dispatchGesture, 500ms
-        // after the panel's 200ms exit animation so the panel
-        // window is fully gone), then GLOBAL_ACTION_QUICK_SETTINGS
-        // (never tried in this delayed form), then the status-bar
-        // service, then GLOBAL_ACTION_NOTIFICATIONS. The refusal
-        // toast fires only if every route fails.
-        @Suppress("DEPRECATION")
-        fun coverRealSize(): android.graphics.Point {
-            val pt = android.graphics.Point()
-            runCatching { display.getRealSize(pt) }
-            return pt
-        }
-        fun openSamsungShade() {
-            val svc = MyAccessibilityService.instance
-            if (svc == null) {
-                android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
-                return
-            }
-            hide()
-            // DIAGNOSTIC SEQUENCE (device evidence, 2026-11-21):
-            // the user proved from adb that ONLY a swipe injected
-            // on display 1 (the cover) opens Samsung's cover
-            // panel, and the status-bar expand command does
-            // nothing there. The earlier in-app chains
-            // SHORT-CIRCUITED: the first route returning true
-            // ('dispatched' / 'invoked') skipped every later
-            // route, so the global actions never got a clean
-            // solo trial on the cover. This build runs each
-            // route alone, 1.2s apart, logging every result
-            // under CFlipShade; whichever route the user sees
-            // working becomes the tile's only route next build.
-            val rs = coverRealSize()
-            android.util.Log.i("CFlipShade", "shade diagnostic start rotation=${display.rotation} real=${rs.x}x${rs.y}")
-            handler.postDelayed({
-                android.util.Log.i("CFlipShade", "step0 goHome=${svc.goHome()}")
-            }, 300)
-            handler.postDelayed({
-                android.util.Log.i("CFlipShade", "step1 notifications=${svc.openNotifications()}")
-            }, 1500)
-            handler.postDelayed({
-                android.util.Log.i("CFlipShade", "step2 quickSettings=${svc.openQuickSettings()}")
-            }, 2700)
-            handler.postDelayed({
-                val dm = ctx.resources.displayMetrics
-                android.util.Log.i("CFlipShade", "step3 swipe=${svc.swipeDownShade(dm.widthPixels)}")
-            }, 3900)
-            handler.postDelayed({
-                android.util.Log.i("CFlipShade", "step4 statusBar=${QuickControls.expandNotificationShade(ctx.applicationContext)}")
-            }, 5100)
-        }
-        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { openSamsungShade() }
-        tileRow("Thông báo", R.drawable.ic_sec_notification) { openSamsungShade() }
+        // "Thông báo" opens this panel's own notifications tab.
+        // A dedicated tile for SAMSUNG's cover panel was removed
+        // on 2026-11-21: opening that panel from a third-party
+        // app was investigated to ground - every programmatic
+        // route fails on-device, a full reverse-engineering pass
+        // over the device's SystemUI found no external trigger
+        // (the swipe-to-panel path never leaves SystemUI, and
+        // the one controller callback that could answer it is
+        // never registered), the user's own expand-settings
+        // shell test failed too, and the privileged-input bridge
+        // that could fake the swipe was declined by the user.
+        // A button whose only job is impossible is worse than
+        // no button; the diagnostic sequence goes with it.
+        tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
         // Accessibility openQuickSettings() does not work, so the tile
         // is gone instead of dead. "Cài đặt" (Settings app) stays.

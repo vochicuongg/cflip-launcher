@@ -61,35 +61,6 @@ class MyAccessibilityService : AccessibilityService() {
     // an injected gesture is indistinguishable from a finger.
     // Coordinates are display pixels of the display the caller
     // is showing on (the panel passes the cover's metrics).
-    fun swipeDownShade(widthPx: Int): Boolean {
-        if (widthPx <= 0) return false
-        // Geometry copied from the shell command the user proved
-        // on-device (adb input -d 1 swipe W/2 10 W/2 400 280):
-        // starts 10px below the edge (a stroke beginning exactly
-        // on the edge pixel can be clipped) and runs 280ms.
-        // Whether an accessibility-dispatched gesture reaches
-        // the cover display at all is part of what the current
-        // diagnostic build measures; the callback logs under
-        // CFlipShade either way.
-        val path = android.graphics.Path().apply {
-            moveTo(widthPx / 2f, 10f)
-            lineTo(widthPx / 2f, 400f)
-        }
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 280)
-        val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
-        val sent = runCatching {
-            dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(d: android.accessibilityservice.GestureDescription?) {
-                    Log.i("CFlipShade", "pull-down gesture COMPLETED")
-                }
-                override fun onCancelled(d: android.accessibilityservice.GestureDescription?) {
-                    Log.i("CFlipShade", "pull-down gesture CANCELLED")
-                }
-            }, null)
-        }.getOrDefault(false)
-        Log.i("CFlipShade", "swipeDownShade w=$widthPx dispatched=$sent")
-        return sent
-    }
     fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
     fun goHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
     // vc41: system screenshot via Accessibility (API 28+, minSdk 33 here).
