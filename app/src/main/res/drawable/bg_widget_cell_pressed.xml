@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Pressed ("active") state for app-grid cells and group tiles:
-     a mint glow that matches the resting tile's shape (12dp
+     a mint glow that matches the resting tile's shape (16dp
      corners, hairline stroke), so a tap reads as the cell lighting
      up rather than a square colour wash (the old pressed state was
      a flat colour with no corners). Used by widget_cell_selector. -->
@@ -8,5 +8,5 @@
     android:shape="rectangle">
     <solid android:color="#4D7FE3C0" />
     <stroke android:width="1dp" android:color="#8C7FE3C0" />
-    <corners android:radius="12dp" />
+    <corners android:radius="16dp" />
 </shape>

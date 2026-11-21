@@ -865,10 +865,19 @@ object CoverControlCenterManager {
             tabUnits.add(unit); tabIconViews.add(iconView); tabLabels.add(labelView)
             tabBar.addView(unit)
         }
-        tabBar.addView(Button(ctx).apply {
-            text = "✕"; setOnClickListener { hide() }
-            background = rounded(0xFF23262B.toInt(), 24)
+        // Design refresh (2026-11-21): the close control is a
+        // 40dp circular unit in the tab bar's own geometry, not a
+        // stock Button - the Button's default height and padding
+        // clashed with the icon+label tab units beside it.
+        tabBar.addView(TextView(ctx).apply {
+            text = "✕"; textSize = 15f; gravity = Gravity.CENTER
             setTextColor(0xFFFFFFFF.toInt())
+            background = rounded(0xFF23262B.toInt(), 20)
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setMargins(dp(4), 0, 0, 0)
+            }
+            setOnClickListener { hide() }
         })
         // vc120: full panel always has its tab bar.
         // Quick Panel is an open mode, not a
@@ -1854,38 +1863,64 @@ object CoverControlCenterManager {
         // drawables that exist ONLY in the local branch (never push
         // this file to main as-is). The String overloads are kept for
         // sort / columns / labels tiles, which have no ic_sec icon.
+        // Design refresh (2026-11-21, ui-ux-pro-max pass): the QS
+        // tiles are now FILLED rounded cards in the panel's own
+        // card language (18dp radius, #23262B surface, mint when
+        // active, icon + label inside the card) instead of
+        // floating circles over the background - the circles
+        // predated the 2.9.0 card system and read as a different
+        // app. The fill GradientDrawable is kept in the card's
+        // tag so toggle tiles (rotate / torch / DND) can repaint
+        // it in place, exactly as they repainted the circle.
+        fun tileFill(active: Boolean): android.graphics.drawable.GradientDrawable =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                cornerRadius = dp(18).toFloat()
+                setColor(if (active) mint else 0xFF23262B.toInt())
+            }
+        // Press feedback: while a finger is down the fill lifts
+        // (dark tile) or deepens (mint tile); the colour captured
+        // on DOWN is restored on UP/CANCEL, so in-place toggle
+        // repaints never fight the press state.
+        fun addTilePressEffect(card: LinearLayout, fill: android.graphics.drawable.GradientDrawable) {
+            var baseColor = 0
+            card.setOnTouchListener { _, e ->
+                when (e.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        baseColor = fill.color?.defaultColor ?: 0
+                        fill.setColor(if (baseColor == mint) 0xFF6BD3B2.toInt() else 0xFF31363D.toInt())
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL ->
+                        if (baseColor != 0) fill.setColor(baseColor)
+                }
+                false
+            }
+        }
         fun tileWithLabel(icon: String, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
+            val fill = tileFill(active)
+            val glyph = TextView(ctx).apply {
+                text = icon; textSize = 20f; gravity = Gravity.CENTER
+                setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+            }
             val labelView = TextView(ctx).apply {
-                text = label; textSize = 10f
-                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
+                text = label; textSize = 11f
+                setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 2
-                setPadding(0, dp(4), 0, 0)
+                setPadding(0, dp(5), 0, 0)
                 setLineSpacing(dp(2).toFloat(), 1f)
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(32))
-            }
-            val circle = TextView(ctx).apply {
-                text = icon; textSize = 18f; gravity = Gravity.CENTER
-                setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             }
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(4), dp(4), dp(4), dp(4))
-                // vc40 alignment: previously CENTER (both axes) centred
-                // each tile's content in its 96dp cell, so a 1-line tile
-                // sat lower than a 2-line tile in the same row and the
-                // circles did not line up. Now content starts at the
-                // top, circles all at the same height, labels first
-                // line at the same baseline, second line below it.
                 gravity = Gravity.CENTER_HORIZONTAL
+                background = fill; tag = fill
+                setPadding(dp(3), dp(10), dp(3), dp(8))
                 setOnClickListener { resetTimer(); onClick() }
             }
-            cardView.addView(circle)
+            addTilePressEffect(cardView, fill)
+            cardView.addView(glyph)
             cardView.addView(labelView)
             return cardView to labelView
         }
@@ -1893,48 +1928,41 @@ object CoverControlCenterManager {
             tileWithLabel(icon, label, false, onClick).first
         fun tileRow(label: String, icon: String, onClick: () -> Unit) {
             grid.addView(tile(label, icon, onClick),
-                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         fun tileRowActive(label: String, icon: String, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(icon, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
-        // Int overloads (vc30 local): same QS circle, but an ImageView
-        // drawable instead of a Unicode TextView symbol.
+        // Int overloads (vc30 local): same filled QS tile, but an
+        // ImageView drawable instead of a Unicode TextView symbol.
         fun tileWithLabel(iconRes: Int, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
-            val labelView = TextView(ctx).apply {
-                text = label; textSize = 10f
-                setTextColor(if (active) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
-                maxLines = 2
-                setPadding(0, dp(4), 0, 0)
-                setLineSpacing(dp(2).toFloat(), 1f)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(32))
-            }
-            val circle = ImageView(ctx).apply {
+            val fill = tileFill(active)
+            val iconView = ImageView(ctx).apply {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setImageResource(iconRes)
                 setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                setPadding(dp(12), dp(12), dp(12), dp(12))
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (active) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
+                setPadding(dp(1), dp(1), dp(1), dp(1))
+                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+            }
+            val labelView = TextView(ctx).apply {
+                text = label; textSize = 11f
+                setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
+                maxLines = 2
+                setPadding(0, dp(5), 0, 0)
+                setLineSpacing(dp(2).toFloat(), 1f)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             }
             val cardView = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(4), dp(4), dp(4), dp(4))
-                // vc40 alignment: previously CENTER (both axes) centred
-                // each tile's content in its 96dp cell, so a 1-line tile
-                // sat lower than a 2-line tile in the same row and the
-                // circles did not line up. Now content starts at the
-                // top, circles all at the same height, labels first
-                // line at the same baseline, second line below it.
                 gravity = Gravity.CENTER_HORIZONTAL
+                background = fill; tag = fill
+                setPadding(dp(3), dp(10), dp(3), dp(8))
                 setOnClickListener { resetTimer(); onClick() }
             }
-            cardView.addView(circle)
+            addTilePressEffect(cardView, fill)
+            cardView.addView(iconView)
             cardView.addView(labelView)
             return cardView to labelView
         }
@@ -1942,7 +1970,7 @@ object CoverControlCenterManager {
             tileWithLabel(iconRes, label, false, onClick).first
         fun tileRow(label: String, iconRes: Int, onClick: () -> Unit) {
             grid.addView(tile(label, iconRes, onClick),
-                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc228: NFC N-Mark is two-tone (black square + white N). The
         // tile's white tint would flatten it to all-white, so NFC uses
@@ -1952,11 +1980,11 @@ object CoverControlCenterManager {
             val (card, _) = tileWithLabel(iconRes, label, false, onClick)
             (card.getChildAt(0) as? ImageView)?.clearColorFilter()
             grid.addView(card,
-                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         fun tileRowActive(label: String, iconRes: Int, active: Boolean, onClick: () -> Unit) {
             grid.addView(tileWithLabel(iconRes, label, active, onClick).first,
-                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+                GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc225: Rotate is ONE tile toggling Xoay <-> Khoa, like Samsung's
         // main-screen auto-rotate tile: Xoay (FULL_SENSOR host, follows
@@ -2019,15 +2047,15 @@ object CoverControlCenterManager {
                 val newIcon = if (next == 1) R.drawable.ic_qp_rotate_lock else R.drawable.ic_qp_rotate_auto
                 val newActive = next == 0
                 rotateTileRef?.second?.text = newLabel
-                rotateTileRef?.second?.setTextColor(if (newActive) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
-                val circle = rotateTileRef?.first?.getChildAt(0) as? ImageView ?: return@tileWithLabel
-                circle.setImageResource(newIcon)
-                circle.setColorFilter(if (newActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                (circle.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                rotateTileRef?.second?.setTextColor(if (newActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                val icon = rotateTileRef?.first?.getChildAt(0) as? ImageView ?: return@tileWithLabel
+                icon.setImageResource(newIcon)
+                icon.setColorFilter(if (newActive) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                (rotateTileRef?.first?.tag as? android.graphics.drawable.GradientDrawable)?.setColor(
                     if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             rotateTileRef = rotateTile
-            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+            grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc39: Đèn was a plain tileRow with no active state, so
         // toggling it twice looked like nothing happened. Now it is a
@@ -2040,15 +2068,15 @@ object CoverControlCenterManager {
                 val nextOn = !QuickControls.torchOn
                 QuickControls.setTorch(ctx, nextOn)
                 val nowOn = QuickControls.torchOn
-                torchTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
-                val circle = torchTileRef?.first?.getChildAt(0) as? ImageView
-                circle?.setImageResource(if (nowOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off)
-                circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                torchTileRef?.second?.setTextColor(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                val icon = torchTileRef?.first?.getChildAt(0) as? ImageView
+                icon?.setImageResource(if (nowOn) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off)
+                icon?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                (torchTileRef?.first?.tag as? android.graphics.drawable.GradientDrawable)?.setColor(
                     if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             torchTileRef = torchTile
-            grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+            grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         tileRow("Wi-Fi", R.drawable.ic_qp_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
         tileRow("Bluetooth", R.drawable.ic_qp_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
@@ -2252,11 +2280,11 @@ object CoverControlCenterManager {
                     nm.setInterruptionFilter(next)
                     val nowOn = next == android.app.NotificationManager.INTERRUPTION_FILTER_NONE
                     android.widget.Toast.makeText(ctx, if (nowOn) "Đã bật Không làm phiền" else "Đã tắt Không làm phiền", android.widget.Toast.LENGTH_SHORT).show()
-                    dndTileRef?.second?.setTextColor(if (nowOn) 0xFF7FE3C0.toInt() else 0xFFFFFFFF.toInt())
-                    val circle = dndTileRef?.first?.getChildAt(0) as? ImageView
-                    circle?.setImageResource(if (nowOn) R.drawable.ic_qp_dnd else R.drawable.ic_qp_dnd_off)
-                    circle?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                    (circle?.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                    dndTileRef?.second?.setTextColor(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                    val icon = dndTileRef?.first?.getChildAt(0) as? ImageView
+                    icon?.setImageResource(if (nowOn) R.drawable.ic_qp_dnd else R.drawable.ic_qp_dnd_off)
+                    icon?.setColorFilter(if (nowOn) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                    (dndTileRef?.first?.tag as? android.graphics.drawable.GradientDrawable)?.setColor(
                         if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
                 } else {
                     hide()
@@ -2265,7 +2293,7 @@ object CoverControlCenterManager {
                 }
             }
             dndTileRef = dndTile
-            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(3), dp(6), dp(3), dp(6)) })
+            grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc44 balance: the grid (5 x 62dp = 310dp) used to sit
         // left-aligned in a ~328dp card, leaving all slack on the
@@ -2527,9 +2555,10 @@ object CoverControlCenterManager {
         fun sectionLabel(text: String): TextView = TextView(ctx).apply {
             this.text = text; textSize = 12f; setTextColor(muted)
             setTypeface(null, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.06f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, dp(8), 0, dp(4))
+                setMargins(0, dp(12), 0, dp(6))
             }
         }
         fun notifCard(n: com.cuong.cflip.service.CoverNotification): LinearLayout {

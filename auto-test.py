@@ -144,6 +144,8 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Quick Panel tiles are filled rounded cards (tileFill + press effect), not floating circles",
+      "fun tileFill(active: Boolean)" in read("cover/CoverControlCenter.kt") and "addTilePressEffect" in read("cover/CoverControlCenter.kt") and "cornerRadius = dp(18).toFloat()" in read("cover/CoverControlCenter.kt"))
 check("Widget cells have a shaped mint-glow pressed state and the grid cascades items in on (re)bind",
       "bg_widget_cell_pressed" in readres("drawable/widget_cell_selector.xml") and "layoutAnimation" in readres("layout/widget_appgrid.xml") and (ROOT / "app/src/main/res/anim/grid_item_in.xml").exists() and (ROOT / "app/src/main/res/anim/grid_layout_anim.xml").exists())
 check("Quick Panel has a 'Mở thanh thông báo' row that pulls down the system shade via Accessibility",
