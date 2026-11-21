@@ -1863,6 +1863,41 @@ object CoverControlCenterManager {
         // drawables that exist ONLY in the local branch (never push
         // this file to main as-is). The String overloads are kept for
         // sort / columns / labels tiles, which have no ic_sec icon.
+        // State-true tiles (user, 2026-11-21): every tile that
+        // fronts a system on/off state SHOWS that state - Wi-Fi
+        // on reads mint/active, off reads dark, and the same for
+        // Bluetooth, NFC and mobile data, like the toggle tiles
+        // (rotate / torch / DND) already did. States are read at
+        // build time and re-read on every cached reopen via
+        // refreshTileStates() (called from cachedReopen, the
+        // vc140 pattern), because the panel view is cached and a
+        // state changed elsewhere must not stay stale on screen.
+        fun wifiOn(): Boolean = runCatching {
+            ctx.getSystemService(android.net.wifi.WifiManager::class.java)?.isWifiEnabled == true
+        }.getOrDefault(false)
+        fun bluetoothOn(): Boolean = runCatching {
+            ctx.getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter?.isEnabled == true
+        }.getOrDefault(false)
+        fun nfcOn(): Boolean = runCatching {
+            android.nfc.NfcAdapter.getDefaultAdapter(ctx)?.isEnabled == true
+        }.getOrDefault(false)
+        fun mobileDataOn(): Boolean = runCatching {
+            android.provider.Settings.Global.getInt(ctx.contentResolver, "mobile_data", 0) == 1
+        }.getOrDefault(false)
+        val tileStateRefreshers = mutableListOf<() -> Unit>()
+        fun refreshTileStates() = tileStateRefreshers.forEach { runCatching { it() } }
+        // Repaints a state tile in place: card fill (the tag
+        // GradientDrawable), label colour and - unless the icon
+        // is multi-tone like NFC's - the icon tint.
+        fun repaintStateTile(ref: Pair<LinearLayout, TextView>?, active: Boolean, tintIcon: Boolean = true) {
+            if (ref == null) return
+            val (card, label) = ref
+            (card.tag as? android.graphics.drawable.GradientDrawable)?.setColor(
+                if (active) mint else 0xFF23262B.toInt())
+            label.setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+            if (tintIcon) (card.getChildAt(0) as? ImageView)?.setColorFilter(
+                if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+        }
         // Design refresh (2026-11-21, ui-ux-pro-max pass): the QS
         // tiles are now FILLED rounded cards in the panel's own
         // card language (18dp radius, #23262B surface, mint when
@@ -2055,6 +2090,13 @@ object CoverControlCenterManager {
                     if (newActive) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             rotateTileRef = rotateTile
+            tileStateRefreshers.add {
+                val mode = store.load().rotateMode
+                rotateTileRef?.second?.text = when (mode) { 0 -> "Xoay"; 1 -> "Khóa xoay"; else -> "Mặc định" }
+                repaintStateTile(rotateTileRef, mode == 0)
+                (rotateTileRef?.first?.getChildAt(0) as? ImageView)?.setImageResource(
+                    if (mode == 1) R.drawable.ic_qp_rotate_lock else R.drawable.ic_qp_rotate_auto)
+            }
             grid.addView(rotateTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc39: Đèn was a plain tileRow with no active state, so
@@ -2076,12 +2118,62 @@ object CoverControlCenterManager {
                     if (nowOn) 0xFF7FE3C0.toInt() else 0xFF23262B.toInt())
             }
             torchTileRef = torchTile
+            tileStateRefreshers.add {
+                val on = QuickControls.torchOn
+                repaintStateTile(torchTileRef, on)
+                (torchTileRef?.first?.getChildAt(0) as? ImageView)?.setImageResource(
+                    if (on) R.drawable.ic_qp_flashlight_on else R.drawable.ic_qp_flashlight_off)
+            }
             grid.addView(torchTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
-        tileRow("Wi-Fi", R.drawable.ic_qp_wifi) { hide(); runCatching { QuickControls.openWifiPanel(ctx) } }
-        tileRow("Bluetooth", R.drawable.ic_qp_bluetooth) { hide(); runCatching { QuickControls.openBluetoothSettings(ctx) } }
-        tileRow("Internet", R.drawable.ic_cflip_internet) { hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) } }
-        tileRowNoTint("NFC", R.drawable.ic_qp_nfc) { hide(); runCatching { QuickControls.openNfcPanel(ctx) } }
+        // State tiles: the tap still opens the system panel /
+        // settings exactly as before; only the tile's form now
+        // mirrors the live state (mint = on, dark = off).
+        run {
+            var wifiTileRef: Pair<LinearLayout, TextView>? = null
+            val wifiTile = tileWithLabel(R.drawable.ic_qp_wifi, "Wi-Fi", wifiOn()) {
+                hide(); runCatching { QuickControls.openWifiPanel(ctx) }
+            }
+            wifiTileRef = wifiTile
+            tileStateRefreshers.add { repaintStateTile(wifiTileRef, wifiOn()) }
+            grid.addView(wifiTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
+        }
+        run {
+            var btTileRef: Pair<LinearLayout, TextView>? = null
+            val btOn = bluetoothOn()
+            val btTile = tileWithLabel(if (btOn) R.drawable.ic_qp_bluetooth_on else R.drawable.ic_qp_bluetooth, "Bluetooth", btOn) {
+                hide(); runCatching { QuickControls.openBluetoothSettings(ctx) }
+            }
+            btTileRef = btTile
+            tileStateRefreshers.add {
+                val on = bluetoothOn()
+                repaintStateTile(btTileRef, on)
+                (btTileRef?.first?.getChildAt(0) as? ImageView)?.setImageResource(
+                    if (on) R.drawable.ic_qp_bluetooth_on else R.drawable.ic_qp_bluetooth)
+            }
+            grid.addView(btTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
+        }
+        run {
+            var dataTileRef: Pair<LinearLayout, TextView>? = null
+            val dataTile = tileWithLabel(R.drawable.ic_cflip_internet, "Internet", mobileDataOn()) {
+                hide(); runCatching { QuickControls.openInternetSettings(ctx.applicationContext) }
+            }
+            dataTileRef = dataTile
+            tileStateRefreshers.add { repaintStateTile(dataTileRef, mobileDataOn()) }
+            grid.addView(dataTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
+        }
+        run {
+            var nfcTileRef: Pair<LinearLayout, TextView>? = null
+            val nfcTile = tileWithLabel(R.drawable.ic_qp_nfc, "NFC", nfcOn()) {
+                hide(); runCatching { QuickControls.openNfcPanel(ctx) }
+            }
+            // NFC's N-Mark is two-tone: no icon tint in either
+            // state (vc228) - only fill + label carry the state.
+            (nfcTile.first.getChildAt(0) as? ImageView)?.clearColorFilter()
+            nfcTileRef = nfcTile
+            tileStateRefreshers.add { repaintStateTile(nfcTileRef, nfcOn(), tintIcon = false) }
+            grid.addView(nfcTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
+        }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
         // User request (2026-11-21): a button that pulls down
@@ -2092,7 +2184,27 @@ object CoverControlCenterManager {
         // and with it the shade gesture — is elsewhere. Distinct
         // from the "Thông báo" row below, which opens this
         // panel's own notifications tab.
-        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { a11yAction("Thanh thông báo") { it.openNotifications() } }
+        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) {
+            val svc = MyAccessibilityService.instance
+            if (svc == null) {
+                android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                hide()
+                // The plain global action fired the instant the
+                // panel hid did nothing on the cover (user report,
+                // 2026-11-21; the screenshot tile hit the same
+                // class of problem in vc42-44 and needed the panel
+                // fully gone first). Now: wait 350ms, ask the
+                // status-bar service directly (QuickControls.
+                // expandNotificationShade), and fall back to the
+                // Accessibility global action only if that fails.
+                handler.postDelayed({
+                    if (!QuickControls.expandNotificationShade(ctx.applicationContext) && !svc.openNotifications()) {
+                        android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }, 350)
+            }
+        }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
         // Accessibility openQuickSettings() does not work, so the tile
@@ -2293,6 +2405,12 @@ object CoverControlCenterManager {
                 }
             }
             dndTileRef = dndTile
+            tileStateRefreshers.add {
+                val on = nm?.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                repaintStateTile(dndTileRef, on)
+                (dndTileRef?.first?.getChildAt(0) as? ImageView)?.setImageResource(
+                    if (on) R.drawable.ic_qp_dnd else R.drawable.ic_qp_dnd_off)
+            }
             grid.addView(dndTile.first, GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
         }
         // vc44 balance: the grid (5 x 62dp = 310dp) used to sit
@@ -2923,6 +3041,11 @@ object CoverControlCenterManager {
             // sliders - a cached panel otherwise kept the icon from build
             // time even after the mode changed elsewhere.
             refreshVolModeIcon()
+            // State tiles re-read on reopen (user, 2026-11-21),
+            // same reason: Wi-Fi / Bluetooth / NFC / data / torch /
+            // DND / rotate may have changed while the panel was
+            // cached, and their tiles must not show a stale state.
+            refreshTileStates()
             mediaCardPositionSync = syncMediaCardPosition
             updateMediaViews()
             // vc111: clock widget refresh on reopen

@@ -100,6 +100,20 @@ object QuickControls {
     fun openNfcPanel(context: Context) {
         context.startActivity(Intent(Settings.Panel.ACTION_NFC).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    // Pull the system notification shade down directly through
+    // the status-bar service (the classic launcher route). The
+    // Accessibility GLOBAL_ACTION_NOTIFICATIONS alone did not
+    // expand the shade on the cover screen (user report,
+    // 2026-11-21). Reflection is required: expandNotificationsPanel
+    // is not in the public SDK for third-party apps. Returns
+    // false when the system refuses (hidden-API policy, OEM
+    // change) so the caller can fall back to the global action.
+    fun expandNotificationShade(context: Context): Boolean = runCatching {
+        val sb = context.getSystemService("statusbar") ?: return@runCatching false
+        sb.javaClass.getMethod("expandNotificationsPanel").invoke(sb)
+        true
+    }.getOrDefault(false)
+
     fun openDeviceSettings(context: Context) {
         context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }

@@ -144,6 +144,10 @@ check("Snapshot holds top view AND every group (open/back never rebuilds)",
       "val groups: Map<String, List<Item>>" in read("widget/AppGridSnapshot.kt") and "snap.groups[openId]" in _w)
 check("Snapshot signature includes launch-history hash (recent order invalidates at once)",
       "LaunchHistoryStore(context).lastLaunched().hashCode()" in read("widget/AppGridSnapshot.kt"))
+check("Quick Panel tiles mirror live system state (Wi-Fi/BT/NFC/data + toggles, refreshed on cached reopen)",
+      "fun wifiOn(): Boolean" in read("cover/CoverControlCenter.kt") and "fun bluetoothOn(): Boolean" in read("cover/CoverControlCenter.kt") and "refreshTileStates()" in read("cover/CoverControlCenter.kt") and "tileStateRefreshers.add" in read("cover/CoverControlCenter.kt"))
+check("Shade tile uses the status-bar service route with the Accessibility action as fallback",
+      "expandNotificationShade" in read("control/QuickControls.kt") and "expandNotificationsPanel" in read("control/QuickControls.kt") and "EXPAND_STATUS_BAR" in (ROOT / "app/src/main/AndroidManifest.xml").read_text())
 check("Quick Panel tiles are filled rounded cards (tileFill + press effect), not floating circles",
       "fun tileFill(active: Boolean)" in read("cover/CoverControlCenter.kt") and "addTilePressEffect" in read("cover/CoverControlCenter.kt") and "cornerRadius = dp(18).toFloat()" in read("cover/CoverControlCenter.kt"))
 check("Widget cells have a shaped mint-glow pressed state and the grid cascades items in on (re)bind",
