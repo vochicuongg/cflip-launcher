@@ -4,7 +4,10 @@
      state-list background is the tap response the widget can have:
      pressed cells brighten briefly, released cells go transparent. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_pressed="true" android:drawable="@color/widget_cell_pressed" />
+    <!-- Active effect (user, 2026-11-21): the pressed state is a
+         shaped mint glow matching the tile's corners, not the old
+         flat colour wash. -->
+    <item android:state_pressed="true" android:drawable="@drawable/bg_widget_cell_pressed" />
     <!-- vc247: resting cells are a lifted tile now, not transparent. -->
     <item android:drawable="@drawable/bg_widget_cell" />
 </selector>

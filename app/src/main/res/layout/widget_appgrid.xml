@@ -50,6 +50,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layoutAnimation="@anim/grid_layout_anim"
         android:numColumns="4"
         android:verticalSpacing="10dp"
         android:horizontalSpacing="10dp"

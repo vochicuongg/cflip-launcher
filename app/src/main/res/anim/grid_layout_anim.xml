@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Layout animation for the app-grid widget's GridView: items
+     cascade in with a small per-item delay when the collection
+     is (re)bound (group open / back / refresh). -->
+<layoutAnimation xmlns:android="http://schemas.android.com/apk/res/android"
+    android:animation="@anim/grid_item_in"
+    android:delay="6%"
+    android:animationOrder="normal" />
