@@ -154,6 +154,8 @@ check("Widget cells have a shaped mint-glow pressed state and the grid cascades 
       "bg_widget_cell_pressed" in readres("drawable/widget_cell_selector.xml") and "layoutAnimation" in readres("layout/widget_appgrid.xml") and (ROOT / "app/src/main/res/anim/grid_item_in.xml").exists() and (ROOT / "app/src/main/res/anim/grid_layout_anim.xml").exists())
 check("The 'Thông báo' tile opens CFlip's notifications tab; the Samsung-shade tile and diagnostic sequence are removed (no external shade trigger exists)",
       "ic_sec_notification) { selectTab(1) }" in read("cover/CoverControlCenter.kt") and "openSamsungShade" not in read("cover/CoverControlCenter.kt") and "Mở thanh thông báo" not in read("cover/CoverControlCenter.kt") and "swipeDownShade" not in read("service/MyAccessibilityService.kt"))
+check("App sorting is Vietnamese-aware (vi-VN Collator comparator in AppSort, used by AppRepository and both AppSort tie-breaks)",
+      "Collator.getInstance" in read("data/AppSort.kt") and '"vi", "VN"' in read("data/AppSort.kt") and "AppSort.labelComparator()" in read("data/AppRepository.kt"))
 check("Widget icons come from the launcher-activity icon (the icon the home screen shows), with the icon-source version in the snapshot signature",
       "getActivityIcon" in read("widget/WidgetIconCache.kt") and "getLaunchIntentForPackage" in read("widget/WidgetIconCache.kt") and "iconSrc2" in read("widget/AppGridSnapshot.kt"))
 check("Settings-opening tiles (Dữ liệu / Chia sẻ Internet / Máy bay / Vị trí) are state tiles too (ref returned by tileRow, repaint + refresher each)",

@@ -192,7 +192,7 @@ class AppRepository(private val context: Context) {
                 )
             }
             .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase() }
+            .sortedWith(AppSort.labelComparator())
         // vc111: cache only non-empty results,
         // and only when the package receiver is
         // alive to invalidate them (see companion).

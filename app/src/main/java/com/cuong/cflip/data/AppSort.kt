@@ -13,6 +13,27 @@ package com.cuong.cflip.data
  * the widget do not, they have no favourite star affordance.
  */
 object AppSort {
+    /**
+     * Vietnamese alphabetical order for app labels (user,
+     * 2026-11-21): the Vietnamese alphabet treats ă/â/đ/ê/ô/ơ/ư
+     * as letters of their own (Đ sorts right after D) and orders
+     * tone marks within the same base letter, so "Đồng hồ" sits
+     * with the Ds and "Đài" precedes "Đèn". Plain lowercase()
+     * string order is Unicode code-point order, which throws
+     * every accented label behind Z ("Đồng hồ" after "Zalo").
+     * A vi-VN Collator implements exactly these rules. A fresh
+     * instance per call: Collator is not thread-safe, and sorts
+     * here are list-sized, never per-frame. Equal labels fall
+     * back to package name so the order is fully deterministic.
+     */
+    fun labelComparator(): Comparator<AppInfo> {
+        val collator = java.text.Collator.getInstance(java.util.Locale("vi", "VN"))
+        return Comparator { a, b ->
+            val c = collator.compare(a.label, b.label)
+            if (c != 0) c else a.packageName.compareTo(b.packageName)
+        }
+    }
+
     fun sort(
         apps: List<AppInfo>,
         sortMode: Int,
@@ -22,10 +43,10 @@ object AppSort {
         1 -> {
             val recentIdx = recentOrder.withIndex().associate { it.value to it.index }
             apps.sortedWith(compareBy<AppInfo> { recentIdx[it.packageName] ?: Int.MAX_VALUE }
-                .thenBy { it.label.lowercase() })
+                .then(labelComparator()))
         }
         2 -> apps.sortedWith(compareByDescending<AppInfo> { installTimes[it.packageName] ?: 0L }
-            .thenBy { it.label.lowercase() })
-        else -> apps
+            .then(labelComparator()))
+        else -> apps.sortedWith(labelComparator())
     }
 }
