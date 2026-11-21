@@ -146,6 +146,10 @@ object AppGridSnapshotBuilder {
             // icons), so persisted PNGs rendered from the old
             // source are rebuilt once instead of served forever.
             "iconSrc2",
+            // Sort version: bump when the label comparator's
+            // rules change (sortVi1 = vi-VN Collator order), so
+            // a snapshot persisted in the old order rebuilds once.
+            "sortVi1",
         ).joinToString("|")
     }
 
