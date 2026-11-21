@@ -2200,36 +2200,39 @@ object CoverControlCenterManager {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
                 android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
-            } else {
-                hide()
-                // Geometry goes to the CFlipShade log with every
-                // attempt, so a failure report carries the
-                // rotation state that decides the next fix.
-                val rs = coverRealSize()
-                android.util.Log.i("CFlipShade", "openSamsungShade rotation=${display.rotation} real=${rs.x}x${rs.y}")
-                handler.postDelayed({
-                    // The injected swipe must land on Samsung's
-                    // cover HOME: over any app window (including
-                    // CFlip's own cover screens) a top-edge drag
-                    // is just an in-app touch and no shade
-                    // follows. The first gesture build's log
-                    // proved this shape of failure - every swipe
-                    // COMPLETED, nothing appeared. HOME is proven
-                    // on the cover (the opener's HOME action uses
-                    // the same global action), so: home first,
-                    // settle, then swipe on Samsung's surface.
-                    svc.goHome()
-                    handler.postDelayed({
-                        val dm = ctx.resources.displayMetrics
-                        if (!svc.swipeDownShade(dm.widthPixels, dm.heightPixels) &&
-                            !svc.openQuickSettings() &&
-                            !QuickControls.expandNotificationShade(ctx.applicationContext) &&
-                            !svc.openNotifications()) {
-                            android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    }, 500)
-                }, 300)
+                return
             }
+            hide()
+            // DIAGNOSTIC SEQUENCE (device evidence, 2026-11-21):
+            // the user proved from adb that ONLY a swipe injected
+            // on display 1 (the cover) opens Samsung's cover
+            // panel, and the status-bar expand command does
+            // nothing there. The earlier in-app chains
+            // SHORT-CIRCUITED: the first route returning true
+            // ('dispatched' / 'invoked') skipped every later
+            // route, so the global actions never got a clean
+            // solo trial on the cover. This build runs each
+            // route alone, 1.2s apart, logging every result
+            // under CFlipShade; whichever route the user sees
+            // working becomes the tile's only route next build.
+            val rs = coverRealSize()
+            android.util.Log.i("CFlipShade", "shade diagnostic start rotation=${display.rotation} real=${rs.x}x${rs.y}")
+            handler.postDelayed({
+                android.util.Log.i("CFlipShade", "step0 goHome=${svc.goHome()}")
+            }, 300)
+            handler.postDelayed({
+                android.util.Log.i("CFlipShade", "step1 notifications=${svc.openNotifications()}")
+            }, 1500)
+            handler.postDelayed({
+                android.util.Log.i("CFlipShade", "step2 quickSettings=${svc.openQuickSettings()}")
+            }, 2700)
+            handler.postDelayed({
+                val dm = ctx.resources.displayMetrics
+                android.util.Log.i("CFlipShade", "step3 swipe=${svc.swipeDownShade(dm.widthPixels)}")
+            }, 3900)
+            handler.postDelayed({
+                android.util.Log.i("CFlipShade", "step4 statusBar=${QuickControls.expandNotificationShade(ctx.applicationContext)}")
+            }, 5100)
         }
         tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { openSamsungShade() }
         tileRow("Thông báo", R.drawable.ic_sec_notification) { openSamsungShade() }

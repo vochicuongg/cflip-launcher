@@ -61,19 +61,21 @@ class MyAccessibilityService : AccessibilityService() {
     // an injected gesture is indistinguishable from a finger.
     // Coordinates are display pixels of the display the caller
     // is showing on (the panel passes the cover's metrics).
-    fun swipeDownShade(widthPx: Int, heightPx: Int): Boolean {
-        if (widthPx <= 0 || heightPx <= 0) return false
+    fun swipeDownShade(widthPx: Int): Boolean {
+        if (widthPx <= 0) return false
+        // Geometry copied from the shell command the user proved
+        // on-device (adb input -d 1 swipe W/2 10 W/2 400 280):
+        // starts 10px below the edge (a stroke beginning exactly
+        // on the edge pixel can be clipped) and runs 280ms.
+        // Whether an accessibility-dispatched gesture reaches
+        // the cover display at all is part of what the current
+        // diagnostic build measures; the callback logs under
+        // CFlipShade either way.
         val path = android.graphics.Path().apply {
-            moveTo(widthPx / 2f, 0f)
-            lineTo(widthPx / 2f, heightPx * 0.55f)
+            moveTo(widthPx / 2f, 10f)
+            lineTo(widthPx / 2f, 400f)
         }
-        // A deliberate 450ms drag, not a fling: the cover panel's
-        // edge trigger expects a drag. The result callback logs
-        // under CFlipShade - a CANCELLED gesture means another
-        // window intercepted it, COMPLETED means it was delivered
-        // and the surface underneath ignored it; that distinction
-        // decides the next fix, so it is always logged.
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 450)
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 280)
         val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
         val sent = runCatching {
             dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
@@ -85,7 +87,7 @@ class MyAccessibilityService : AccessibilityService() {
                 }
             }, null)
         }.getOrDefault(false)
-        Log.i("CFlipShade", "swipeDownShade ${widthPx}x$heightPx dispatched=$sent")
+        Log.i("CFlipShade", "swipeDownShade w=$widthPx dispatched=$sent")
         return sent
     }
     fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
