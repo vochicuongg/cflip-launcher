@@ -64,12 +64,29 @@ class MyAccessibilityService : AccessibilityService() {
     fun swipeDownShade(widthPx: Int, heightPx: Int): Boolean {
         if (widthPx <= 0 || heightPx <= 0) return false
         val path = android.graphics.Path().apply {
-            moveTo(widthPx / 2f, 2f)
-            lineTo(widthPx / 2f, heightPx * 0.45f)
+            moveTo(widthPx / 2f, 0f)
+            lineTo(widthPx / 2f, heightPx * 0.55f)
         }
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 280)
+        // A deliberate 450ms drag, not a fling: the cover panel's
+        // edge trigger expects a drag. The result callback logs
+        // under CFlipShade - a CANCELLED gesture means another
+        // window intercepted it, COMPLETED means it was delivered
+        // and the surface underneath ignored it; that distinction
+        // decides the next fix, so it is always logged.
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 450)
         val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
-        return runCatching { dispatchGesture(gesture, null, null) }.getOrDefault(false)
+        val sent = runCatching {
+            dispatchGesture(gesture, object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(d: android.accessibilityservice.GestureDescription?) {
+                    Log.i("CFlipShade", "pull-down gesture COMPLETED")
+                }
+                override fun onCancelled(d: android.accessibilityservice.GestureDescription?) {
+                    Log.i("CFlipShade", "pull-down gesture CANCELLED")
+                }
+            }, null)
+        }.getOrDefault(false)
+        Log.i("CFlipShade", "swipeDownShade ${widthPx}x$heightPx dispatched=$sent")
+        return sent
     }
     fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
     fun goHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)

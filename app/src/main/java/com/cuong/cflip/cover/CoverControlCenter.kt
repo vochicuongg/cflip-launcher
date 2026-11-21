@@ -872,8 +872,8 @@ object CoverControlCenterManager {
         tabBar.addView(TextView(ctx).apply {
             text = "✕"; textSize = 15f; gravity = Gravity.CENTER
             setTextColor(0xFFFFFFFF.toInt())
-            background = rounded(0xFF23262B.toInt(), 20)
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+            background = rounded(0xFF23262B.toInt(), 22)
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 setMargins(dp(4), 0, 0, 0)
             }
@@ -1934,12 +1934,12 @@ object CoverControlCenterManager {
         fun tileWithLabel(icon: String, label: String, active: Boolean = false, onClick: () -> Unit): Pair<LinearLayout, TextView> {
             val fill = tileFill(active)
             val glyph = TextView(ctx).apply {
-                text = icon; textSize = 20f; gravity = Gravity.CENTER
+                text = icon; textSize = 18f; gravity = Gravity.CENTER
                 setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
             }
             val labelView = TextView(ctx).apply {
-                text = label; textSize = 11f
+                text = label; textSize = 10f
                 setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 2
                 setPadding(0, dp(5), 0, 0)
@@ -1951,7 +1951,7 @@ object CoverControlCenterManager {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 background = fill; tag = fill
-                setPadding(dp(3), dp(10), dp(3), dp(8))
+                setPadding(dp(3), dp(7), dp(3), dp(6))
                 setOnClickListener { resetTimer(); onClick() }
             }
             addTilePressEffect(cardView, fill)
@@ -1977,11 +1977,11 @@ object CoverControlCenterManager {
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setImageResource(iconRes)
                 setColorFilter(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
-                setPadding(dp(1), dp(1), dp(1), dp(1))
-                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
             }
             val labelView = TextView(ctx).apply {
-                text = label; textSize = 11f
+                text = label; textSize = 10f
                 setTextColor(if (active) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()); gravity = Gravity.CENTER_HORIZONTAL
                 maxLines = 2
                 setPadding(0, dp(5), 0, 0)
@@ -1993,7 +1993,7 @@ object CoverControlCenterManager {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 background = fill; tag = fill
-                setPadding(dp(3), dp(10), dp(3), dp(8))
+                setPadding(dp(3), dp(7), dp(3), dp(6))
                 setOnClickListener { resetTimer(); onClick() }
             }
             addTilePressEffect(cardView, fill)
@@ -2176,36 +2176,39 @@ object CoverControlCenterManager {
         }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
-        // "Thông báo" opens SAMSUNG's notification shade, not
-        // this panel's own notifications tab (user, 2026-11-21;
-        // the panel's tab stays available in the tab bar). Two
-        // programmatic routes already failed on the cover - the
-        // Accessibility GLOBAL_ACTION_NOTIFICATIONS and the
-        // status-bar service's expandNotificationsPanel both
-        // no-op there - so the primary route now INJECTS the
-        // actual pull-down gesture (dispatchGesture;
-        // canPerformGestures has been declared in the service
-        // config all along), which the cover SystemUI cannot
-        // distinguish from a real finger swipe. The two older
-        // routes remain as fallbacks. The separate "Mở thanh
-        // thông báo" tile added earlier the same day is removed:
-        // one shade tile, this one.
-        tileRow("Thông báo", R.drawable.ic_sec_notification) {
+        // Opening Samsung's shade (user, 2026-11-21): BOTH the
+        // "Mở thanh thông báo" tile and the "Thông báo" tile do
+        // this - "Thông báo" must show Samsung's notification
+        // panel, not this panel's own notifications tab (which
+        // stays available in the tab bar). Two programmatic
+        // routes no-op on the cover (GLOBAL_ACTION_NOTIFICATIONS
+        // and the status-bar service's expand call both address
+        // the sleeping main display), so the chain is: inject
+        // the actual pull-down gesture (dispatchGesture, 500ms
+        // after the panel's 200ms exit animation so the panel
+        // window is fully gone), then GLOBAL_ACTION_QUICK_SETTINGS
+        // (never tried in this delayed form), then the status-bar
+        // service, then GLOBAL_ACTION_NOTIFICATIONS. The refusal
+        // toast fires only if every route fails.
+        fun openSamsungShade() {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
-                android.widget.Toast.makeText(ctx, "Thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
             } else {
                 hide()
                 handler.postDelayed({
                     val dm = ctx.resources.displayMetrics
                     if (!svc.swipeDownShade(dm.widthPixels, dm.heightPixels) &&
+                        !svc.openQuickSettings() &&
                         !QuickControls.expandNotificationShade(ctx.applicationContext) &&
                         !svc.openNotifications()) {
                         android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
                     }
-                }, 350)
+                }, 500)
             }
         }
+        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { openSamsungShade() }
+        tileRow("Thông báo", R.drawable.ic_sec_notification) { openSamsungShade() }
         // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
         // Accessibility openQuickSettings() does not work, so the tile
         // is gone instead of dead. "Cài đặt" (Settings app) stays.
