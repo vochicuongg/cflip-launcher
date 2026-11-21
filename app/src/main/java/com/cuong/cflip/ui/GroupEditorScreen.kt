@@ -88,6 +88,7 @@ import com.cuong.cflip.widget.AppGridWidgetProvider
  * yet in the group, tap to add).
  */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun GroupEditorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var groups by remember { mutableStateOf(CustomGroupStore.load(context)) }
@@ -718,84 +719,6 @@ fun GroupEditorScreen(onBack: () -> Unit) {
             }
         } else {
             val auto = editingAuto
-            if (auto != null) {
-                EnterItem(index = 0, entered = entered, reduced = reduced) {
-                    Column {
-                        Text(
-                            auto.title,
-                            color = CFlipColors.TextPrimary,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "Nhóm mặc định — chỉ sửa ứng dụng trong nhóm, tên không đổi được.",
-                            color = CFlipColors.TextSecondary,
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
-                if (auto.name in overrides) {
-                    TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
-                        persistOverrides(overrides - auto.name)
-                        // Compute directly: overrides state is stale
-                        // in this same click, so effectiveAutoMembers
-                        // would return the just-cleared list.
-                        val rest = apps.filter { app ->
-                            groups.none { g -> g.id !in deletedCustomIds && app.packageName in g.packages }
-                        }
-                        draftOrder = AppGroups.groupedApps(rest).toMap()[auto]
-                            ?.map { it.packageName } ?: emptyList()
-                        selectedPkg = null
-                    }) {
-                        Text("Đặt lại mặc định", color = CFlipColors.Accent, fontSize = 13.sp)
-                    }
-                }
-            } else {
-            // vc157 SYSTEM INPUT: a rounded filled box with hint text
-            // (One UI style) — no Material label, no underline.
-            EnterItem(index = 0, entered = entered, reduced = reduced) {
-                TextField(
-                    value = draftTitle,
-                    onValueChange = { draftTitle = it },
-                    placeholder = { Text("Tên nhóm", color = CFlipColors.TextFaint) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedTextColor = CFlipColors.TextPrimary,
-                        unfocusedTextColor = CFlipColors.TextPrimary,
-                        focusedContainerColor = CFlipColors.Surface,
-                        unfocusedContainerColor = CFlipColors.Surface,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedPlaceholderColor = CFlipColors.TextFaint,
-                        unfocusedPlaceholderColor = CFlipColors.TextFaint,
-                        cursorColor = CFlipColors.Accent,
-                    ),
-                )
-            }
-            }
-            Spacer(Modifier.height(8.dp))
-            TextField(
-                value = search,
-                onValueChange = { search = it },
-                placeholder = { Text("Tìm tên ứng dụng…", color = CFlipColors.TextFaint) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(50),
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = CFlipColors.TextPrimary,
-                    unfocusedTextColor = CFlipColors.TextPrimary,
-                    focusedContainerColor = CFlipColors.Surface,
-                    unfocusedContainerColor = CFlipColors.Surface,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    focusedPlaceholderColor = CFlipColors.TextFaint,
-                    unfocusedPlaceholderColor = CFlipColors.TextFaint,
-                    cursorColor = CFlipColors.Accent,
-                ),
-            )
-            Spacer(Modifier.height(8.dp))
             // vc155 NO DUPLICATES: the picker lists only apps NOT
             // yet in the group. Tapping one moves it into the group
             // section above (it becomes a group app); removing it with
@@ -815,6 +738,88 @@ fun GroupEditorScreen(onBack: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                item {
+                if (auto != null) {
+                    EnterItem(index = 0, entered = entered, reduced = reduced) {
+                        Column {
+                            Text(
+                                auto.title,
+                                color = CFlipColors.TextPrimary,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Nhóm mặc định — chỉ sửa ứng dụng trong nhóm, tên không đổi được.",
+                                color = CFlipColors.TextSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                    if (auto.name in overrides) {
+                        TextButton(modifier = Modifier.heightIn(min = 48.dp), onClick = {
+                            persistOverrides(overrides - auto.name)
+                            // Compute directly: overrides state is stale
+                            // in this same click, so effectiveAutoMembers
+                            // would return the just-cleared list.
+                            val rest = apps.filter { app ->
+                                groups.none { g -> g.id !in deletedCustomIds && app.packageName in g.packages }
+                            }
+                            draftOrder = AppGroups.groupedApps(rest).toMap()[auto]
+                                ?.map { it.packageName } ?: emptyList()
+                            selectedPkg = null
+                        }) {
+                            Text("Đặt lại mặc định", color = CFlipColors.Accent, fontSize = 13.sp)
+                        }
+                    }
+                } else {
+                // vc157 SYSTEM INPUT: a rounded filled box with hint text
+                // (One UI style) — no Material label, no underline.
+                EnterItem(index = 0, entered = entered, reduced = reduced) {
+                    TextField(
+                        value = draftTitle,
+                        onValueChange = { draftTitle = it },
+                        placeholder = { Text("Tên nhóm", color = CFlipColors.TextFaint) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = CFlipColors.TextPrimary,
+                            unfocusedTextColor = CFlipColors.TextPrimary,
+                            focusedContainerColor = CFlipColors.Surface,
+                            unfocusedContainerColor = CFlipColors.Surface,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedPlaceholderColor = CFlipColors.TextFaint,
+                            unfocusedPlaceholderColor = CFlipColors.TextFaint,
+                            cursorColor = CFlipColors.Accent,
+                        ),
+                    )
+                }
+                }
+                }
+                stickyHeader {
+                    Column(modifier = Modifier.background(CFlipColors.Bg).padding(vertical = 4.dp)) {
+                        TextField(
+                            value = search,
+                            onValueChange = { search = it },
+                            placeholder = { Text("Tìm tên ứng dụng…", color = CFlipColors.TextFaint) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50),
+                            colors = TextFieldDefaults.colors(
+                                focusedTextColor = CFlipColors.TextPrimary,
+                                unfocusedTextColor = CFlipColors.TextPrimary,
+                                focusedContainerColor = CFlipColors.Surface,
+                                unfocusedContainerColor = CFlipColors.Surface,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedPlaceholderColor = CFlipColors.TextFaint,
+                                unfocusedPlaceholderColor = CFlipColors.TextFaint,
+                                cursorColor = CFlipColors.Accent,
+                            ),
+                        )
+                    }
+                }
                 item {
                     Text(
                         "Ứng dụng trong nhóm (${draftOrder.size}) — giữ để kéo đổi vị trí, bấm một ô để chọn, ✕ để gỡ",

@@ -154,6 +154,8 @@ check("Widget cells have a shaped mint-glow pressed state and the grid cascades 
       "bg_widget_cell_pressed" in readres("drawable/widget_cell_selector.xml") and "layoutAnimation" in readres("layout/widget_appgrid.xml") and (ROOT / "app/src/main/res/anim/grid_item_in.xml").exists() and (ROOT / "app/src/main/res/anim/grid_layout_anim.xml").exists())
 check("The 'Thông báo' tile opens CFlip's notifications tab; the Samsung-shade tile and diagnostic sequence are removed (no external shade trigger exists)",
       "ic_sec_notification) { selectTab(1) }" in read("cover/CoverControlCenter.kt") and "openSamsungShade" not in read("cover/CoverControlCenter.kt") and "Mở thanh thông báo" not in read("cover/CoverControlCenter.kt") and "swipeDownShade" not in read("service/MyAccessibilityService.kt"))
+check("Group editor scrolls as one surface (group header + sticky search inside the LazyColumn) so the app area keeps the full height on the short cover screen",
+      "stickyHeader" in read("ui/GroupEditorScreen.kt") and "ExperimentalFoundationApi" in read("ui/GroupEditorScreen.kt"))
 check("App sorting is Vietnamese-aware (vi-VN Collator comparator in AppSort, used by AppRepository and both AppSort tie-breaks)",
       "Collator.getInstance" in read("data/AppSort.kt") and '"vi", "VN"' in read("data/AppSort.kt") and "AppSort.labelComparator()" in read("data/AppRepository.kt") and "else -> apps" in read("data/AppSort.kt") and "sortVi2" in read("widget/AppGridSnapshot.kt"))
 check("Widget icons come from the launcher-activity icon (the icon the home screen shows), with the icon-source version in the snapshot signature",
