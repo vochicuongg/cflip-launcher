@@ -53,6 +53,24 @@ class MyAccessibilityService : AccessibilityService() {
     fun lockScreen(): Boolean = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
     fun openRecents(): Boolean = performGlobalAction(GLOBAL_ACTION_RECENTS)
     fun openNotifications(): Boolean = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
+    // Inject a real pull-down swipe from the top edge of the
+    // active display. On the cover screen both
+    // GLOBAL_ACTION_NOTIFICATIONS and the status-bar service's
+    // expand call no-op (user reports, 2026-11-21), but the
+    // cover SystemUI still answers an actual edge swipe - and
+    // an injected gesture is indistinguishable from a finger.
+    // Coordinates are display pixels of the display the caller
+    // is showing on (the panel passes the cover's metrics).
+    fun swipeDownShade(widthPx: Int, heightPx: Int): Boolean {
+        if (widthPx <= 0 || heightPx <= 0) return false
+        val path = android.graphics.Path().apply {
+            moveTo(widthPx / 2f, 2f)
+            lineTo(widthPx / 2f, heightPx * 0.45f)
+        }
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 280)
+        val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
+        return runCatching { dispatchGesture(gesture, null, null) }.getOrDefault(false)
+    }
     fun openQuickSettings(): Boolean = performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
     fun goHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
     // vc41: system screenshot via Accessibility (API 28+, minSdk 33 here).

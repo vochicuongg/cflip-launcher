@@ -152,8 +152,8 @@ check("Quick Panel tiles are filled rounded cards (tileFill + press effect), not
       "fun tileFill(active: Boolean)" in read("cover/CoverControlCenter.kt") and "addTilePressEffect" in read("cover/CoverControlCenter.kt") and "cornerRadius = dp(18).toFloat()" in read("cover/CoverControlCenter.kt"))
 check("Widget cells have a shaped mint-glow pressed state and the grid cascades items in on (re)bind",
       "bg_widget_cell_pressed" in readres("drawable/widget_cell_selector.xml") and "layoutAnimation" in readres("layout/widget_appgrid.xml") and (ROOT / "app/src/main/res/anim/grid_item_in.xml").exists() and (ROOT / "app/src/main/res/anim/grid_layout_anim.xml").exists())
-check("Quick Panel has a 'Mở thanh thông báo' row that pulls down the system shade via Accessibility",
-      "Mở thanh thông báo" in read("cover/CoverControlCenter.kt") and "openNotifications()" in read("cover/CoverControlCenter.kt"))
+check("The 'Thông báo' tile opens Samsung's shade via an injected pull-down gesture (older routes as fallbacks)",
+      "swipeDownShade" in read("service/MyAccessibilityService.kt") and "dispatchGesture" in read("service/MyAccessibilityService.kt") and "swipeDownShade" in read("cover/CoverControlCenter.kt") and "ic_sec_notification) { selectTab(1) }" not in read("cover/CoverControlCenter.kt"))
 check("Single-tap action waits the full burst window (no 500-900ms dead zone)",
       "handler.postDelayed(r, tapBurstWindowMs)" in read("cover/CoverAssistiveTouch.kt") and "dimHandler.postDelayed(r, tapBurstWindowMs)" in read("cover/CoverSwipeIndicator.kt") and "postDelayed(r, doubleTapTimeout)" not in read("cover/CoverAssistiveTouch.kt") and "postDelayed(r, doubleTapTimeout)" not in read("cover/CoverSwipeIndicator.kt"))
 check("Burst state is object-level (survives re-show) and a cancelled clean press counts as a tap; gesture path is instrumented",

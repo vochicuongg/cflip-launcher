@@ -2176,36 +2176,36 @@ object CoverControlCenterManager {
         }
         tileRow("Khóa màn hình", R.drawable.ic_cflip_lock) { a11yAction("Khóa máy") { it.lockScreen() } }
         tileRow("Gần đây", R.drawable.ic_qp_recent) { a11yAction("Gần đây") { it.openRecents() } }
-        // User request (2026-11-21): a button that pulls down
-        // Samsung's own notification shade. It goes through the
-        // Accessibility GLOBAL_ACTION_NOTIFICATIONS (not an edge
-        // gesture), so it also works when the cover UI is rotated
-        // to another orientation, where the physical top edge —
-        // and with it the shade gesture — is elsewhere. Distinct
-        // from the "Thông báo" row below, which opens this
-        // panel's own notifications tab.
-        tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) {
+        // "Thông báo" opens SAMSUNG's notification shade, not
+        // this panel's own notifications tab (user, 2026-11-21;
+        // the panel's tab stays available in the tab bar). Two
+        // programmatic routes already failed on the cover - the
+        // Accessibility GLOBAL_ACTION_NOTIFICATIONS and the
+        // status-bar service's expandNotificationsPanel both
+        // no-op there - so the primary route now INJECTS the
+        // actual pull-down gesture (dispatchGesture;
+        // canPerformGestures has been declared in the service
+        // config all along), which the cover SystemUI cannot
+        // distinguish from a real finger swipe. The two older
+        // routes remain as fallbacks. The separate "Mở thanh
+        // thông báo" tile added earlier the same day is removed:
+        // one shade tile, this one.
+        tileRow("Thông báo", R.drawable.ic_sec_notification) {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
-                android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
             } else {
                 hide()
-                // The plain global action fired the instant the
-                // panel hid did nothing on the cover (user report,
-                // 2026-11-21; the screenshot tile hit the same
-                // class of problem in vc42-44 and needed the panel
-                // fully gone first). Now: wait 350ms, ask the
-                // status-bar service directly (QuickControls.
-                // expandNotificationShade), and fall back to the
-                // Accessibility global action only if that fails.
                 handler.postDelayed({
-                    if (!QuickControls.expandNotificationShade(ctx.applicationContext) && !svc.openNotifications()) {
+                    val dm = ctx.resources.displayMetrics
+                    if (!svc.swipeDownShade(dm.widthPixels, dm.heightPixels) &&
+                        !QuickControls.expandNotificationShade(ctx.applicationContext) &&
+                        !svc.openNotifications()) {
                         android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }, 350)
             }
         }
-        tileRow("Thông báo", R.drawable.ic_sec_notification) { selectTab(1) }
         // vc237 REMOVED: "Cài đặt nhanh" tile (user, 31/10) - its
         // Accessibility openQuickSettings() does not work, so the tile
         // is gone instead of dead. "Cài đặt" (Settings app) stays.
