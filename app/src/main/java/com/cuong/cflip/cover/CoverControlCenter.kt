@@ -2190,21 +2190,45 @@ object CoverControlCenterManager {
         // (never tried in this delayed form), then the status-bar
         // service, then GLOBAL_ACTION_NOTIFICATIONS. The refusal
         // toast fires only if every route fails.
+        @Suppress("DEPRECATION")
+        fun coverRealSize(): android.graphics.Point {
+            val pt = android.graphics.Point()
+            runCatching { display.getRealSize(pt) }
+            return pt
+        }
         fun openSamsungShade() {
             val svc = MyAccessibilityService.instance
             if (svc == null) {
                 android.widget.Toast.makeText(ctx, "Thanh thông báo không chạy: cần bật Accessibility cho CFlip", android.widget.Toast.LENGTH_SHORT).show()
             } else {
                 hide()
+                // Geometry goes to the CFlipShade log with every
+                // attempt, so a failure report carries the
+                // rotation state that decides the next fix.
+                val rs = coverRealSize()
+                android.util.Log.i("CFlipShade", "openSamsungShade rotation=${display.rotation} real=${rs.x}x${rs.y}")
                 handler.postDelayed({
-                    val dm = ctx.resources.displayMetrics
-                    if (!svc.swipeDownShade(dm.widthPixels, dm.heightPixels) &&
-                        !svc.openQuickSettings() &&
-                        !QuickControls.expandNotificationShade(ctx.applicationContext) &&
-                        !svc.openNotifications()) {
-                        android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }, 500)
+                    // The injected swipe must land on Samsung's
+                    // cover HOME: over any app window (including
+                    // CFlip's own cover screens) a top-edge drag
+                    // is just an in-app touch and no shade
+                    // follows. The first gesture build's log
+                    // proved this shape of failure - every swipe
+                    // COMPLETED, nothing appeared. HOME is proven
+                    // on the cover (the opener's HOME action uses
+                    // the same global action), so: home first,
+                    // settle, then swipe on Samsung's surface.
+                    svc.goHome()
+                    handler.postDelayed({
+                        val dm = ctx.resources.displayMetrics
+                        if (!svc.swipeDownShade(dm.widthPixels, dm.heightPixels) &&
+                            !svc.openQuickSettings() &&
+                            !QuickControls.expandNotificationShade(ctx.applicationContext) &&
+                            !svc.openNotifications()) {
+                            android.widget.Toast.makeText(ctx, "Không kéo được thanh thông báo (hệ thống từ chối)", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }, 500)
+                }, 300)
             }
         }
         tileRow("Mở thanh thông báo", R.drawable.ic_qp_bell) { openSamsungShade() }
