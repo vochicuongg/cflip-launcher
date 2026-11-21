@@ -1884,6 +1884,19 @@ object CoverControlCenterManager {
         fun mobileDataOn(): Boolean = runCatching {
             android.provider.Settings.Global.getInt(ctx.contentResolver, "mobile_data", 0) == 1
         }.getOrDefault(false)
+        fun airplaneOn(): Boolean = runCatching {
+            android.provider.Settings.Global.getInt(ctx.contentResolver, "airplane_mode_on", 0) == 1
+        }.getOrDefault(false)
+        fun locationOn(): Boolean = runCatching {
+            ctx.getSystemService(android.location.LocationManager::class.java)?.isLocationEnabled == true
+        }.getOrDefault(false)
+        fun hotspotOn(): Boolean = runCatching {
+            val wm = ctx.getSystemService(android.net.wifi.WifiManager::class.java)
+            // getWifiApState is a hidden API (13 = AP enabled);
+            // if the platform blocks the reflective call the
+            // tile simply stays dark, as before the state pass.
+            wm != null && (wm.javaClass.getMethod("getWifiApState").invoke(wm) as? Int) == 13
+        }.getOrDefault(false)
         val tileStateRefreshers = mutableListOf<() -> Unit>()
         fun refreshTileStates() = tileStateRefreshers.forEach { runCatching { it() } }
         // Repaints a state tile in place: card fill (the tag
@@ -2003,9 +2016,14 @@ object CoverControlCenterManager {
         }
         fun tile(label: String, iconRes: Int, onClick: () -> Unit): LinearLayout =
             tileWithLabel(iconRes, label, false, onClick).first
-        fun tileRow(label: String, iconRes: Int, onClick: () -> Unit) {
-            grid.addView(tile(label, iconRes, onClick),
+        // Returns the card+label ref so state tiles built with
+        // tileRow can be repainted by repaintStateTile; callers
+        // that do not need the ref just ignore the return value.
+        fun tileRow(label: String, iconRes: Int, onClick: () -> Unit): Pair<LinearLayout, TextView> {
+            val card = tile(label, iconRes, onClick)
+            grid.addView(card,
                 GridLayout.LayoutParams().apply { width = dp(56); height = dp(88); setMargins(dp(4), dp(4), dp(4), dp(4)) })
+            return card to (card.getChildAt(1) as TextView)
         }
         // vc228: NFC N-Mark is two-tone (black square + white N). The
         // tile's white tint would flatten it to all-white, so NFC uses
@@ -2330,12 +2348,19 @@ object CoverControlCenterManager {
         // (the supported route, like the reference app's Settings-opening tiles),
         // with an honest toast. DND CAN toggle when CFlip has
         // Notification Policy Access, otherwise it opens that grant page.
-        tileRow("Dữ liệu", R.drawable.ic_qp_data) {
+        // State pass for the settings-opening tiles (user:
+        // every task-bar button must show its state, 2026-11-21):
+        // they were missed by the first state pass because
+        // tileRow discarded the card ref; now each repaints at
+        // build and on every cached reopen like the QS tiles.
+        val dataStateRef = tileRow("Dữ liệu", R.drawable.ic_qp_data) {
             hide()
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Dữ liệu di động để bật/tắt (Android không cho app thường bật/tắt trực tiếp)", android.widget.Toast.LENGTH_LONG).show()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_DATA_USAGE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
-        tileRow("Chia sẻ Internet", R.drawable.ic_qp_hotspot) {
+        repaintStateTile(dataStateRef, mobileDataOn())
+        tileStateRefreshers.add { repaintStateTile(dataStateRef, mobileDataOn()) }
+        val hotspotStateRef = tileRow("Chia sẻ Internet", R.drawable.ic_qp_hotspot) {
             hide()
             android.widget.Toast.makeText(ctx, "Mở Cài đặt Chia sẻ kết nối để bật/tắt điểm phát sóng", android.widget.Toast.LENGTH_LONG).show()
             runCatching {
@@ -2345,7 +2370,9 @@ object CoverControlCenterManager {
                 else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        tileRow("Máy bay", R.drawable.ic_qp_airplane) {
+        repaintStateTile(hotspotStateRef, hotspotOn())
+        tileStateRefreshers.add { repaintStateTile(hotspotStateRef, hotspotOn()) }
+        val airplaneStateRef = tileRow("Máy bay", R.drawable.ic_qp_airplane) {
             hide()
             runCatching {
                 val appCtx = ctx.applicationContext
@@ -2354,10 +2381,14 @@ object CoverControlCenterManager {
                 else appCtx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        tileRow("Vị trí", R.drawable.ic_qp_location) {
+        repaintStateTile(airplaneStateRef, airplaneOn())
+        tileStateRefreshers.add { repaintStateTile(airplaneStateRef, airplaneOn()) }
+        val locationStateRef = tileRow("Vị trí", R.drawable.ic_qp_location) {
             hide()
             runCatching { ctx.applicationContext.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
+        repaintStateTile(locationStateRef, locationOn())
+        tileStateRefreshers.add { repaintStateTile(locationStateRef, locationOn()) }
         // vc48 REMOVED by user request: Battery Saver tile and Screen Record tile are gone.
         // vc36 DND toggle in place, like rotate: press once -> on,
         // press again -> off, and the tile itself changes (moon filled
