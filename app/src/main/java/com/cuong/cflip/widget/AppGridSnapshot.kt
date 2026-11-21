@@ -141,6 +141,11 @@ object AppGridSnapshotBuilder {
             com.cuong.cflip.data.LaunchHistoryStore(context).lastLaunched().hashCode().toString(),
             st.sortMode.toString(), st.iconSizeDp.toString(),
             st.showLabels.toString(), st.favoritesFirst.toString(),
+            // Icon source version: bump when WidgetIconCache's
+            // icon source changes (iconSrc2 = launcher-activity
+            // icons), so persisted PNGs rendered from the old
+            // source are rebuilt once instead of served forever.
+            "iconSrc2",
         ).joinToString("|")
     }
 

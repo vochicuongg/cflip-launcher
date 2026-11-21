@@ -54,10 +54,29 @@ object WidgetIconCache {
 
     fun get(packageName: String, sizePx: Int): Bitmap? = cache.get(key(packageName, sizePx))
 
-    /** The app's icon Drawable, loaded from PackageManager at most once per process. */
+    /**
+     * The app's icon Drawable, loaded from PackageManager at most
+     * once per process. The source is the LAUNCHER ACTIVITY icon -
+     * what the home screen actually shows (user, 2026-11-21):
+     * some apps declare a different icon on their launcher
+     * activity (or switch it via an activity-alias) than on the
+     * application element, and getApplicationIcon alone made
+     * those apps show their plain app icon in the widget while
+     * every launcher showed the special one. getLaunchIntentForPackage
+     * resolves the currently enabled alias, getActivityIcon falls
+     * back to the application icon when the activity declares
+     * none, and any failure falls back to getApplicationIcon -
+     * so apps without a special launcher icon render exactly as
+     * before. Only the source changed; rendering size, the
+     * snapshot pre-render and both caches are untouched.
+     */
     fun drawable(packageName: String, pm: PackageManager): Drawable? {
         drawables[packageName]?.let { return it }
-        val loaded = runCatching { pm.getApplicationIcon(packageName) }.getOrNull() ?: return null
+        val loaded = runCatching {
+            val component = pm.getLaunchIntentForPackage(packageName)?.component
+            if (component != null) pm.getActivityIcon(component)
+            else pm.getApplicationIcon(packageName)
+        }.getOrNull() ?: runCatching { pm.getApplicationIcon(packageName) }.getOrNull() ?: return null
         drawables[packageName] = loaded
         return loaded
     }
