@@ -47,6 +47,14 @@ object AppSort {
         }
         2 -> apps.sortedWith(compareByDescending<AppInfo> { installTimes[it.packageName] ?: 0L }
             .then(labelComparator()))
-        else -> apps.sortedWith(labelComparator())
+        // Mode 0 is a PASS-THROUGH, not a sort: the A-Z order
+        // already lives in AppRepository's output, and callers
+        // feed this function lists whose order is user-defined -
+        // above all custom-group members in their stored order
+        // and edited auto groups. Sorting here would let the
+        // alphabet override the user's own arrangement
+        // (user rule, 2026-11-21: grouped apps with a set-up
+        // order are never affected by the alphabet).
+        else -> apps
     }
 }
